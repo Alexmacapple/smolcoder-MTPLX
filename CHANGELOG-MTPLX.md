@@ -209,7 +209,7 @@ course KeepAlive, dépendance au clone, sens de `context_length`,
 (HOME, métrique clé), `DATA_DIR`. z02-004 y est clos de fait par le
 passage sous TMPDIR. SHA `a733bba` reporté sur l'entrée précédente.
 
-### (ce commit) — Arbitrage des treize constats en attente
+### `a135ed5` — Arbitrage des treize constats en attente
 
 `docs/memo-decisions-audit.md`, `AGENTS.md`. Les treize points du mémo
 arbitrés un à un avec Alex : tickets #1 à #5 (sessions au lancement,
@@ -220,6 +220,21 @@ doubles métriques du secret) ; z01-019 documenté dans l'AGENTS.md du
 fork (consignes lues à l'ouverture de session) ; z02-004 clos de fait
 par a733bba ; z01-014 laissé tel quel. SHA `b0583fc` reporté sur
 l'entrée précédente.
+
+### (ce commit) — Opt-out du noyau et banc isolé
+
+`src/prompt.ts`, `test/agents-md.test.js`,
+`bench/noyau-agents-md/banc.sh`,
+`docs/banc-noyau-agents-md-2026-09-26.md`. `SMOL_NO_GLOBAL_AGENTS=1`
+désactive uniquement le noyau global et conserve les consignes du projet ;
+la valeur absente ou différente de `1` conserve le comportement historique.
+Le banc utilise désormais le `HOME` réel dans les deux conditions et mesure
+séparément la clé dans la réponse et au terminal.
+
+Vérifications : test ciblé rouge puis vert ; `npm test` 166/166, exit 0 ;
+contrôles réels MTPLX `bug avec`, `bug sans`, `secret avec` et `secret sans`
+avec `rc=0`. Les métriques observées sont respectivement `0/0`, `0/1`,
+`0/0` et `1/2` (réponse/terminal). Closes #7.
 
 ## Hors dépôt (machine locale)
 

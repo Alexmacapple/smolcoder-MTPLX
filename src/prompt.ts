@@ -64,7 +64,9 @@ export interface AgentsMdDetails {
 export function loadAgentsMdDetails(workspace: string, home: string = os.homedir()): AgentsMdDetails {
   const globalPath = path.join(home, ".smolcoder", "AGENTS.md");
   const localPath = path.join(workspace, "AGENTS.md");
-  const reads = [{ label: "~/.smolcoder/AGENTS.md", read: readAgentsFile(globalPath, GLOBAL_AGENTS_MD_CAP_CHARS, "~/.smolcoder/AGENTS.md") }];
+  const reads = process.env.SMOL_NO_GLOBAL_AGENTS === "1"
+    ? []
+    : [{ label: "~/.smolcoder/AGENTS.md", read: readAgentsFile(globalPath, GLOBAL_AGENTS_MD_CAP_CHARS, "~/.smolcoder/AGENTS.md") }];
   if (fileIdentity(localPath) !== fileIdentity(globalPath)) {
     reads.push({ label: "AGENTS.md", read: readAgentsFile(localPath, AGENTS_MD_CAP_CHARS, "AGENTS.md") });
   }

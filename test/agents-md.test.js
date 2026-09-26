@@ -55,6 +55,47 @@ test('the workspace AGENTS.md alone behaves as before', () => {
   }
 });
 
+test('SMOL_NO_GLOBAL_AGENTS=1 keeps workspace instructions without the global ones', () => {
+  const { root, home, workspace } = setup({ global: 'Global rule.', local: 'Local rule.' });
+  const previous = process.env.SMOL_NO_GLOBAL_AGENTS;
+  process.env.SMOL_NO_GLOBAL_AGENTS = '1';
+  try {
+    const details = loadAgentsMdDetails(workspace, home);
+    assert.equal(details.text, 'Local rule.');
+    assert.deepEqual(details.sources, ['AGENTS.md']);
+  } finally {
+    if (previous === undefined) delete process.env.SMOL_NO_GLOBAL_AGENTS;
+    else process.env.SMOL_NO_GLOBAL_AGENTS = previous;
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('an absent SMOL_NO_GLOBAL_AGENTS keeps the global instructions', () => {
+  const { root, home, workspace } = setup({ global: 'Global rule.', local: 'Local rule.' });
+  const previous = process.env.SMOL_NO_GLOBAL_AGENTS;
+  delete process.env.SMOL_NO_GLOBAL_AGENTS;
+  try {
+    assert.equal(loadAgentsMd(workspace, home), 'Global rule.\n\nLocal rule.');
+  } finally {
+    if (previous === undefined) delete process.env.SMOL_NO_GLOBAL_AGENTS;
+    else process.env.SMOL_NO_GLOBAL_AGENTS = previous;
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('a SMOL_NO_GLOBAL_AGENTS value other than 1 keeps the global instructions', () => {
+  const { root, home, workspace } = setup({ global: 'Global rule.', local: 'Local rule.' });
+  const previous = process.env.SMOL_NO_GLOBAL_AGENTS;
+  process.env.SMOL_NO_GLOBAL_AGENTS = '0';
+  try {
+    assert.equal(loadAgentsMd(workspace, home), 'Global rule.\n\nLocal rule.');
+  } finally {
+    if (previous === undefined) delete process.env.SMOL_NO_GLOBAL_AGENTS;
+    else process.env.SMOL_NO_GLOBAL_AGENTS = previous;
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test('an oversized global file is capped at exactly 4000 chars with a visible marker', () => {
   const { root, home, workspace } = setup({ global: 'G'.repeat(20000), local: 'Local rule.' });
   try {
