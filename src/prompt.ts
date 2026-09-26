@@ -1,32 +1,44 @@
 // The core system prompt. Short instructions; tool details live in schemas.
 // Everything else
 // the model needs lives in the tool schemas and in coaching error messages.
-// If the workspace has an AGENTS.md, its contents ride along directly after
-// the prompt (size-capped) — and because they are part of message[0], they
-// survive compaction the same way the system prompt does.
+// If ~/.smolcoder/AGENTS.md or the workspace has an AGENTS.md, their contents
+// ride along directly after the prompt (each size-capped, global first) — and
+// because they are part of message[0], they survive compaction the same way
+// the system prompt does.
 
 import * as fs from "fs";
+import * as os from "os";
 import * as path from "path";
 import { Mode } from "./tools/index";
 
 const AGENTS_MD_CAP_CHARS = 8000; // ~2k tokens — small-context friendly
+const GLOBAL_AGENTS_MD_CAP_CHARS = 4000; // ~1k tokens — rules shared by every workspace
 
-/** Read the workspace's AGENTS.md memory file, if any. */
-export function loadAgentsMd(workspace: string): string | null {
+/** Read one AGENTS.md file, capped; null when missing, empty or unreadable. */
+function readAgentsFile(p: string, cap: number, label: string): string | null {
   try {
-    const p = path.join(workspace, "AGENTS.md");
     if (!fs.existsSync(p)) return null;
     let text = fs.readFileSync(p, "utf8").trim();
     if (!text) return null;
-    if (text.length > AGENTS_MD_CAP_CHARS) {
-      text =
-        text.slice(0, AGENTS_MD_CAP_CHARS) +
-        "\n[AGENTS.md was truncated here to save context]";
+    if (text.length > cap) {
+      text = text.slice(0, cap) + `\n[${label} was truncated here to save context]`;
     }
     return text;
   } catch {
     return null;
   }
+}
+
+/** Read the global ~/.smolcoder/AGENTS.md, then the workspace's AGENTS.md. */
+export function loadAgentsMd(workspace: string, home: string = os.homedir()): string | null {
+  const globalPath = path.join(home, ".smolcoder", "AGENTS.md");
+  const localPath = path.join(workspace, "AGENTS.md");
+  const parts = [readAgentsFile(globalPath, GLOBAL_AGENTS_MD_CAP_CHARS, "~/.smolcoder/AGENTS.md")];
+  if (path.resolve(localPath) !== path.resolve(globalPath)) {
+    parts.push(readAgentsFile(localPath, AGENTS_MD_CAP_CHARS, "AGENTS.md"));
+  }
+  const loaded = parts.filter((part): part is string => part !== null);
+  return loaded.length ? loaded.join("\n\n") : null;
 }
 
 export function buildSystemPrompt(opts: {
