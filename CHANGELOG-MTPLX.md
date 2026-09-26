@@ -310,7 +310,7 @@ fenêtre reste non chargé et conserve son estimation à 4 096.
 Vérifications : test ciblé rouge puis reconstruction et test ciblé verts
 (16/16) ; `npm test` à lancer avant le commit. Closes #5.
 
-### (ce commit) — Lot correctif de la revue du lot des tickets
+### `da42044` — Lot correctif de la revue du lot des tickets
 
 `src/index.ts`, `src/prompt.ts`, `test/agents-md.test.js`,
 `test/detect.test.js`, `bench/lifecycle-runner.cjs`,
@@ -340,6 +340,19 @@ indépendante des commits ea352aa..b1365e0 :
 - banc.sh : scorie HOME retirée. Suite : 172/172, y compris en locale
   française sur le test corrigé. SHA `b1365e0` reporté sur l'entrée
   précédente.
+
+### (ce commit) — Dossier de consolidation des issues harnais
+
+`smolcoder-harnais-6-issues.md`, `smolcoder-harnais-6-issues-revue.md`,
+`smolcoder-harnais-6-issues-consolidation.md`. Le dossier du lot harnais
+entre au dépôt : les six issues sources (H01–H06, publiées #8 à #13 avec
+labels), la revue Qwen 3.8 via MTPLX (lecture seule, citations
+fichier:ligne), et la consolidation croisée avec la revue Codex —
+divergences tranchées sur pièces (`resultats/` ignoré prouvé par
+`git check-ignore`), amendements reportés en tête des corps GitHub, #12
+transformé en chapeau découpé en #15–#18, ticket préalable #14 (stockage
+hôte) ouvert. Ordre de réalisation : #13 minimal → #14 → #8 → #11 →
+#15..#18 → #9 → #10. SHA `da42044` reporté sur l'entrée précédente.
 
 ## Hors dépôt (machine locale)
 
