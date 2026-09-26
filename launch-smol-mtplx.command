@@ -168,6 +168,11 @@ case "$MODE" in
     # sans créer de session ; un dossier donné garde sa session automatique.
     WEB_CWD="${WORKSPACE:-$HOME}"
     if ! web_ui_up; then
+      if [ -f "$LAUNCH_AGENT" ]; then
+        launchctl bootout "gui/$(id -u)" "$LAUNCH_AGENT" 2>/dev/null || true
+        echo "Démon web déchargé (ou déjà absent) : interface servie par ce terminal."
+        echo "Relance le lanceur pour revenir au démon."
+      fi
       echo "Pas de démon web ($LAUNCH_AGENT absent ou muet) :"
       echo "serveur lancé dans ce terminal — le fermer arrête l'interface."
       cd "$WEB_CWD"
