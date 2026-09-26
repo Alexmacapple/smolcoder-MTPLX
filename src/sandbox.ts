@@ -88,7 +88,7 @@ const MSYS_ROOTS = /^\/(tmp|usr|etc|bin|home|mnt|dev|proc|var|opt|root)(\/|$)/i;
 /** Split a command into candidate path tokens: whitespace-separated words with
  * quotes stripped, the value side of `--flag=value` and `VAR=value`, and the
  * target of `>`/`<` redirections written without a space. */
-function pathCandidates(command: string): string[] {
+export function pathCandidates(command: string): string[] {
   const out: string[] = [];
   for (const raw of command.split(/\s+/)) {
     if (!raw) continue;
@@ -119,7 +119,7 @@ function isAbsoluteLike(tok: string): boolean {
 
 /** `abs` with symlinks resolved as far as the path exists; the part not
  * written yet is kept as given. Falls back to the path itself. */
-function realPathOf(abs: string): string {
+export function realPathOf(abs: string): string {
   try {
     const existing = deepestExisting(abs);
     return path.join(fs.realpathSync(existing), path.relative(existing, abs));
@@ -132,7 +132,7 @@ function realPathOf(abs: string): string {
  * in-tree path look foreign when the workspace sits behind a symlink — macOS
  * temp folders, or `smol /tmp/project` — and resolving the path also catches
  * a link inside the workspace that leads out of it. */
-function insideWorkspace(root: string, abs: string): boolean {
+export function insideWorkspace(root: string, abs: string): boolean {
   const rel = path.relative(normalizeForCompare(realPathOf(path.resolve(root))), normalizeForCompare(realPathOf(path.resolve(abs))));
   return rel === "" || (!rel.startsWith("..") && !path.isAbsolute(rel));
 }
@@ -159,6 +159,38 @@ export function commandEscapesWorkspace(command: string, root: string): string |
     if (/(^|[\\/])\.\.([\\/]|$)/.test(t) && !insideWorkspace(root, path.resolve(root, t))) {
       return `climbs above the workspace (${tok})`;
     }
+  }
+  return null;
+}
+
+// ---------------------------------------------------------------------------
+// Chemins protégés du profil mission (ticket #11). Un motif est UN nom de
+// fichier ou de dossier (joker `*`, jamais de `/`) : il protège tout segment
+// de chemin qui lui correspond, donc tout le contenu d'un dossier protégé.
+// Correspondance insensible à la casse sur tous les systèmes : sur un disque
+// qui l'ignore (macOS), `.ENV` ouvre `.env` — un chemin ambigu n'ouvre jamais
+// de droit. `except` lève la protection d'un segment précis (`.env.example`).
+// La grammaire de ces listes vit dans src/harness/store.ts ; ce module n'en
+// garde que la correspondance, sans dépendance, pour le worker de recherche.
+
+export interface PathRules {
+  protect: string[];
+  except: string[];
+}
+
+function globRe(pattern: string): RegExp {
+  return new RegExp("^" + pattern.split("*").map((p) => p.replace(/[.+?^${}()|[\]\\]/g, "\\$&")).join(".*") + "$", "i");
+}
+
+/** Le segment protégé que nomme `p` (chemin relatif ou jeton de commande),
+ * ou null. */
+export function protectedSegment(p: string, rules: PathRules): string | null {
+  if (!rules.protect.length) return null;
+  const protect = rules.protect.map(globRe);
+  const except = rules.except.map(globRe);
+  for (const seg of p.split(/[\\/]+/)) {
+    if (!seg || seg === "." || seg === "..") continue;
+    if (protect.some((re) => re.test(seg)) && !except.some((re) => re.test(seg))) return seg;
   }
   return null;
 }

@@ -5,7 +5,7 @@
 // no colors from most tools and no interactive programs — the panel says so.
 
 import { ChildProcess, spawn } from "child_process";
-import { killTree, pickShell, ShellInfo } from "../tools/shell";
+import { ExecOptions, killTree, pickShell, ShellInfo } from "../tools/shell";
 
 const RS = "\x1e"; // record separator — never appears in normal output
 const SENTINEL = /\x1e(-?\d+)\x1e([^\x1e]*)\x1e\r?\n?/;
@@ -17,6 +17,17 @@ export interface TerminalHooks {
   /** A command finished: its exit code and the shell's cwd afterwards. */
   done: (code: number, cwd: string) => void;
 }
+
+/** Profil mission : le contexte d'exécution du shell (relu à chaque
+ * démarrage) et la décision d'accès prise avant chaque ligne. Absent = le
+ * terminal courant, inchangé. */
+export interface TerminalGuard {
+  exec: () => ExecOptions;
+  decide: (line: string, cwd: string) => { verdict: "allow" | "ask" | "deny"; reason: string };
+}
+
+/** Code rendu à la page pour une ligne que la politique n'a pas laissée partir. */
+export const TERMINAL_REFUSED_CODE = 126;
 
 export class Terminal {
   cwd: string;
@@ -35,7 +46,8 @@ export class Terminal {
   constructor(
     readonly id: string,
     cwd: string,
-    private hooks: TerminalHooks
+    private hooks: TerminalHooks,
+    private guard?: TerminalGuard
   ) {
     this.cwd = cwd;
     this.shell = pickShell();
@@ -45,13 +57,16 @@ export class Terminal {
   }
 
   private spawn(): void {
-    const args = this.kind === "posix" ? ["-l"] : ["-NoProfile", "-NonInteractive", "-Command", "-"];
+    // Profil mission : ni l'environnement entier ni le profil de connexion de
+    // l'utilisateur, qui peut réexporter des secrets.
+    const exec = this.guard?.exec();
+    const args = this.kind === "posix" ? (exec && !exec.login ? [] : ["-l"]) : ["-NoProfile", "-NonInteractive", "-Command", "-"];
     this.spawnedAt = Date.now();
     let proc: ChildProcess;
     try {
       proc = spawn(this.shell.exe, args, {
         cwd: this.cwd,
-        env: { ...process.env, TERM: "dumb" },
+        env: { ...(exec?.env ?? process.env), TERM: "dumb" },
         detached: process.platform !== "win32",
         windowsHide: true,
         stdio: ["pipe", "pipe", "pipe"],
@@ -96,6 +111,18 @@ export class Terminal {
     if (this.closed) return;
     const cmd = line.replace(/\r?\n$/, "");
     this.emit(`\x1b[36m❯\x1b[0m ${cmd}\n`);
+    if (this.guard) {
+      // La décision avant l'effet : une ligne refusée n'atteint jamais le
+      // shell. Ce terminal ne sait pas recueillir une décision humaine
+      // enregistrée : « ask » n'y vaut jamais un oui.
+      const d = this.guard.decide(cmd, this.cwd);
+      if (d.verdict !== "allow") {
+        const label = d.verdict === "ask" ? "not run — needs a human decision this terminal cannot record; run it in your own terminal, outside smol" : "denied, not run";
+        this.emit(`\x1b[33m[${label}] ${d.reason}\x1b[0m\n`);
+        this.hooks.done(TERMINAL_REFUSED_CODE, this.cwd);
+        return;
+      }
+    }
     if (!this.proc?.stdin?.writable) {
       this.emit("\x1b[31m[no shell running]\x1b[0m\n");
       return;

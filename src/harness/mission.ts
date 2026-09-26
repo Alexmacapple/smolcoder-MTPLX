@@ -16,12 +16,15 @@ import {
   ContractError,
   contractFingerprint,
   createRecord,
+  DEFAULT_POLICY,
   harnessDir,
   HarnessStoreError,
   MissionContract,
   parseContractSource,
   readContract,
+  readPolicy,
   writeContract,
+  writePolicy,
 } from "./store";
 
 /** Le fichier de contrat d'un appelant est court : une fiche, pas un dossier. */
@@ -154,6 +157,11 @@ export class Mission {
         throw err;
       }
     }
+    // Politique d'accès (#11) : l'hôte pose la politique par défaut du profil
+    // quand le stockage n'en a aucune. Celle que l'appelant a écrite est
+    // gardée telle quelle ; une politique illisible n'est jamais écrasée —
+    // chaque décision la refusera jusqu'à réparation à la main.
+    if (readPolicy(dir).state === "absent") writePolicy(dir, DEFAULT_POLICY);
     return new Mission(workspace, given, dir, contract, fingerprint);
   }
 
@@ -288,8 +296,10 @@ export class Mission {
   }
 }
 
-/** Rapport lisible par machine : ligne `[mission]` du headless et stats. */
+/** Rapport lisible par machine : ligne `[mission]` du headless et stats.
+ * `policy` : version de la politique d'accès, ou l'état qui empêche de la lire. */
 export function missionReport(mission: Mission, status: MissionStatus = mission.status()) {
+  const policy = readPolicy(mission.dir);
   return {
     state: status.state,
     id: mission.contract.id,
@@ -298,6 +308,7 @@ export function missionReport(mission: Mission, status: MissionStatus = mission.
     maxSteps: status.maxSteps,
     approvedBy: status.approval?.by ?? null,
     store: mission.dir,
+    policy: policy.state === "ok" ? policy.version : policy.state,
     ...(status.reason ? { reason: status.reason } : {}),
   };
 }
@@ -328,6 +339,13 @@ export function authorizeHeadless(mission: Mission, approve?: string): { ok: boo
     }
     return refuse(`The step budget of mission "${id}" is exhausted (${status.steps}/${status.maxSteps}): the contract is expired. Widen budgets.maxSteps in a new contract version and approve its fingerprint.`);
   }
+  // Le contrôleur d'accès (#11) doit pouvoir décider avant qu'un run parte :
+  // une politique illisible bloquerait chaque action, autant le dire d'emblée,
+  // avant d'enregistrer quoi que ce soit.
+  const policy = readPolicy(mission.dir);
+  if (policy.state !== "ok") {
+    return refuse(`The access policy of mission "${id}" is ${policy.state === "absent" ? "missing from" : `${policy.state} in`} the host store (${mission.dir}): the controller cannot decide, so nothing may run. Repair or remove policy.json by hand (removing it restores the default policy at the next run).`);
+  }
   if (approve !== undefined && status.state === "proposed") {
     try {
       status = mission.approve("headless-flag", approve);
@@ -347,17 +365,18 @@ export function authorizeHeadless(mission: Mission, approve?: string): { ok: boo
   return refuse(`Mission contract "${id}" is ${STATE_LABELS[status.state]}${status.reason ? ` (${status.reason})` : ""}.`);
 }
 
+/** Le contrat du hub vise-t-il ce workspace ? (sans rien préparer) */
+export function missionTargets(prefs: MissionPrefs | undefined, workspace: string): boolean {
+  if (!prefs) return false;
+  try {
+    return fs.realpathSync.native(prefs.workspace) === fs.realpathSync.native(workspace);
+  } catch {
+    return false;
+  }
+}
+
 /** Le profil d'une session web : seulement pour le workspace visé par le
  * contrat ; les autres workspaces du hub gardent le parcours courant. */
 export function missionForWorkspace(prefs: MissionPrefs | undefined, workspace: string, dataDir?: string): Mission | null {
-  if (!prefs) return null;
-  let wanted: string;
-  let actual: string;
-  try {
-    wanted = fs.realpathSync.native(prefs.workspace);
-    actual = fs.realpathSync.native(workspace);
-  } catch {
-    return null;
-  }
-  return wanted === actual ? Mission.prepare({ source: prefs.source, workspace, dataDir }) : null;
+  return prefs && missionTargets(prefs, workspace) ? Mission.prepare({ source: prefs.source, workspace, dataDir }) : null;
 }

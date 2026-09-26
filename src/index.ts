@@ -14,6 +14,7 @@ import * as path from "path";
 import { Agent } from "./agent";
 import { loadConfig } from "./config";
 import { authorizeHeadless, Mission, MISSION_EXIT_CODE, MissionError, missionExitCode, missionReport } from "./harness/mission";
+import { BYPASS_UNDER_MISSION, decisionReport, POLICY_SUSPENDED_EXIT_CODE, PolicySuspension } from "./harness/policy";
 import { ContextManager } from "./context";
 import { EventBus } from "./events";
 import { terminalLogo } from "./logo";
@@ -152,7 +153,11 @@ ${c.bold("Options:")}
                                its budgets.maxSteps is a step budget kept across runs
   --approve <fingerprint>      headless approval of that exact contract (requires -p and
                                --mission); in the terminal or web UI, type /approve.
-                               Without approval a -p run stops with exit code 3
+                               Without approval a -p run stops with exit code 3.
+                               The profile's access policy (policy.json, next to the
+                               contract in ~/.smolcoder/harness/) decides every tool,
+                               check and web-terminal line; a -p run whose next step
+                               needs a human decision stops with exit code 4
   --effort <level>             reasoning effort: off, low, medium, high, default
   --web [port]                 browser UI (default port ${DEFAULT_WEB_PORT}): a sidebar of your
                                workspaces and sessions, an embedded browser and
@@ -313,6 +318,7 @@ async function runHeadless(args: CliArgs, mission: Mission | null): Promise<void
 
   ui.println(sessionLine(chosen, mode));
   if (chosen.note) ui.warn(`  ${chosen.note}`);
+  if (mission && mode === "bypass") ui.status(BYPASS_UNDER_MISSION);
   const effortSetting = args.effort !== undefined ? args.effort : (cfg.effort ?? null);
   ui.status(`  effort ${provider.effortLabel() ?? effortSetting ?? "default"}`);
   const advice = effortAdvice(chosen, effortSetting);
@@ -323,6 +329,12 @@ async function runHeadless(args: CliArgs, mission: Mission | null): Promise<void
   } catch (err: any) {
     ui.error(`\n${err?.message ?? err}`);
     process.exitCode = 1;
+    // Profil mission : une décision « ask » sans humain suspend le run avec
+    // une sortie dédiée, jamais une autorisation par défaut.
+    if (err instanceof PolicySuspension) {
+      process.exitCode = POLICY_SUSPENDED_EXIT_CODE;
+      process.stderr.write(`[policy] ${JSON.stringify(decisionReport(err.decision))}\n`);
+    }
   }
   const missionEnd = mission ? mission.status() : null;
   if (mission && missionEnd) {

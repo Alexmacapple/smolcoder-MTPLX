@@ -21,9 +21,10 @@ import { commandEscapesWorkspace } from "./sandbox";
 import { abortableDelay } from "./providers/transport";
 import { truncateMiddle } from "./util";
 import { createHash } from "crypto";
-import { commandPassed, renderCommandResult, runCommandResult } from "./tools/shell";
+import { commandPassed, ExecOptions, renderCommandResult, runCommandResult } from "./tools/shell";
 import { failureSignature, projectVerification } from "./verification";
 import type { Mission } from "./harness/mission";
+import { AccessRequest, decide, Decision, PolicySuspension } from "./harness/policy";
 
 /** Supplied by the caller, never generated or changed by a model tool. */
 export interface Verification {
@@ -159,11 +160,41 @@ export class Agent {
   }
 
   /** Le verdict vient du code de sortie réel ; le texte, projection du même
-   * résultat, ne sert qu'à l'affichage et au retour donné au modèle. */
-  private async runCheck(command: string, signal: AbortSignal): Promise<{ passed: boolean; output: string }> {
-    const result = await runCommandResult(command, this.toolCtx.workspace, signal);
+   * résultat, ne sert qu'à l'affichage et au retour donné au modèle. Sous le
+   * profil mission, la vérification passe d'abord par la même décision
+   * d'accès que run_command ; `blocked` : elle n'a pas été lancée. */
+  private async runCheck(command: string, signal: AbortSignal): Promise<{ passed: boolean; output: string } | { blocked: string }> {
+    let exec: ExecOptions | undefined;
+    if (this.mission) {
+      const auth = await this.authorize({ surface: "check", tool: "verification", args: { command } });
+      if (!auth.ok) {
+        this.ui.toolResult(auth.message);
+        return { blocked: auth.message.replace(/^Error: /, "") };
+      }
+      exec = auth.decision.exec;
+    }
+    const result = await runCommandResult(command, this.toolCtx.workspace, signal, undefined, exec);
     if (signal.aborted) throw abortError();
     return { passed: commandPassed(result), output: renderCommandResult(result) };
+  }
+
+  /** Profil mission : la décision d'accès, prise avant l'effet. « ask »
+   * devient la question à l'humain en session interactive, une suspension
+   * explicite en headless — jamais un oui par défaut. */
+  private async authorize(req: AccessRequest): Promise<{ ok: true; decision: Decision } | { ok: false; message: string }> {
+    const mission = this.mission!;
+    const first = decide(mission, req);
+    if (first.verdict === "deny") return { ok: false, message: `Error: ${first.reason}` };
+    if (first.verdict === "allow") return { ok: true, decision: first };
+    if (!this.interactive) throw new PolicySuspension(first);
+    const answer = await this.ui.confirmCommand(first.command ?? req.tool, first.reason);
+    if (answer === "no") return { ok: false, message: "The user declined to run this command. Continue without it, or ask the user what to do instead." };
+    // La réponse a pu prendre du temps : l'état est relu avant l'effet.
+    // « always » vaut pour cet appel seulement : sous le profil, un nom de
+    // programme n'est pas une autorisation durable.
+    const again = decide(mission, req);
+    if (again.verdict === "deny") return { ok: false, message: `Error: ${again.reason}` };
+    return { ok: true, decision: again };
   }
 
   private async checkProgress(signal: AbortSignal): Promise<boolean> {
@@ -172,7 +203,12 @@ export class Agent {
     this.ui.status("· checking implementation progress");
     this.ui.toolCall("verification", { command });
     this.ctxMgr.prepareBackground(this.messages, this.tools, this.provider, this.compactState());
-    const { passed, output } = await this.runCheck(command, signal);
+    const checked = await this.runCheck(command, signal);
+    if ("blocked" in checked) {
+      this.ui.status(`· project check not run — ${checked.blocked}`);
+      return false;
+    }
+    const { passed, output } = checked;
     this.progressFailure = passed ? "" : output;
     this.ui.toolResult(output);
     await this.bus.emit("post_progress_check", { command, passed, output });
@@ -210,7 +246,9 @@ export class Agent {
     if (attempts > (check.maxAttempts ?? 6)) throw new Error("Acceptance attempt limit reached before the agent finished. The task is incomplete.");
     this.ui.status(`· checking acceptance (${attempts}/${check.maxAttempts ?? 6})`);
     this.ui.toolCall("verification", { command: check.command });
-    const { passed, output } = await this.runCheck(check.command, signal);
+    const checked = await this.runCheck(check.command, signal);
+    if ("blocked" in checked) throw new Error(`Acceptance checks could not run — ${checked.blocked} The task is incomplete.`);
+    const { passed, output } = checked;
     this.sameVerificationFailures = passed ? 0
       : this.verificationResult && !this.verificationResult.passed && failureSignature(this.verificationResult.output) === failureSignature(output)
         ? this.sameVerificationFailures + 1 : 1;
@@ -666,10 +704,17 @@ export class Agent {
     args: Record<string, any>,
     signal?: AbortSignal
   ): Promise<string> {
-    // Profil mission : la porte du contrat passe avant toutes les autres, y
-    // compris en bypass, et avant toute demande d'approbation de commande.
-    const blocked = this.mission?.denial(name, args);
-    if (blocked) return `Error: ${blocked}`;
+    // Profil mission : la décision d'accès (contrat puis politique) remplace
+    // la porte du mode, y compris en bypass, et répond avant toute demande
+    // d'approbation. Les droits de l'appel (environnement, fichiers protégés)
+    // viennent de la décision, jamais des arguments du modèle.
+    if (this.mission) {
+      const auth = await this.authorize({ surface: "tool", tool: name, args });
+      if (!auth.ok) return auth.message;
+      if (signal?.aborted) throw signal.reason;
+      if (!this.tools.some((t) => t.name === name)) return `Error: ${name} is no longer available in ${MODE_LABELS[this.mode]} mode.`;
+      return executeTool(name, args, { ...this.toolCtx, exec: auth.decision.exec, protect: auth.decision.protect }, signal);
+    }
     const command = commandOf(name, args);
     // Gate everywhere except bypass (defense-in-depth: in ro mode exec tools are
     // already rejected before this point by the tool-existence check). Edit

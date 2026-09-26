@@ -5,7 +5,7 @@
 
 import * as fs from "fs";
 import * as path from "path";
-import { resolveInWorkspace, relPath, SandboxError } from "../sandbox";
+import { PathRules, protectedSegment, resolveInWorkspace, relPath, SandboxError } from "../sandbox";
 import { truncateEnd } from "../util";
 import { isHistoryPlaceholder } from "../history";
 
@@ -286,7 +286,7 @@ export function listFiles(root: string, args: any): string {
   return out;
 }
 
-export function searchFiles(root: string, args: any): string {
+export function searchFiles(root: string, args: any, protect?: PathRules): string {
   const pattern = args.pattern;
   if (typeof pattern !== "string" || !pattern) {
     return 'Error: pattern is required. Example: {"pattern": "function main"}';
@@ -326,6 +326,8 @@ export function searchFiles(root: string, args: any): string {
       if (e.isSymbolicLink()) continue;
       const abs = path.join(dir, e.name);
       if (startIsFile && abs !== start) continue;
+      // Profil mission : un fichier ou dossier protégé n'est jamais lu.
+      if (protect && protectedSegment(relPath(root, abs), protect)) continue;
       if (e.isDirectory()) {
         walk(abs, depth + 1);
         continue;

@@ -5,7 +5,7 @@
 // visibility. All tasks are killed when smolcoder exits.
 
 import { ChildProcess, spawn } from "child_process";
-import { pickShell, killTree, managedCommand } from "./shell";
+import { ExecOptions, pickShell, killTree, managedCommand } from "./shell";
 
 interface Task {
   id: string;
@@ -25,12 +25,13 @@ export class TaskManager {
 
   constructor(private cwd: string) {}
 
-  start(command: string): string {
+  /** `exec` : contexte imposé par la politique du profil mission. */
+  start(command: string, exec?: ExecOptions): string {
     const shell = pickShell();
     const id = `t${++this.counter}`;
-    const proc = spawn(shell.exe, shell.argsFor(managedCommand(shell, command)), {
+    const proc = spawn(shell.exe, shell.argsFor(managedCommand(shell, command), exec?.login ?? true), {
       cwd: this.cwd,
-      env: process.env,
+      env: exec?.env ?? process.env,
       detached: process.platform !== "win32",
       windowsHide: true,
       stdio: ["ignore", "pipe", "pipe"],
@@ -69,8 +70,8 @@ export class TaskManager {
   }
 
   /** Wait briefly after start so early output (or an instant crash) is visible. */
-  async startWithEarlyOutput(command: string): Promise<string> {
-    const id = this.start(command);
+  async startWithEarlyOutput(command: string, exec?: ExecOptions): Promise<string> {
+    const id = this.start(command, exec);
     await new Promise((r) => setTimeout(r, 1500));
     const task = this.tasks.get(id)!;
     const early = task.lines.slice(-15).join("\n");

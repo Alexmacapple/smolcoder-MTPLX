@@ -11,6 +11,7 @@ import { detectAll, DetectedModel, resolveContextWindow } from "./detect";
 import { EventBus } from "./events";
 import { findModelsOnNetwork, FlowUI, manageHosts } from "./network";
 import { Mission, MissionPrefs } from "./harness/mission";
+import { BYPASS_UNDER_MISSION } from "./harness/policy";
 import { Plan, PlanStep } from "./plan";
 import { buildSystemPrompt, loadAgentsMdDetails } from "./prompt";
 import { LmStudioProvider } from "./providers/lmstudio";
@@ -382,6 +383,7 @@ export class Session {
       const next = MODE_ORDER[(MODE_ORDER.indexOf(this.agent.mode) + 1) % MODE_ORDER.length];
       this.agent.setMode(next, this.sysPrompt(next));
       this.persist();
+      this.noteBypassUnderMission();
     };
     ui.onCancel = () => this.agent.cancel();
     ui.onExit = () => void this.shutdown();
@@ -427,6 +429,13 @@ export class Session {
     );
   }
 
+  /** Profil mission (#11) : passer en bypass est un geste humain (shift+tab,
+   * /mode, --mode) qui n'élargit pas la politique ; il est dit à l'écran.
+   * Aucun outil du modèle ne change le mode ni ne quitte le profil. */
+  private noteBypassUnderMission(): void {
+    if (this.mission && this.agent.mode === "bypass") this.ui.status(BYPASS_UNDER_MISSION);
+  }
+
   private missionLabel(): string {
     const s = this.mission!.status();
     const label = `mission ${s.state} ${s.steps}/${s.maxSteps}`;
@@ -470,6 +479,7 @@ export class Session {
           ? "· mission profile: the contract is approved; the agent works within it"
           : "· mission profile: the agent can read and plan; writes and commands stay blocked until you type /approve"
       );
+      this.noteBypassUnderMission();
     }
   }
 
@@ -708,6 +718,7 @@ export class Session {
     }
     agent.setMode(next, this.sysPrompt(next));
     this.persist();
+    this.noteBypassUnderMission();
   }
 
   private async setEffort(arg?: string): Promise<void> {

@@ -1,7 +1,8 @@
 // Stockage hôte du harnais — seul module propriétaire de la grammaire de
 // ~/.smolcoder/harness/<empreinte-du-workspace>/ (docs/decision-stockage-hote.md) :
-// contract.json (le contrat de mission) et proofs.jsonl (journal en ajout
-// seul, trois types d'événements). Schéma versionné, statuts fermés,
+// contract.json (le contrat de mission), proofs.jsonl (journal en ajout
+// seul, trois types d'événements) et policy.json (la politique d'accès du
+// profil, ticket #11). Schéma versionné, statuts fermés,
 // validation et bornes de lecture vivent ici ; tout consommateur passe par
 // ce module pour que les portes ne dérivent pas vers des lectures
 // différentes. Fail-closed : un fichier illisible, un schéma inconnu ou une
@@ -375,6 +376,121 @@ export function appendProof(dir: string, input: ProofInput): ProofEvent {
   if (size + Buffer.byteLength(line) > MAX_PROOFS_BYTES) throw new HarnessStoreError("unreadable", `${file} would exceed its ${MAX_PROOFS_BYTES}-byte read bound`);
   fs.appendFileSync(file, line);
   return event as ProofEvent;
+}
+
+// ---- policy.json : la politique d'accès du profil mission (ticket #11) ----
+//
+// Écrite par l'hôte (la politique par défaut du profil, à la préparation) ou
+// par l'appelant de confiance, à la main ; jamais par un outil du modèle ni
+// par un fichier du workspace. Schéma fermé, tous les champs obligatoires :
+// une politique partielle est illisible, pas complétée en silence. Aucune
+// valeur ne peut rendre le profil plus large que le sandbox courant : pas de
+// règle « tout autoriser » pour les commandes, et les chemins restent
+// confinés au workspace quoi que dise la politique. Sa version est son
+// empreinte : elle se constate, elle n'est jamais un champ modifiable.
+
+export const POLICY_SCHEMA = "smolcoder/policy/v1";
+export const POLICY_FILE = "policy.json";
+export const MAX_POLICY_BYTES = 64 * 1024;
+/** `workspace` : une commande qui reste dans le workspace passe, une commande
+ * qui en sort exige une décision humaine (la règle du sandbox courant) ;
+ * `ask` : toute commande exige une décision humaine ; `deny` : aucune. */
+export const POLICY_RULES = ["workspace", "ask", "deny"] as const;
+export type PolicyRule = (typeof POLICY_RULES)[number];
+
+export interface AccessPolicy {
+  /** Motifs d'un seul nom de fichier ou de dossier (joker `*`). */
+  paths: { protect: string[]; except: string[] };
+  /** run_command, vérifications automatiques et terminal web. */
+  commands: PolicyRule;
+  /** task.start : tâches de fond persistantes. */
+  tasks: PolicyRule;
+  /** Variables d'environnement transmises nommément aux sous-processus, en
+   * plus de PATH, HOME, TERM et LANG. */
+  env: string[];
+}
+
+/** La politique par défaut du profil : celle du sandbox courant, en plus
+ * strict (secrets et métadonnées Git protégés, tâches de fond soumises à
+ * décision humaine), jamais en plus large. */
+export const DEFAULT_POLICY: AccessPolicy = {
+  paths: { protect: [".env", ".env.*", ".git"], except: [".env.example"] },
+  commands: "workspace",
+  tasks: "ask",
+  env: [],
+};
+
+export type PolicyRead = { state: "absent" } | ReadFailure | { state: "ok"; policy: AccessPolicy; version: string };
+
+const POLICY_FIELDS = ["schema", "paths", "commands", "tasks", "env"];
+const PATTERN_RE = /^[^\\/\x00]{1,100}$/;
+const ENV_NAME_RE = /^[A-Za-z_][A-Za-z0-9_]{0,99}$/;
+const POLICY_ITEMS_MAX = 50;
+
+function patterns(obj: Record<string, unknown>, key: string): string[] {
+  const v = obj[key];
+  if (!Array.isArray(v) || v.length > POLICY_ITEMS_MAX) throw new ContractError(`policy field "paths.${key}" must be a list of at most ${POLICY_ITEMS_MAX} names`);
+  return v.map((item, i) => {
+    if (typeof item !== "string" || !PATTERN_RE.test(item) || item === "." || item === ".." || !item.trim()) {
+      throw new ContractError(`policy field "paths.${key}" item ${i + 1} must be one file or folder name (\`*\` allowed, no "/")`);
+    }
+    return item;
+  });
+}
+
+function rule(obj: Record<string, unknown>, key: string): PolicyRule {
+  if (!POLICY_RULES.includes(obj[key] as PolicyRule)) throw new ContractError(`policy field "${key}" must be one of ${POLICY_RULES.join(", ")}`);
+  return obj[key] as PolicyRule;
+}
+
+/** Corps de la politique (sans `schema`), normalisé. */
+function parsePolicyBody(raw: Record<string, unknown>): AccessPolicy {
+  onlyFields(raw, POLICY_FIELDS);
+  for (const key of POLICY_FIELDS) if (key !== "schema" && raw[key] === undefined) throw new ContractError(`policy field "${key}" is required`);
+  const paths = raw.paths;
+  if (!isObject(paths)) throw new ContractError('policy field "paths" must be {"protect": [...], "except": [...]}');
+  onlyFields(paths, ["protect", "except"], "paths.");
+  const env = raw.env;
+  if (!Array.isArray(env) || env.length > POLICY_ITEMS_MAX || !env.every((n) => typeof n === "string" && ENV_NAME_RE.test(n))) {
+    throw new ContractError(`policy field "env" must be a list of at most ${POLICY_ITEMS_MAX} environment variable names`);
+  }
+  return {
+    paths: { protect: patterns(paths, "protect"), except: patterns(paths, "except") },
+    commands: rule(raw, "commands"),
+    tasks: rule(raw, "tasks"),
+    env: env as string[],
+  };
+}
+
+/** Version citée par chaque décision : schéma et empreinte du contenu. */
+export function policyVersion(policy: AccessPolicy): string {
+  return `${POLICY_SCHEMA}@${sha256(canonical(policy)).slice(0, 16)}`;
+}
+
+export function readPolicy(dir: string): PolicyRead {
+  const raw = readBounded(path.join(dir, POLICY_FILE), MAX_POLICY_BYTES);
+  if (raw.state !== "ok") return raw;
+  let data: unknown;
+  try {
+    data = JSON.parse(raw.text);
+  } catch (err: any) {
+    return { state: "unreadable", reason: `${POLICY_FILE} is not valid JSON (${err?.message ?? err})` };
+  }
+  if (!isObject(data)) return { state: "unreadable", reason: `${POLICY_FILE} is not a JSON object` };
+  if (data.schema !== POLICY_SCHEMA) return { state: "unknown-schema", schema: data.schema };
+  try {
+    const policy = parsePolicyBody(data);
+    return { state: "ok", policy, version: policyVersion(policy) };
+  } catch (err: any) {
+    return { state: "unreadable", reason: `${POLICY_FILE}: ${err?.message ?? err}` };
+  }
+}
+
+/** Écriture atomique ; une politique invalide n'est jamais écrite. */
+export function writePolicy(dir: string, policy: AccessPolicy): void {
+  const checked = parsePolicyBody({ schema: POLICY_SCHEMA, ...JSON.parse(JSON.stringify(policy)) });
+  fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
+  writeAtomic(path.join(dir, POLICY_FILE), JSON.stringify({ schema: POLICY_SCHEMA, ...checked }, null, 2) + "\n");
 }
 
 export function readProofs(dir: string): ProofsRead {

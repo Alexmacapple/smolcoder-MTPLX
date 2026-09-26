@@ -78,9 +78,111 @@ n'est qu'une proposition.
   recevoir et l'option est refusée.
 
 Avant approbation, seuls `read_file`, `list_files`, `search`, `plan` et
-`task` en lecture (`list`, `logs`, `stop`) passent. Le refus est décidé en
+`task` en lecture (`list`, `logs`, `stop`) passent, et la politique d'accès
+(ci-dessous) s'applique déjà à ces lectures. Le refus est décidé en
 relisant le stockage hôte à chaque appel : un message du modèle, une étape
 de plan, un fichier du workspace ou un label de ticket n'y changent rien.
+
+## Politique d'accès (ticket #11)
+
+Sous le profil, chaque action passe, au dernier point avant son effet, par
+une seule décision `allow / ask / deny` (`decide`, `src/harness/policy.ts`)
+qui porte son motif, l'action, les chemins canoniques (liens résolus) et la
+version de la politique. Le contrat décide d'abord (porte ci-dessus), la
+politique ensuite. Quatre surfaces, la même décision :
+
+- `run_command` et `task` `start`, comme tout outil du modèle ;
+- les vérifications lancées par le harnais (`--verify`, contrôles du projet) ;
+- le terminal web : chaque ligne est jugée avant d'atteindre le shell, et
+  aucun terminal ne s'ouvre tant que la session du workspace visé n'a pas
+  chargé son contrat.
+
+### Lieu et version
+
+`~/.smolcoder/harness/<empreinte-du-workspace>/policy.json`, à côté du
+contrat ; sa grammaire vit dans `src/harness/store.ts`, le module
+propriétaire du stockage hôte. À la préparation (`--mission`), l'hôte y pose
+la politique par défaut si le fichier manque ; celle que l'appelant a écrite
+est gardée telle quelle ; une politique illisible n'est jamais écrasée. Elle
+est relue à chaque décision. Sa version, `smolcoder/policy/v1@<empreinte>`,
+est l'empreinte de son contenu, jamais un champ modifiable : elle figure dans
+chaque décision et dans la ligne `[mission]`.
+
+Aucun fichier du workspace n'est lu comme politique. Le stockage hôte est
+hors d'atteinte des outils de fichiers (confinement au workspace, liens
+compris), et une commande qui le nomme (`.smolcoder`, chemin du dossier de
+données) est refusée.
+
+### Schéma
+
+Fermé, tous les champs obligatoires : une politique partielle est illisible,
+jamais complétée en silence. La politique par défaut :
+
+```json
+{
+  "schema": "smolcoder/policy/v1",
+  "paths": { "protect": [".env", ".env.*", ".git"], "except": [".env.example"] },
+  "commands": "workspace",
+  "tasks": "ask",
+  "env": []
+}
+```
+
+- `paths` : noms de fichier ou de dossier (joker `*`, jamais de `/`),
+  comparés sans tenir compte de la casse ; un nom protégé l'est à toute
+  profondeur, contenu compris. Un chemin protégé n'est ni lu, ni écrit, ni
+  parcouru par `search`, ni nommé par une commande ; `except` lève la
+  protection d'un nom précis.
+- `commands` (`run_command`, vérifications, terminal web) et `tasks`
+  (`task` `start`) : `workspace` reprend la règle du sandbox courant (une
+  commande qui reste dans le workspace passe, une commande qui en sort exige
+  une décision humaine) ; `ask` exige toujours une décision humaine ; `deny`
+  refuse. Aucune valeur n'est plus large que le sandbox courant.
+- `env` : variables transmises nommément aux sous-processus, en plus de
+  `PATH`, `HOME`, `TERM` et `LANG`.
+
+La politique par défaut est celle du sandbox courant, en plus strict (secrets
+`.env*` et métadonnées `.git` protégés, tâches de fond soumises à décision
+humaine), jamais en plus large.
+
+### « ask », refus et erreurs du contrôleur
+
+- Terminal et web : la question habituelle, motif affiché ; « always » ne vaut
+  que pour cet appel, et l'état est relu après la réponse.
+- Headless : suspension explicite, rien n'est exécuté, une ligne
+  `[policy] {…}` part sur stderr, sortie 4.
+- Terminal web : la ligne n'est pas exécutée ; ce terminal ne sait pas
+  recueillir une décision enregistrée.
+- Politique absente, illisible, partielle ou de schéma inconnu : toute action
+  est refusée ; un run headless est refusé avant de chercher un modèle
+  (sortie 3), sans rien enregistrer.
+
+### Sous-processus, secrets et traces
+
+Sous le profil, les sous-processus (commandes, tâches, vérifications,
+terminal web) reçoivent un environnement minimal explicite et un shell sans
+profil de connexion : `bash -c`, pas `-lc`, car un `~/.bash_profile` peut
+réexporter des secrets. Les sorties ne sont pas filtrées : la garantie tient
+à ce que le secret n'entre pas.
+
+Traces accessibles au modèle : ce qu'il reçoit (messages, résultats
+d'outils), le transcript (que l'interface web sauvegarde tel quel dans
+`~/.smolcoder/sessions/`) et ce que smol affiche (stdout et stderr, sortie
+des sous-processus comprise). Le modèle ne lit pas le terminal web, qui reçoit
+néanmoins le même environnement minimal.
+
+### Bypass, sortie du profil, hooks, pièces jointes
+
+- Sous le profil, `bypass` n'élargit rien : la politique décide quel que soit
+  le mode. Passer en bypass reste un geste humain (shift+tab, `/mode`,
+  `--mode`) signalé à l'écran ; aucun outil du modèle ne change le mode.
+  Quitter le profil, c'est relancer smol sans `--mission`.
+- Aucun hook configurable n'existe (`src/events.ts` est un bus interne) ; le
+  futur point de branchement serait `decide`, et un hook proposé par un dépôt
+  ne serait jamais exécuté comme code de confiance.
+- Les pièces jointes viennent de l'humain (interface web) et sont stockées
+  hors du workspace ; aucun outil du modèle n'en crée : elles restent hors
+  décision.
 
 ## Budget de pas
 
@@ -106,20 +208,30 @@ le reprend en tête, relu dans le stockage hôte au moment de la compaction
 - 1 : erreur d'usage (options, contrat invalide) ou run en échec ;
 - 3 : le contrat n'autorise pas l'exécution (proposé, expiré, périmé,
   empreinte refusée, stockage hôte illisible ou de schéma inconnu, journal
-  tronqué).
+  tronqué, politique d'accès illisible) ; il prime sur 4 quand le contrat
+  n'est plus approuvé en fin de run ;
+- 4 : suspendu sur une décision « ask » de la politique d'accès, rien n'a été
+  exécuté pour cette action.
 
 ## Limites connues
 
-- L'approbation n'est pas une isolation : après approbation, le mode
-  `bypass` exécute sans demander (statut à trancher par #11).
+- L'approbation et la politique ne sont pas une isolation du système (H03,
+  #12) : le jugement des commandes lit leur texte, avec des faux négatifs
+  connus (`grep -r motif .` lit `.env` sans le nommer, `cd` sans argument
+  mène au dossier personnel, substitution de commande) et des faux positifs
+  (un message de commit qui cite `.env`).
+- La politique n'est pas liée à l'approbation : l'appelant qui la modifie
+  après approbation change les droits sans nouvelle approbation (la version
+  figure dans chaque décision). `policyRef` du contrat reste réservé.
+- `list_files` montre le nom des fichiers protégés, jamais leur contenu.
+  L'`AGENTS.md` du workspace reste modifiable (une consigne, pas un droit) ;
+  l'appelant peut l'ajouter à `paths.protect`.
 - Pas de verrou : deux sessions simultanées sous le même contrat peuvent
   perdre un débit de pas (verrou mono-écrivain : #10).
-- Les vérifications lancées par le harnais lui-même (`--verify`, contrôles
-  du projet) ne passent pas par la porte ; elles ne tournent qu'après une
-  écriture réussie, donc sous contrat approuvé (point de passage unique :
-  #11).
 - Les événements `verdict` sont reconnus par la grammaire mais pas encore
   produits (#9).
+- La suspension headless (sortie 4) est testée par ses briques (agent non
+  interactif, rapport de décision), pas par le CLI réel contre un backend.
 - Le run headless approuvé est testé par ses briques (autorisation, agent
   non interactif, fournisseur simulé), pas par le CLI réel contre un
   backend.

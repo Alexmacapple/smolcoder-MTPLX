@@ -16,7 +16,8 @@ import * as http from "http";
 import * as os from "os";
 import * as path from "path";
 import { DATA_DIR, loadConfig } from "../config";
-import { missionForWorkspace } from "../harness/mission";
+import { missionForWorkspace, missionTargets } from "../harness/mission";
+import { decide, terminalExec } from "../harness/policy";
 import { noBackendsMessage, prepareModel, Session, SessionPrefs, SessionSnapshot, setupWithoutLocalModels } from "../session";
 import { tryFetchJson } from "../util";
 import { Attachment, classifyUpload, extOf, MAX_UPLOAD_BYTES, mimeForExt, safeName } from "../attachments";
@@ -573,12 +574,22 @@ export class WebHub {
   openTerminal(sid: string): { tid: string; cwd: string } | null {
     const live = this.live.get(sid);
     if (!live) return null;
+    // Profil mission : le terminal passe par la même décision d'accès que les
+    // outils. Tant que la session du workspace visé n'a pas son contrat
+    // (démarrage en cours, échec), aucun terminal non gardé ne s'ouvre.
+    const mission = live.session?.mission ?? null;
+    if (!mission && missionTargets(this.opts.prefs.mission, live.workspace)) {
+      throw new Error("this session runs under a mission contract that is not loaded yet; open the terminal once the session has started");
+    }
     const tid = `t${++this.termCounter}`;
     this.send({ t: "termopen", sid, tid, cwd: live.workspace });
     const term = new Terminal(tid, live.workspace, {
       output: (text) => this.send({ t: "term", sid, tid, s: text }),
       done: (code, cwd) => this.send({ t: "termdone", sid, tid, code, cwd }),
-    });
+    }, mission ? {
+      exec: () => terminalExec(mission),
+      decide: (line, cwd) => decide(mission, { surface: "terminal", tool: "terminal", args: { command: line }, cwd }),
+    } : undefined);
     live.terminals.set(tid, term);
     this.changed();
     return { tid, cwd: term.cwd };

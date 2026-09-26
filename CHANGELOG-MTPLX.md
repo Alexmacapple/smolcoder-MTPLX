@@ -3,7 +3,7 @@
 Fork de [leonvanzyl/smolcoder](https://github.com/leonvanzyl/smolcoder)
 (MIT, crédit à Leon van Zyl). La version amont de référence est
 `0.7.1` (commit `4ee47b5`, « Release smolcoder 0.7.1 »). Tout ce qui
-figure ci-dessous est ajouté par ce fork le 26 septembre 2026.
+figure ci-dessous est ajouté par ce fork à partir du 26 septembre 2026.
 
 ## 2026-09-26
 
@@ -507,6 +507,83 @@ réel du CLI : `smol -p … --mission` sans approbation sort en 3 avec l'état
 `proposed` et un seul événement `contract` au journal. Non couvert, renvoyé :
 verrou multi-sessions (#10), verdicts (#9), point de passage unique des
 commandes du harnais et statut du bypass (#11).
+
+## 2026-09-27
+
+### (ce commit) — Politique d'accès du profil mission — Closes #11
+
+`src/harness/policy.ts` (nouveau), `src/harness/store.ts`,
+`src/harness/mission.ts`, `src/agent.ts`, `src/sandbox.ts`,
+`src/tools/shell.ts`, `src/tools/tasks.ts`, `src/tools/index.ts`,
+`src/tools/fs-tools.ts`, `src/tools/search-worker.ts`,
+`src/web/terminal.ts`, `src/web/hub.ts`, `src/session.ts`, `src/index.ts`,
+`docs/profil-mission.md`, `test/policy.test.js` (nouveau). Ticket #11
+(H02), sur le contrat de mission (#8) et le stockage hôte (#14).
+
+Sous le profil `--mission`, une décision unique `allow / ask / deny` (motif,
+action, chemins canoniques, version de politique) est prise au dernier point
+avant l'effet, sur les quatre surfaces : `run_command` et `task.start`, comme
+tout outil du modèle ; les vérifications automatiques (`verify` et
+`checkProgress`, qui appelaient l'exécuteur sans passer par la porte) ; le
+terminal web (chaque ligne avant le shell, et aucun terminal non gardé
+pendant le démarrage d'une session sous contrat). Le contrat décide d'abord,
+la politique ensuite ; hors profil, rien n'est consulté et le comportement
+est inchangé.
+
+La politique vit dans le stockage hôte (`policy.json`, schéma
+`smolcoder/policy/v1` fermé, grammaire dans le module propriétaire
+`store.ts`) et est relue à chaque décision ; sa version est l'empreinte de
+son contenu. L'hôte pose à la préparation la politique par défaut, celle du
+sandbox courant en plus strict : `.env`, `.env.*` et `.git` protégés (sauf
+`.env.example`), commandes hors du workspace et tâches de fond soumises à
+une décision humaine. Il ne remplace jamais une politique écrite par
+l'appelant ni une politique illisible. Aucune valeur du schéma n'est plus
+large que le sandbox courant, aucun fichier du workspace n'est lu comme
+politique, et une commande qui nomme le stockage hôte est refusée.
+Fail-closed : politique absente, illisible, partielle ou de schéma inconnu,
+tout est refusé, et un run headless l'est avant de chercher un modèle
+(sortie 3, rien d'enregistré).
+
+`ask` : question humaine en terminal et en web (« always » ne vaut que pour
+l'appel, l'état est relu après la réponse) ; suspension explicite en
+headless (rien d'exécuté, ligne `[policy]`, sortie 4) ; jamais exécuté dans
+le terminal web. Les sous-processus du profil (commandes, tâches,
+vérifications, terminal web) reçoivent un environnement minimal explicite
+(`PATH`, `HOME`, `TERM`, `LANG` et les noms listés par la politique) et un
+shell sans profil de connexion, qui pouvait réexporter des secrets. Sous le
+profil, `bypass` n'élargit rien ; le passage reste un geste humain signalé à
+l'écran, et quitter le profil, c'est relancer sans `--mission`.
+
+Hooks (amendement 3) : acté, rien à coder — aucun hook configurable
+n'existe (`src/events.ts` est un bus interne) ; le futur point de
+branchement serait `decide`. La précédence des consignes (#6) n'est pas
+touchée : `src/prompt.ts` est inchangé, les refus sont des décisions
+d'exécution.
+
+Vérifications, rouge puis vert avec le fournisseur simulé : dix tests
+rouges avant le code, chacun sur l'effet observé — `.env` réécrit
+(`LEAK=pwned`), secrets de l'environnement et du `~/.bash_profile` affichés
+par le sous-processus, tâche de fond démarrée, commande d'acceptation
+exécutée sous contrat non approuvé, contrôle du projet exécuté malgré
+`commands: "deny"`, ligne du terminal web exécutée avant approbation, secret
+visible dans le terminal web, écriture passée sous politique illisible,
+politique hôte écrasée par une commande en bypass, commande hors du
+workspace exécutée en bypass. Trois mutations du code (shell de connexion
+réactivé, garde du hub retirée, filtre de recherche retiré) font chacune
+échouer le test visé. Vingt-six tests ajoutés, critères couverts par des
+tests nommés « H02 AC1 » à « H02 AC6 », dont deux gardes du profil par
+défaut ; `npm test` 233/233, aucun test sauté. Contrôle réel du CLI :
+politique illisible, sortie 3, aucune approbation enregistrée.
+
+Choix à valider en revue : politique par défaut égale au sandbox courant
+durci (l'incrément 5 du ticket refuserait tout shell tant que H03 manque ;
+`commands: "ask"` ou `"deny"` l'obtient) ; `bypass` neutralisé sous le
+profil plutôt que confirmé ; troisième fichier du stockage hôte, prévu par
+la décision #14 (« #11 : fichier à définir ») alors que sa rubrique
+« Contenu » annonce encore deux fichiers. Restes : isolation par processus
+(H03, #12 : le jugement des commandes lit leur texte), liaison de la
+politique à l'approbation (`policyRef` reste réservé), sortie 4 testée par
+ses briques et non par le CLI contre un backend.
 
 ## Hors dépôt (machine locale)
 

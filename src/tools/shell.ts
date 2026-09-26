@@ -11,8 +11,18 @@ import { truncateMiddle } from "../util";
 
 export interface ShellInfo {
   exe: string;
-  argsFor: (cmd: string) => string[];
+  /** `login` false : sans les fichiers de démarrage de l'utilisateur, qui
+   * peuvent réexporter des secrets (profil mission). Vrai par défaut. */
+  argsFor: (cmd: string, login?: boolean) => string[];
   label: string; // goes into the system prompt
+}
+
+/** Contexte d'exécution imposé par la politique du profil mission : un
+ * environnement minimal explicite et un shell sans profil de connexion.
+ * Absent = comportement courant (environnement entier, shell de connexion). */
+export interface ExecOptions {
+  env: NodeJS.ProcessEnv;
+  login: boolean;
 }
 
 let cached: ShellInfo | null = null;
@@ -27,7 +37,7 @@ export function pickShell(): ShellInfo {
     ];
     for (const p of candidates) {
       if (p && fs.existsSync(p)) {
-        cached = { exe: p, argsFor: (cmd) => ["-o", "pipefail", "-lc", cmd], label: "bash (Git Bash)" };
+        cached = { exe: p, argsFor: (cmd, login = true) => ["-o", "pipefail", login ? "-lc" : "-c", cmd], label: "bash (Git Bash)" };
         return cached;
       }
     }
@@ -39,7 +49,7 @@ export function pickShell(): ShellInfo {
         .map((s) => s.trim())
         .find((p) => p && !p.toLowerCase().includes("system32"));
       if (found) {
-        cached = { exe: found, argsFor: (cmd) => ["-o", "pipefail", "-lc", cmd], label: "bash (Git Bash)" };
+        cached = { exe: found, argsFor: (cmd, login = true) => ["-o", "pipefail", login ? "-lc" : "-c", cmd], label: "bash (Git Bash)" };
         return cached;
       }
     }
@@ -51,7 +61,11 @@ export function pickShell(): ShellInfo {
     return cached;
   }
   const sh = fs.existsSync("/bin/bash") ? "/bin/bash" : "/bin/sh";
-  cached = { exe: sh, argsFor: (cmd) => sh.endsWith("/bash") ? ["-o", "pipefail", "-lc", cmd] : ["-lc", cmd], label: path.basename(sh) };
+  cached = {
+    exe: sh,
+    argsFor: (cmd, login = true) => [...(sh.endsWith("/bash") ? ["-o", "pipefail"] : []), login ? "-lc" : "-c", cmd],
+    label: path.basename(sh),
+  };
   return cached;
 }
 
@@ -129,11 +143,11 @@ export function renderCommandResult(result: CommandResult): string {
   }
 }
 
-export async function runCommand(command: string, cwd: string, signal?: AbortSignal): Promise<string> {
-  return renderCommandResult(await runCommandResult(command, cwd, signal));
+export async function runCommand(command: string, cwd: string, signal?: AbortSignal, exec?: ExecOptions): Promise<string> {
+  return renderCommandResult(await runCommandResult(command, cwd, signal, DEFAULT_TIMEOUT_MS, exec));
 }
 
-export function runCommandResult(command: string, cwd: string, signal?: AbortSignal, timeoutMs = DEFAULT_TIMEOUT_MS): Promise<CommandResult> {
+export function runCommandResult(command: string, cwd: string, signal?: AbortSignal, timeoutMs = DEFAULT_TIMEOUT_MS, exec?: ExecOptions): Promise<CommandResult> {
   const base = { exitCode: null, signal: null, output: "" };
   if (signal?.aborted) return Promise.resolve({ ...base, started: false, status: "cancelled", durationMs: 0 });
   return new Promise((resolve) => {
@@ -142,9 +156,9 @@ export function runCommandResult(command: string, cwd: string, signal?: AbortSig
     let finished = false;
     const started = Date.now();
 
-    const proc = spawn(shell.exe, shell.argsFor(managedCommand(shell, command)), {
+    const proc = spawn(shell.exe, shell.argsFor(managedCommand(shell, command), exec?.login ?? true), {
       cwd,
-      env: process.env,
+      env: exec?.env ?? process.env,
       detached: process.platform !== "win32", // process group for killTree
       windowsHide: true,
       stdio: ["ignore", "pipe", "pipe"],

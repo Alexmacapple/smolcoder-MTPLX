@@ -7,9 +7,9 @@ import { Plan } from "../plan";
 import { ToolSpec } from "../providers/types";
 import { editFile, listFiles, readFile, writeFile } from "./fs-tools";
 import { syntaxCheck } from "./check";
-import { runCommand } from "./shell";
+import { ExecOptions, runCommand } from "./shell";
 import { TaskManager } from "./tasks";
-import { resolveInWorkspace, SandboxError } from "../sandbox";
+import { PathRules, resolveInWorkspace, SandboxError } from "../sandbox";
 import { truncateMiddle } from "../util";
 import { searchFilesBounded } from "./search-worker";
 
@@ -152,6 +152,10 @@ export interface ToolContext {
   commandsRun: string[];
   /** Internal per-request cap; never a model-supplied tool argument. */
   resultCharLimit?: number;
+  /** Profil mission : fixés par la décision d'accès pour cet appel, jamais
+   * par un argument du modèle. Absents = comportement courant. */
+  exec?: ExecOptions;
+  protect?: PathRules;
 }
 
 export async function executeTool(
@@ -170,7 +174,7 @@ export async function executeTool(
         result = listFiles(ctx.workspace, args);
         break;
       case "search":
-        result = await searchFilesBounded(ctx.workspace, args, signal);
+        result = await searchFilesBounded(ctx.workspace, args, signal, undefined, ctx.protect);
         break;
       case "plan": {
         const action = args.action ?? (typeof args.steps === "string" ? "set" : undefined);
@@ -202,7 +206,7 @@ export async function executeTool(
         if (typeof args.command !== "string" || !args.command.trim()) {
           return 'Error: command is required. Example: {"command": "npm test"}';
         }
-        result = await runCommand(args.command, ctx.workspace, signal);
+        result = await runCommand(args.command, ctx.workspace, signal, ctx.exec);
         ctx.commandsRun.push(`${args.command} → ${result.split("\n").at(-1)}`);
         if (ctx.commandsRun.length > 50) ctx.commandsRun.splice(0, ctx.commandsRun.length - 50);
         break;
@@ -213,7 +217,7 @@ export async function executeTool(
             return 'Error: "start" needs a command. Example: {"action": "start", "command": "npm run dev"}';
           }
           ctx.commandsRun.push(`[bg] ${args.command}`);
-          result = await ctx.taskManager.startWithEarlyOutput(args.command);
+          result = await ctx.taskManager.startWithEarlyOutput(args.command, ctx.exec);
         } else if (action === "logs") {
           result = ctx.taskManager.logs(String(args.task_id ?? ""), Number(args.lines) || 50);
         } else if (action === "stop") {
