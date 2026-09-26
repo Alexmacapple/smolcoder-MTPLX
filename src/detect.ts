@@ -52,6 +52,7 @@ const LOCAL_PROBE_TIMEOUT_MS = 3000;
 // An added machine that is switched off must not hold up startup for long.
 const NETWORK_PROBE_TIMEOUT_MS = 1500;
 const DOCKER_DISCOVERY_TIMEOUT_MS = 2000;
+const COMPAT_CONTEXT_DECLARED_NOTE = "context window declared by the server (unverified)";
 
 const LOOPBACK_RE = /^(https?:\/\/)(localhost|127(?:\.\d+){3}|\[::1\])(?=[:/]|$)/i;
 
@@ -308,7 +309,9 @@ export async function identifyServer(base: string, timeoutMs = NETWORK_PROBE_TIM
           backend: "lmstudio" as const,
           baseUrl: base,
           contextWindow: hasCtx ? m.context_length : LMSTUDIO_JIT_GUESS,
-          ...(hasCtx ? {} : { note: "context window unknown (OpenAI-compat listing) — assuming 4096 to be safe." }),
+          ...(hasCtx
+            ? { note: COMPAT_CONTEXT_DECLARED_NOTE }
+            : { note: "context window unknown (OpenAI-compat listing) — assuming 4096 to be safe." }),
         };
       });
     return { backend: "lmstudio", baseUrl: base, models };

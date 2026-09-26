@@ -179,7 +179,8 @@ export function modelOptions(models: DetectedModel[], current?: DetectedModel): 
     label: m.id,
     hint:
       (m.backend === "ollama" ? "ollama" : `lm studio${m.loaded ? ` · ctx ${m.contextWindow.toLocaleString()}` : " · not loaded"}`) +
-      (m.host ? ` · ${m.host}` : ""),
+      (m.host ? ` · ${m.host}` : "") +
+      (m.note ? ` · ${m.note}` : ""),
     current: !!current && m.id === current.id && m.backend === current.backend && m.baseUrl === current.baseUrl,
   }));
 }

@@ -16,6 +16,7 @@ const {
   probeHosts,
   readLmStudioPort,
 } = require("../dist/detect");
+const { modelOptions } = require("../dist/session");
 
 /** A fake model server: `routes` maps a path to a JSON body (or [status, body]). */
 async function serve(routes) {
@@ -153,7 +154,8 @@ test("an OpenAI-compat-only listing (MTPLX) exposes context_length as the window
     assert.equal(info.backend, "lmstudio");
     assert.deepEqual(info.models.map((m) => m.id), ["mtplx-test"], "embeddings filtered out");
     assert.equal(info.models[0].contextWindow, 262144);
-    assert.equal(info.models[0].note, undefined, "no guess note when the listing gives the window");
+    assert.equal(info.models[0].note, "context window declared by the server (unverified)");
+    assert.match(modelOptions(info.models)[0].hint, /context window declared by the server \(unverified\)/);
   } finally {
     await server.close();
   }
@@ -164,7 +166,8 @@ test("an OpenAI-compat listing without context info falls back to the 4096 guess
   try {
     const info = await identifyServer(`http://127.0.0.1:${server.port}`, 2000);
     assert.equal(info.models[0].contextWindow, 4096);
-    assert.ok(info.models[0].note, "the guess is announced in a note");
+    assert.match(info.models[0].note, /assuming 4096/);
+    assert.doesNotMatch(info.models[0].note, /declared by the server/);
   } finally {
     await server.close();
   }
