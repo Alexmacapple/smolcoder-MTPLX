@@ -29,12 +29,22 @@ function readAgentsFile(p: string, cap: number, label: string): string | null {
   }
 }
 
+/** The on-disk identity of a path: symlinks resolved and platform casing
+ * normalized, so two spellings of one file compare equal. */
+function fileIdentity(p: string): string {
+  try {
+    return fs.realpathSync.native(p);
+  } catch {
+    return path.resolve(p);
+  }
+}
+
 /** Read the global ~/.smolcoder/AGENTS.md, then the workspace's AGENTS.md. */
 export function loadAgentsMd(workspace: string, home: string = os.homedir()): string | null {
   const globalPath = path.join(home, ".smolcoder", "AGENTS.md");
   const localPath = path.join(workspace, "AGENTS.md");
   const parts = [readAgentsFile(globalPath, GLOBAL_AGENTS_MD_CAP_CHARS, "~/.smolcoder/AGENTS.md")];
-  if (path.resolve(localPath) !== path.resolve(globalPath)) {
+  if (fileIdentity(localPath) !== fileIdentity(globalPath)) {
     parts.push(readAgentsFile(localPath, AGENTS_MD_CAP_CHARS, "AGENTS.md"));
   }
   const loaded = parts.filter((part): part is string => part !== null);

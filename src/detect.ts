@@ -293,18 +293,22 @@ export async function identifyServer(base: string, timeoutMs = NETWORK_PROBE_TIM
 
   const v0 = parseLmStudioV0(await tryFetchJson(`${base}/api/v0/models`, undefined, timeoutMs), base);
   if (v0) return { backend: "lmstudio", baseUrl: base, models: v0 };
-  // Older LM Studio builds: fall back to the OpenAI-compat listing (no context info).
+  // OpenAI-compat listing fallback (MTPLX, older LM Studio builds): reads
+  // context_length when the listing provides it, else assumes 4096.
   const compat = await tryFetchJson(`${base}/v1/models`, undefined, timeoutMs);
   if (compat && Array.isArray(compat.data)) {
     const models = compat.data
       .filter((m: any) => !String(m.id).includes("embed"))
-      .map((m: any) => ({
-        id: m.id as string,
-        backend: "lmstudio" as const,
-        baseUrl: base,
-        contextWindow: typeof m.context_length === "number" && m.context_length > 0 ? m.context_length : LMSTUDIO_JIT_GUESS,
-        ...(typeof m.context_length === "number" && m.context_length > 0 ? {} : { note: "context window unknown (older LM Studio) — assuming 4096 to be safe." }),
-      }));
+      .map((m: any) => {
+        const hasCtx = typeof m.context_length === "number" && m.context_length > 0;
+        return {
+          id: m.id as string,
+          backend: "lmstudio" as const,
+          baseUrl: base,
+          contextWindow: hasCtx ? m.context_length : LMSTUDIO_JIT_GUESS,
+          ...(hasCtx ? {} : { note: "context window unknown (OpenAI-compat listing) — assuming 4096 to be safe." }),
+        };
+      });
     return { backend: "lmstudio", baseUrl: base, models };
   }
   return null;

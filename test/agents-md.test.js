@@ -55,12 +55,14 @@ test('the workspace AGENTS.md alone behaves as before', () => {
   }
 });
 
-test('an oversized global file is capped on its own, leaving room for the workspace', () => {
+test('an oversized global file is capped at exactly 4000 chars with a visible marker', () => {
   const { root, home, workspace } = setup({ global: 'G'.repeat(20000), local: 'Local rule.' });
   try {
     const text = loadAgentsMd(workspace, home);
     assert.ok(text.includes('Local rule.'));
     assert.ok(text.length < 8000, `combined text should stay small, got ${text.length}`);
+    assert.equal(text.match(/^G+/)[0].length, 4000, 'global part capped at exactly 4000 chars');
+    assert.ok(text.includes('[~/.smolcoder/AGENTS.md was truncated here to save context]'));
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }
@@ -71,6 +73,37 @@ test('a workspace that is the smolcoder home does not load the same file twice',
   try {
     const text = loadAgentsMd(path.join(home, '.smolcoder'), home);
     assert.equal(text, 'Global rule.');
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('a workspace AGENTS.md that is a symlink to the global file is loaded once', () => {
+  const { root, home, workspace } = setup({ global: 'Global rule.' });
+  try {
+    fs.symlinkSync(path.join(home, '.smolcoder', 'AGENTS.md'), path.join(workspace, 'AGENTS.md'));
+    assert.equal(loadAgentsMd(workspace, home), 'Global rule.');
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('a workspace that is a symlink to the smolcoder home loads the file once', () => {
+  const { root, home } = setup({ global: 'Global rule.' });
+  try {
+    const link = path.join(root, 'ws-link');
+    fs.symlinkSync(path.join(home, '.smolcoder'), link);
+    assert.equal(loadAgentsMd(link, home), 'Global rule.');
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('an unreadable AGENTS.md (a directory) is ignored like a missing one', () => {
+  const { root, home, workspace } = setup({ global: 'Global rule.' });
+  try {
+    fs.mkdirSync(path.join(workspace, 'AGENTS.md'));
+    assert.equal(loadAgentsMd(workspace, home), 'Global rule.');
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }

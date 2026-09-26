@@ -57,7 +57,10 @@ LAUNCH_AGENT="$HOME/Library/LaunchAgents/com.alex.smolcoder-web.plist"
 WEB_BASE="http://127.0.0.1:${SMOL_WEB_PORT:-7433}"
 
 mtplx_ok() {
-  curl -s -m 3 "$MTPLX_URL/v1/models" 2>/dev/null | grep -q "$MODEL"
+  # Réponse capturée (pas de pipe sous pipefail) et identifiant JSON exact.
+  local rep
+  rep="$(curl -s -m 3 "$MTPLX_URL/v1/models" 2>/dev/null)" || return 1
+  print -r -- "$rep" | grep -qF "\"$MODEL\""
 }
 
 web_ui_up() {
@@ -66,6 +69,10 @@ web_ui_up() {
 }
 
 if ! mtplx_ok; then
+  if [ ! -d /Applications/MTPLX.app ]; then
+    echo "Erreur: $MODEL non servi sur $MTPLX_URL et /Applications/MTPLX.app introuvable." >&2
+    exit 1
+  fi
   echo "Serveur MTPLX absent : ouverture de l'application MTPLX, qui le démarre..."
   open -a /Applications/MTPLX.app 2>/dev/null || true
   deadline=$(( SECONDS + 180 ))
@@ -79,30 +86,40 @@ if ! mtplx_ok; then
   fi
 fi
 
-# Host MTPLX déclaré pour smolcoder (idempotent).
-if [ ! -f "$HOME/.smolcoder.json" ] || ! grep -q "8000" "$HOME/.smolcoder.json" 2>/dev/null; then
-  [ -f "$HOME/.smolcoder.json" ] && cp "$HOME/.smolcoder.json" "$HOME/.smolcoder.json.bak.$(date +%s)"
-  cat > "$HOME/.smolcoder.json" <<JSON
-{
-  "hosts": [
-    { "address": "$MTPLX_URL", "name": "mtplx" }
-  ]
-}
-JSON
-  echo "Config smolcoder créée : host mtplx -> $MTPLX_URL"
-fi
+# Host MTPLX déclaré pour smolcoder : fusion dans la config existante,
+# sans perdre lastModel, lastMode, effort ni les autres hôtes (idempotent).
+python3 - "$HOME/.smolcoder.json" "$MTPLX_URL" <<'PY'
+import json, os, sys
+cfg_path, url = sys.argv[1], sys.argv[2]
+cfg = {}
+if os.path.exists(cfg_path):
+    try:
+        with open(cfg_path) as f:
+            cfg = json.load(f)
+    except Exception:
+        os.replace(cfg_path, cfg_path + ".bak.invalide")
+        print(f"Config illisible sauvegardée : {cfg_path}.bak.invalide")
+        cfg = {}
+hosts = [h for h in cfg.get("hosts", []) if isinstance(h, dict)]
+if not any(h.get("address") == url for h in hosts):
+    hosts.append({"address": url, "name": "mtplx"})
+    cfg["hosts"] = hosts
+    with open(cfg_path, "w") as f:
+        json.dump(cfg, f, indent=2)
+    print(f"Config smolcoder : host mtplx -> {url} (fusionné)")
+PY
 
 case "$MODE" in
   test)
     tmp="$(mktemp -d "${TMPDIR:-/tmp}/smol-test.XXXXXX")"
-    echo "Test headless vers $MODEL (dossier $tmp)..."
+    trap 'rm -rf "$tmp"' EXIT
+    echo "Test headless vers $MODEL (dossier $tmp, limite 300 s)..."
     start=$(date +%s)
     set +e
-    (cd "$tmp" && "$SMOL" -p "Réponds seulement : ok" </dev/null) | tail -5
+    (cd "$tmp" && perl -e 'alarm 300; exec @ARGV or die "exec: $!"' "$SMOL" -p "Réponds seulement : ok" </dev/null) | tail -5
     rc=${pipestatus[1]:-1}
     set -e
     echo "Code $rc, durée $(( $(date +%s) - start )) s."
-    rm -rf "$tmp"
     [ $rc -eq 0 ]
     ;;
   web)
@@ -124,19 +141,21 @@ case "$MODE" in
       echo "Pas de démon web ($LAUNCH_AGENT absent ou muet) :"
       echo "serveur lancé dans ce terminal — le fermer arrête l'interface."
       cd "$ATTACH_DIR"
-      exec "$SMOL" --web
+      exec "$SMOL" --web ${SMOL_WEB_PORT:+"$SMOL_WEB_PORT"}
     fi
     # Raccorde ATTACH_DIR à l'interface en cours et récupère une URL fraîche
     # (celle du log peut dater d'un démon précédent : elle renverrait 403).
     out="$(cd "$ATTACH_DIR" && "$SMOL" --web </dev/null 2>&1 || true)"
-    url="$(print -r -- "$out" | grep -o 'http://[^[:space:]]*' | tail -1 || true)"
+    url="$(print -r -- "$out" | grep -Eo 'http://127\.0\.0\.1:[0-9]+/\?k=[^[:space:]]*' | tail -1 || true)"
     if [ -z "$url" ]; then
-      echo "Erreur: pas d'URL retournée par smol --web. Sortie :" >&2
+      echo "Erreur: pas d'URL d'interface (?k=) retournée par smol --web. Sortie :" >&2
       print -r -- "$out" >&2
       exit 1
     fi
     echo "Interface web ($ATTACH_DIR) : $url"
-    echo "Arrêt définitif du démon : launchctl unload $LAUNCH_AGENT"
+    if [ -f "$LAUNCH_AGENT" ]; then
+      echo "Arrêt définitif du démon : launchctl unload $LAUNCH_AGENT"
+    fi
     open "$url"
     ;;
   session)

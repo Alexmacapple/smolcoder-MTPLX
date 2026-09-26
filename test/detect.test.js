@@ -144,6 +144,32 @@ test("a server is identified by what it answers, not by its port", async () => {
   assert.equal(await identifyServer(`http://127.0.0.1:${ollama.port}`, 2000), null, "nothing listening");
 });
 
+test("an OpenAI-compat-only listing (MTPLX) exposes context_length as the window", async () => {
+  const server = await serve({
+    "/v1/models": { object: "list", data: [{ id: "mtplx-test", context_length: 262144 }, { id: "text-embed-tiny", context_length: 8192 }] },
+  });
+  try {
+    const info = await identifyServer(`http://127.0.0.1:${server.port}`, 2000);
+    assert.equal(info.backend, "lmstudio");
+    assert.deepEqual(info.models.map((m) => m.id), ["mtplx-test"], "embeddings filtered out");
+    assert.equal(info.models[0].contextWindow, 262144);
+    assert.equal(info.models[0].note, undefined, "no guess note when the listing gives the window");
+  } finally {
+    await server.close();
+  }
+});
+
+test("an OpenAI-compat listing without context info falls back to the 4096 guess", async () => {
+  const server = await serve({ "/v1/models": { object: "list", data: [{ id: "plain-model" }] } });
+  try {
+    const info = await identifyServer(`http://127.0.0.1:${server.port}`, 2000);
+    assert.equal(info.models[0].contextWindow, 4096);
+    assert.ok(info.models[0].note, "the guess is announced in a note");
+  } finally {
+    await server.close();
+  }
+});
+
 test("an Ollama server's OpenAI-compatible listing does not make it look like LM Studio", async () => {
   const server = await serve({ "/api/tags": { models: [] }, "/v1/models": { object: "list", data: [{ id: "x" }] } });
   try {

@@ -100,7 +100,7 @@ global n'est pas répété : il est chargé depuis `~/.smolcoder/AGENTS.md`
 (vérifié identique à `docs/agents-md-global.md` par `cmp`).
 SHA `2245322` reporté sur l'entrée précédente (banc du noyau).
 
-### (ce commit) — Section Projet et dégraissage du delta
+### `f1010d0` — Section Projet et dégraissage du delta
 
 `AGENTS.md`. Section « Projet » ajoutée en tête : build obligatoire
 après toute modification de `src/` (le binaire npm link et le démon
@@ -111,6 +111,44 @@ retirées car déjà portées par le noyau global : relire avant d'éditer
 (commandement 2), dire le non-vérifié (commandement 7), élargissement
 de périmètre annoncé (couvert par le mode d'échec « plus grand bien
 silencieux »). SHA `ccd2215` reporté sur l'entrée précédente.
+
+### (ce commit) — Correctifs issus de l'audit ShipGuard
+
+`src/prompt.ts`, `src/detect.ts`, `test/agents-md.test.js`,
+`test/detect.test.js`, `bench/noyau-agents-md/banc.sh`,
+`launch-smol-mtplx.command`. Correctifs mécaniques et test-first tirés
+de l'audit ShipGuard du fork (0 critique, 1 élevé, 22 moyens, 28 faibles).
+
+- `prompt.ts` : la déduplication des deux AGENTS.md compare désormais
+  l'identité de fichier (`realpathSync.native`), plus la chaîne de
+  chemin. Un AGENTS.md de projet en lien vers le global, ou un
+  workspace en lien vers `~/.smolcoder`, n'est plus lu deux fois.
+- `detect.ts` : prédicat `context_length` dédupliqué (`hasCtx`),
+  commentaire et note « older LM Studio » corrigés en
+  « OpenAI-compat » (MTPLX passe par cette branche).
+- `banc.sh` : arguments validés (usage, exit 2) avant tout montage ;
+  `mktemp` et `cd` gardés par `|| exit 1` (le scénario ne peut plus
+  s'exécuter dans le dossier appelant) ; constats comparés au commit
+  de référence capturé avant le run, plus à l'index ; `exec ... or die`,
+  timeout sur le test unitaire, empreinte du noyau enregistrée.
+- `launch-smol-mtplx.command` : `~/.smolcoder.json` fusionné en Python
+  (lastModel, effort et autres hôtes préservés) au lieu d'être écrasé ;
+  `mtplx_ok` sans pipe fragile et identifiant exact ; garde MTPLX.app
+  absente ; `--test` avec `trap` de nettoyage et timeout 300 s ;
+  extraction d'URL restreinte au motif `?k=`.
+- Tests : deux cas lien symbolique et un cas fichier illisible pour
+  `loadAgentsMd` (rouges avant le correctif, verts après) ; deux cas de
+  la branche compat `/v1/models` ; assertion du plafond global durcie à
+  4 000 caractères exacts.
+
+Vérifications : `npm test` 157/157 exit 0 (152 + 5 nouveaux) ; phase
+rouge confirmée sur les tests lien symbolique ; gardes d'arguments du
+banc éprouvées (exit 2) ; fusion de config prouvée sans perte et
+idempotente ; lanceur `--web` rejoué (URL fraîche, exit 0). Les 12
+constats à décision humaine restent ouverts (sens de `context_length`
+selon le serveur, précédence des règles projet vs noyau, session par
+lancement, course serveur de secours contre KeepAlive). SHA `f1010d0`
+reporté sur l'entrée précédente.
 
 ## Hors dépôt (machine locale)
 
