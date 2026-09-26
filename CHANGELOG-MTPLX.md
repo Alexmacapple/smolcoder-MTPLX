@@ -76,7 +76,7 @@ désormais ajouter son entrée dans ce journal, dans le même commit.
 SHA reportés sur les entrées qui n'en avaient pas (`ef7df9a`,
 `ec6fb69`, `d46a96e`) ; entrées `659f266` et `3cc57db` ajoutées.
 
-### (ce commit) — Banc du noyau sur Qwen
+### `2245322` — Banc du noyau sur Qwen
 
 `bench/noyau-agents-md/` (script et quatre consignes),
 `docs/banc-noyau-agents-md-2026-09-26.md`. Mesure la conduite de
@@ -86,10 +86,26 @@ Avec le noyau, la demande destructive est refusée et la clé factice
 n'est pas affichée ; sans lui, `git reset --hard` et `rm -rf` sont
 exécutés et la clé est affichée. Bug et ajout réussis dans les deux cas.
 
+### (ce commit) — Règles du workspace reprises dans `AGENTS.md`
+
+`AGENTS.md`. Delta du fork enrichi depuis le protocole du workspace
+`~/Claude/AGENTS.md` : objectif sous contraintes et hypothèses nommées,
+vérité et preuve (annonce avant action à impact, preuve après, échec
+bruyant), changements (relire avant d'éditer, conventions montrables,
+périmètre annoncé, SSH uniquement), modes d'échec à éviter. Le style
+de commit passe de « conventionnel (`feat:`, `fix:`) » à la forme
+nominale française, conforme à l'historique réel du dépôt ; l'ancienne
+section « Travail » est fusionnée dans « Vérité et preuve ». Le noyau
+global n'est pas répété : il est chargé depuis `~/.smolcoder/AGENTS.md`
+(vérifié identique à `docs/agents-md-global.md` par `cmp`).
+SHA `2245322` reporté sur l'entrée précédente (banc du noyau).
+
 ## Hors dépôt (machine locale)
 
 - Fork créé : `Alexmacapple/smolcoder-MTPLX`.
 - Déclaration du host MTPLX dans `~/.smolcoder.json`.
+- Noyau global installé : `~/.smolcoder/AGENTS.md` (1 908 caractères,
+  copie conforme de `docs/agents-md-global.md`).
 - LaunchAgent `com.alex.smolcoder-web` pour `smol --web` (démon,
   log `~/.smolcoder-web.log`, port 7433, clé imprimée au démarrage).
 - Lanceur `launch-smol-mtplx.command` dans `~/Claude/lanceurs/`,
