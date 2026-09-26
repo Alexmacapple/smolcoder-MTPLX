@@ -14,6 +14,14 @@ messages de commit sont en français, style conventionnel
 (`feat: …`, `fix: …`). Les commentaires de code, quand ils existent,
 sont en français.
 
+## Journal des modifications
+
+Toute modification du fork (code, lanceur, consignes) ajoute son
+entrée dans `CHANGELOG-MTPLX.md`, dans le même commit : SHA ou
+« (ce commit) », fichiers touchés, quoi et pourquoi, vérification
+observée. Le SHA d'un « (ce commit) » est reporté à la mise à jour
+suivante du journal.
+
 ## Travail
 
 Avant de modifier un fichier, dis en une phrase ce que tu fais et

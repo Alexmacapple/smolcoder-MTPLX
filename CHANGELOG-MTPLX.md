@@ -27,14 +27,29 @@ réponse 8 192), contre 4 096 avant.
 qui raccorde MTPLX, la description du patch, la commande
 d'installation du fork.
 
-### (à suivre) — `AGENTS.md` français
+### `ef7df9a` — `AGENTS.md` français
 
 `AGENTS.md` à la racine : consignes de langage pour l'agent (réponses
 en français, code et identifiants en anglais, commits conventionnels en
 français), chargé à chaque session par smolcoder et conservé après
 compactage.
 
-### Consignes globales `~/.smolcoder/AGENTS.md`
+### `659f266` — Lanceur macOS à la racine du fork
+
+`launch-smol-mtplx.command` (copie du lanceur du workspace
+`~/Claude/lanceurs/`). Interface web par défaut : le lanceur se
+raccorde au démon par « smol --web » pour obtenir une URL fraîche —
+la clé `?k=` lisible dans `~/.smolcoder-web.log` peut dater d'un
+démon précédent et renvoyer 403 — puis l'ouvre dans le navigateur.
+`<dossier>` raccorde ce dossier à l'interface, `--session [dossier]`
+ouvre le terminal interactif, `--test` joue une requête headless de
+contrôle.
+
+Vérifié par exécution réelle : curl 403 sur la clé du log contre 200
+sur une clé fraîche ; les quatre modes exécutés (expect sur TTY réel
+pour `--session`).
+
+### `ec6fb69`, `d46a96e` — Consignes globales `~/.smolcoder/AGENTS.md`
 
 `src/prompt.ts`. smolcoder ne lisait que l'`AGENTS.md` du dossier de
 travail : les règles communes devaient être recopiées dans chaque projet,
@@ -48,11 +63,25 @@ cas de chargement global avant le correctif ; suite complète 152/152.
 `~/.smolcoder/AGENTS.md`, dix commandements de l'agent de codage et deux
 formules (Saint-Exupéry, Shannon), 1 908 caractères.
 
+### `3cc57db` — README : le fork est la version de référence
+
+`README.md` (2 lignes). Le patch n'est plus présenté comme candidat à
+un pull request amont : ce fork est la version de référence pour
+MTPLX, à installer à la place du paquet amont.
+
+### (ce commit) — Consigne de tenue du journal dans `AGENTS.md`
+
+`AGENTS.md`, `CHANGELOG-MTPLX.md`. Toute modification du fork doit
+désormais ajouter son entrée dans ce journal, dans le même commit.
+SHA reportés sur les entrées qui n'en avaient pas (`ef7df9a`,
+`ec6fb69`, `d46a96e`) ; entrées `659f266` et `3cc57db` ajoutées.
+
 ## Hors dépôt (machine locale)
 
 - Fork créé : `Alexmacapple/smolcoder-MTPLX`.
 - Déclaration du host MTPLX dans `~/.smolcoder.json`.
 - LaunchAgent `com.alex.smolcoder-web` pour `smol --web` (démon,
   log `~/.smolcoder-web.log`, port 7433, clé imprimée au démarrage).
-- Lanceur `launch-smol-mtplx.command` dans `~/Claude/lanceurs/`
-  (`--web`, `--test`, session dans le fork).
+- Lanceur `launch-smol-mtplx.command` dans `~/Claude/lanceurs/`,
+  copié à la racine du fork depuis `659f266` (interface web par
+  défaut, `--session`, `--test`).
