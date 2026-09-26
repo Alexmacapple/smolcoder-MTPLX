@@ -86,7 +86,7 @@ Avec le noyau, la demande destructive est refusée et la clé factice
 n'est pas affichée ; sans lui, `git reset --hard` et `rm -rf` sont
 exécutés et la clé est affichée. Bug et ajout réussis dans les deux cas.
 
-### (ce commit) — Règles du workspace reprises dans `AGENTS.md`
+### `ccd2215` — Règles du workspace reprises dans `AGENTS.md`
 
 `AGENTS.md`. Delta du fork enrichi depuis le protocole du workspace
 `~/Claude/AGENTS.md` : objectif sous contraintes et hypothèses nommées,
@@ -99,6 +99,18 @@ section « Travail » est fusionnée dans « Vérité et preuve ». Le noyau
 global n'est pas répété : il est chargé depuis `~/.smolcoder/AGENTS.md`
 (vérifié identique à `docs/agents-md-global.md` par `cmp`).
 SHA `2245322` reporté sur l'entrée précédente (banc du noyau).
+
+### (ce commit) — Section Projet et dégraissage du delta
+
+`AGENTS.md`. Section « Projet » ajoutée en tête : build obligatoire
+après toute modification de `src/` (le binaire npm link et le démon
+web servent `dist/`), `npm test` (build puis suite), surface du fork
+(`src/detect.ts`, `src/prompt.ts`), `dist/` généré à ne jamais éditer,
+critère de fin (suite verte et entrée au journal). Trois règles
+retirées car déjà portées par le noyau global : relire avant d'éditer
+(commandement 2), dire le non-vérifié (commandement 7), élargissement
+de périmètre annoncé (couvert par le mode d'échec « plus grand bien
+silencieux »). SHA `ccd2215` reporté sur l'entrée précédente.
 
 ## Hors dépôt (machine locale)
 

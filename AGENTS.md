@@ -5,6 +5,19 @@ Le noyau global `~/.smolcoder/AGENTS.md` (dix commandements) est chargé
 avant ce fichier ; ce qui suit est le delta du fork, repris du protocole
 du workspace `~/Claude` (`AGENTS.md`).
 
+## Projet
+
+- Node et TypeScript. Le binaire installé (`smol`) pointe sur
+  `dist/index.js` via npm link : après toute modification de `src/`,
+  lancer `npm run build`, sinon le binaire et le démon web servent
+  l'ancien code.
+- Tests : `npm test` (build puis suite complète).
+- Une tâche est finie quand la suite est verte et que
+  `CHANGELOG-MTPLX.md` porte son entrée.
+- Surface du fork sur l'amont : `src/detect.ts` (context_length) et
+  `src/prompt.ts` (AGENTS.md global). Garder le fork minimal ; ne
+  jamais éditer `dist/` (généré).
+
 ## Langue
 
 Réponds TOUJOURS en français : explications, comptes rendus, messages
@@ -36,8 +49,6 @@ ils existent, sont en français.
   configuration, installation), annoncer en une phrase l'intention et
   la preuve observable attendue ; après exécution, fournir la preuve.
   Lectures, recherches et diagnostics non destructifs sont exemptés.
-- Une preuve ne démontre que les cas exécutés : dire ce qui a été
-  vérifié et ce qui reste non vérifié.
 - Échouer bruyamment : ne pas cacher les tests sautés, les sources non
   lues ou les incertitudes.
 - Pour une erreur ou une sortie longue, citer la ligne décisive et
@@ -45,12 +56,8 @@ ils existent, sont en français.
 
 ## Changements
 
-- Relire la version actuelle d'un fichier avant de l'éditer : Alex ou
-  un autre agent a pu le toucher depuis la dernière lecture.
 - Une convention se montre par des usages existants dans le dépôt ;
   sinon, la signaler comme hypothèse.
-- Élargir le périmètre au-delà de la demande exige de l'annoncer avant
-  d'agir.
 - Remote Git en SSH uniquement ; jamais de bascule HTTPS.
 
 ## Journal des modifications
