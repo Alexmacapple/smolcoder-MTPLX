@@ -1,3 +1,56 @@
+# Préambule — fork MTPLX (français)
+
+> **Crédit original** : ce projet est [smolcoder](https://github.com/leonvanzyl/smolcoder)
+> de Leon van Zyl, licence MIT. Tout le contenu ci-dessous est le sien ;
+> ce préambule et un seul patch local s'y ajoutent.
+
+Cette branche `main` est un fork fait le 26 septembre 2026 pour faire
+tourner smolcoder avec **Qwen 3.8 27B** (variante
+`Qwen3.8-27B-MTPLX-Optimized-Speed-FP16`) servi localement par
+**MTPLX** sur un Mac Studio M1 Ultra, sans aucun réglage supplémentaire.
+
+**Pourquoi ce fork.** MTPLX sert une API compatible OpenAI sur
+`http://127.0.0.1:8000/v1`. Smolcoder ne détecte nativement que
+Ollama (port 11434) et LM Studio (port 1234) : un serveur sur le port
+8000 ne serait jamais trouvé. Le déclarer comme host dans
+`~/.smolcoder.json` suffit pour le raccordement :
+
+```json
+{
+  "hosts": [
+    { "address": "http://127.0.0.1:8000", "name": "mtplx" }
+  ]
+}
+```
+
+Smolcoder interroge `/api/tags`, `/api/v1/models` puis `/v1/models` ;
+la réponse OpenAI-compat de MTPLX passe par la branche fallback
+« older LM Studio » (backend `lmstudio`), qui appelle
+`/v1/chat/completions` en streaming SSE — exactement ce que MTPLX
+sert. Aucun adaptateur nouveau n'est nécessaire.
+
+**Ce que ce fork a modifié** (un seul fichier, deux lignes, commit
+`0fbdc40`, `src/detect.ts`) : la branche fallback imposait une fenêtre
+de contexte de 4 096 tokens à tout serveur non identifié, alors que
+MTPLX rapporte `context_length: 262144` dans `/v1/models`. Le patch
+lit ce champ quand il est présent et positif ; l'estimation 4 096 ne
+s'applique plus qu'en son absence. Résultat mesuré : la session
+affiche `ctx 262,144` (usage réel 1 361 tokens après un message,
+réserve de réponse 8 192), contre 4 096 avant.
+
+**Installer cette version** :
+
+```bash
+npm install -g git+https://github.com/Alexmacapple/smolcoder-MTPLX.git
+```
+
+Puis écrire `~/.smolcoder.json` (ci-dessus) et lancer `smol` depuis un
+dossier de projet. Le patch est candidat pour un pull request vers le
+dépôt amont ; tant qu'il n'est pas intégré, installer ce fork plutôt
+que le paquet amont.
+
+---
+
 # smolcoder
 
 A smol coding agent for the models already running on your machine.
