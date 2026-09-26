@@ -173,7 +173,7 @@ export class Agent {
       }
       exec = auth.decision.exec;
     }
-    const result = await runCommandResult(command, this.toolCtx.workspace, signal, undefined, exec);
+    const result = await runCommandResult(command, this.toolCtx.workspace, signal, undefined, exec, this.toolCtx.executor, "check");
     if (signal.aborted) throw abortError();
     return { passed: commandPassed(result), output: renderCommandResult(result) };
   }

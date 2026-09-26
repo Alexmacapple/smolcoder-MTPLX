@@ -3,9 +3,10 @@
 // cwd and env carries across commands, output streams back, and a sentinel
 // after every command reports its exit code and the shell's cwd. No TTY means
 // no colors from most tools and no interactive programs — the panel says so.
+// The shell process comes from the executor (src/harness/executor.ts).
 
-import { ChildProcess, spawn } from "child_process";
-import { ExecOptions, killTree, pickShell, ShellInfo } from "../tools/shell";
+import { Execution, Executor, hostExecutor, pickShell, shellDialect, ShellInfo } from "../harness/executor";
+import { ExecOptions } from "../tools/shell";
 
 const RS = "\x1e"; // record separator — never appears in normal output
 const SENTINEL = /\x1e(-?\d+)\x1e([^\x1e]*)\x1e\r?\n?/;
@@ -36,7 +37,7 @@ export class Terminal {
   closed = false;
   readonly shell: ShellInfo;
 
-  private proc: ChildProcess | null = null;
+  private shellRun: Execution | null = null;
   private acc = "";
   private kind: "posix" | "powershell";
   private interrupting = false;
@@ -47,62 +48,67 @@ export class Terminal {
     readonly id: string,
     cwd: string,
     private hooks: TerminalHooks,
-    private guard?: TerminalGuard
+    private guard?: TerminalGuard,
+    /** La couture d'exécution, l'adaptateur hôte par défaut. */
+    private executor: Executor = hostExecutor
   ) {
     this.cwd = cwd;
     this.shell = pickShell();
-    this.kind = /powershell|pwsh/i.test(this.shell.exe) ? "powershell" : "posix";
+    this.kind = shellDialect(this.shell);
     this.emit(`\x1b[2m${this.shell.label} · no TTY: interactive programs will not work · ctrl+c interrupts\x1b[0m\n`);
-    this.spawn();
+    this.startShell();
   }
 
-  private spawn(): void {
+  private startShell(): void {
     // Profil mission : ni l'environnement entier ni le profil de connexion de
     // l'utilisateur, qui peut réexporter des secrets.
     const exec = this.guard?.exec();
-    const args = this.kind === "posix" ? (exec && !exec.login ? [] : ["-l"]) : ["-NoProfile", "-NonInteractive", "-Command", "-"];
     this.spawnedAt = Date.now();
-    let proc: ChildProcess;
+    let run: Execution;
     try {
-      proc = spawn(this.shell.exe, args, {
+      run = this.executor.start({
+        surface: "terminal",
+        command: null,
         cwd: this.cwd,
         env: { ...(exec?.env ?? process.env), TERM: "dumb" },
-        detached: process.platform !== "win32",
-        windowsHide: true,
-        stdio: ["pipe", "pipe", "pipe"],
+        login: exec?.login ?? true,
+        capture: "stream",
+        onOutput: (text) => this.ingest(text),
+        onClose: (code) => this.shellClosed(run, code),
       });
     } catch (err: any) {
       this.emit(`[could not start ${this.shell.label}: ${err?.message ?? err}]\n`);
       return;
     }
-    this.proc = proc;
-    proc.stdout?.on("data", (d: Buffer) => this.ingest(d.toString("utf8")));
-    proc.stderr?.on("data", (d: Buffer) => this.ingest(d.toString("utf8")));
-    proc.on("error", (err) => this.emit(`[could not start ${this.shell.label}: ${err.message}]\n`));
-    proc.on("close", (code) => {
-      if (this.proc !== proc) return;
-      this.proc = null;
-      if (this.acc) {
-        this.emit(this.acc);
-        this.acc = "";
-      }
-      if (this.closed) return;
-      if (this.interrupting) {
-        this.interrupting = false;
-        this.emit("\n\x1b[33m[interrupted]\x1b[0m\n");
-        this.spawn();
-        return;
-      }
-      // A shell that dies instantly, twice, is not going to work — stop.
-      const quick = Date.now() - this.spawnedAt < 1500;
-      this.quickExits = quick ? this.quickExits + 1 : 0;
-      if (this.quickExits >= 2) {
-        this.emit(`\n\x1b[31m[${this.shell.label} keeps exiting (code ${code}) — close this tab and open a new terminal]\x1b[0m\n`);
-        return;
-      }
-      this.emit(`\n\x1b[2m[shell exited with code ${code} — starting a new one]\x1b[0m\n`);
-      this.spawn();
+    this.shellRun = run;
+    void run.result.then((r) => {
+      if (r.status === "spawn_error") this.emit(`[could not start ${this.shell.label}: ${r.error}]\n`);
     });
+  }
+
+  private shellClosed(run: Execution, code: number | null): void {
+    if (this.shellRun !== run) return;
+    this.shellRun = null;
+    if (this.acc) {
+      this.emit(this.acc);
+      this.acc = "";
+    }
+    if (this.closed) return;
+    if (this.interrupting) {
+      this.interrupting = false;
+      this.emit("\n\x1b[33m[interrupted]\x1b[0m\n");
+      this.startShell();
+      return;
+    }
+    // A shell that dies instantly, twice, is not going to work — stop.
+    const quick = Date.now() - this.spawnedAt < 1500;
+    this.quickExits = quick ? this.quickExits + 1 : 0;
+    if (this.quickExits >= 2) {
+      this.emit(`\n\x1b[31m[${this.shell.label} keeps exiting (code ${code}) — close this tab and open a new terminal]\x1b[0m\n`);
+      return;
+    }
+    this.emit(`\n\x1b[2m[shell exited with code ${code} — starting a new one]\x1b[0m\n`);
+    this.startShell();
   }
 
   /** Run one line. Echoed into the stream first, so every connected page (and
@@ -123,39 +129,39 @@ export class Terminal {
         return;
       }
     }
-    if (!this.proc?.stdin?.writable) {
-      this.emit("\x1b[31m[no shell running]\x1b[0m\n");
-      return;
-    }
     const payload =
       this.kind === "posix"
         ? // The group redirect keeps a stdin-hungry command (cat, ssh) from
           // eating the next command off our pipe; 2>&1 keeps output ordered.
           `{\n${cmd}\n} </dev/null 2>&1\nprintf '${RS}%s${RS}%s${RS}\\n' "$?" "$PWD"\n`
         : `${cmd}\nWrite-Output ([string][char]0x1e + $(if ($?) {0} else {1}) + [char]0x1e + (Get-Location).Path + [char]0x1e)\n`;
+    // Faux : pas de shell dont l'entrée soit ouverte, rien n'a été écrit.
+    let written = false;
     try {
-      this.proc.stdin.write(payload);
+      written = this.shellRun?.write(payload) ?? false;
     } catch (err: any) {
       this.emit(`[could not write to the shell: ${err?.message ?? err}]\n`);
+      return;
     }
+    if (!written) this.emit("\x1b[31m[no shell running]\x1b[0m\n");
   }
 
   /** ctrl+c: kill the shell (and whatever it is running), start a fresh one
    * in the last known cwd. */
   interrupt(): void {
     if (this.closed) return;
-    if (!this.proc) {
-      this.spawn();
+    if (!this.shellRun) {
+      this.startShell();
       return;
     }
     this.interrupting = true;
-    if (this.proc.pid) killTree(this.proc.pid);
+    this.shellRun.kill();
   }
 
   close(): void {
     this.closed = true;
-    if (this.proc?.pid) killTree(this.proc.pid);
-    this.proc = null;
+    this.shellRun?.kill();
+    this.shellRun = null;
   }
 
   private ingest(text: string): void {
@@ -195,7 +201,7 @@ export class Terminal {
   }
 }
 
-/** Git Bash reports /c/x for C:\x; spawn() needs the Windows form. */
+/** Git Bash reports /c/x for C:\x; the next shell's cwd needs the Windows form. */
 export function toOsPath(p: string): string {
   if (process.platform === "win32") {
     const m = /^\/([a-zA-Z])(\/.*)?$/.exec(p);

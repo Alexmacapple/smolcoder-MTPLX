@@ -585,6 +585,77 @@ la décision #14 (« #11 : fichier à définir ») alors que sa rubrique
 politique à l'approbation (`policyRef` reste réservé), sortie 4 testée par
 ses briques et non par le CLI contre un backend.
 
+### (ce commit) — Contrat d'exécuteur unique — Closes #15
+
+`src/harness/executor.ts` (nouveau), `src/tools/shell.ts`,
+`src/tools/tasks.ts`, `src/web/terminal.ts`, `src/agent.ts`,
+`src/tools/index.ts`, `test/executor.test.js` (nouveau). Ticket #15
+(H03-1), premier sous-ticket du chapeau #12, sur le résultat typé (#9) et la
+politique d'accès (#11).
+
+Les quatre surfaces qui lancent une commande du projet — `run_command`,
+`task.start`, les vérifications automatiques (`verify` et `checkProgress`,
+par `runCheck`) et le terminal web — demandent désormais leur processus à un
+exécuteur unique (`Executor.start`) au lieu d'appeler `spawn` chacune. La
+requête nomme la surface, la commande (`null` : le shell persistant du
+terminal, qui lit ses lignes sur l'entrée standard), le dossier,
+l'environnement, le shell de connexion, le délai, le signal d'annulation et
+le mode de capture (`buffer` : sortie mêlée et plafonnée dans le résultat ;
+`stream` : morceau par morceau). L'exécution rend le résultat typé de #9
+(démarrage, statut, code de sortie, signal, durée, délai, erreur), plus
+`write` (entrée standard) et `kill` (l'arbre, flux laissés ouverts) ;
+`onClose` donne au terminal le code brut de fermeture (négatif après un échec
+de lancement), toujours après le résultat. L'adaptateur hôte `hostExecutor`
+reprend le lancement historique à l'identique : `pickShell`, `killTree`,
+`managedCommand` et `CommandResult` y sont déplacés sans changement (comparés
+octet pour octet) et restent importables depuis `src/tools/shell.ts`.
+Couture : `ToolContext.executor` (`run_command` et vérifications),
+`new TaskManager(cwd, executor)`, `new Terminal(…, guard, executor)` ;
+absente, l'adaptateur hôte. La session et le hub n'en passent aucune : choisir
+un backend relève de #16. La politique décide toujours avant l'effet ;
+l'exécuteur ne juge rien et transmet l'environnement tel quel.
+
+Comportement inchangé. Déplacements déclarés : arrêter une tâche annule son
+exécution (même destruction de l'arbre, même fermeture des flux) ; le statut
+d'une tâche, le message d'échec de lancement du terminal et sa relance sont
+appliqués une microtâche après l'événement du système au lieu de pendant,
+sans entrée ni sortie possible entre les deux. La méthode privée
+`Terminal.spawn` devient `startShell`, pour que le critère `spawn(` ne relève
+plus que de vrais lancements.
+
+Exceptions au critère `git grep -n "spawn(" src/` : `src/web/hub.ts` (lignes
+312, 321, 334, 452), méthode `Hub.spawn` qui démarre un objet `Session` dans
+le processus, sans processus enfant. Autres lancements hors de l'exécuteur,
+étrangers aux commandes du projet et fixés par un test : `src/detect.ts`
+(`execFile` de `docker ps` / `podman ps`, découverte des ports d'un serveur de
+modèles) et `src/tools/check.ts` (`spawnSync` de `node --check` sur une copie
+temporaire et de `compile()` Python : analyse syntaxique d'un fichier écrit,
+sans l'exécuter). Dans l'exécuteur, `spawnSync` de `where.exe` (choix du
+shell) et de `taskkill` (Windows).
+
+Vérifications. Quatre tests de caractérisation écrits d'abord, verts sur le
+code d'avant : terminal dont le dossier a disparu (deux échecs de lancement,
+code -2, puis arrêt), ctrl+c qui tue la commande avec son shell puis relance,
+tâche impossible à lancer (code -1), code réel d'une tâche et absence de code
+après un signal. Rouge avant le câblage : « les quatre surfaces passent par
+l'exécuteur injecté » échoue sur `{}` (aucune surface ne demande le faux ; de
+vrais processus écrivent les marqueurs), et le test structurel liste
+`tools/shell.ts`, `tools/tasks.ts` et `web/terminal.ts` comme lanceurs. Vert
+après : une demande par surface, aucun marqueur écrit, les mêmes paramètres
+qu'avant (120 s pour `run_command` et les vérifications, aucun délai pour les
+tâches et le terminal, environnement de l'hôte, `TERM=dumb` au terminal,
+shell de connexion) et la projection historique du résultat du faux. Quatre
+mutations du code compilé, une par surface revenue à l'adaptateur hôte, font
+chacune échouer ce test. Trois tests du contrat de l'adaptateur hôte (flux,
+shell persistant tué par signal, résultat puis fermeture après un échec de
+lancement). Neuf tests ajoutés, nommés « H03-1 AC1 » à « H03-1 AC3 » ;
+`npm test` 242/242, dont les 233 existants inchangés
+(`git diff 2ea0b17 -- test/` vide), aucun test sauté.
+
+Restes : isolation réelle (#16), empreinte des outils (#17), intégration et
+campagne OS (#18) ; aucun appelant ne choisit encore d'exécuteur ; les sondes
+de `check.ts` et `detect.ts` restent hors de l'exécuteur, à trancher avec #16.
+
 ## Hors dépôt (machine locale)
 
 - Fork créé : `Alexmacapple/smolcoder-MTPLX`.
