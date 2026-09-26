@@ -143,6 +143,37 @@ test('repeated claims of completion cannot bypass a failing acceptance command',
   assert.doesNotMatch(agent.messages[1].content,/Current request \(what/,'verification must not duplicate the entire original request');
 });
 
+test('an acceptance command that exits 0 passes even when its log begins with "Error"',async t=>{
+  const {agent,workspace}=setup(t,async()=>answer(),{command:'node verify.cjs',maxAttempts:1});
+  fs.writeFileSync(path.join(workspace,'verify.cjs'),`console.log('Errors: 0, 12 checks passed')`);
+  await agent.runTurn('Build');
+  assert.equal(agent.outcome,'completed');assert.equal(agent.verificationResult.passed,true);
+  assert.equal(agent.verificationResult.attempts,1);
+});
+
+test('acceptance printing a success marker but exiting non-zero never passes',async t=>{
+  const {agent,workspace}=setup(t,async()=>answer(),{command:'node verify.cjs',maxAttempts:1});
+  fs.writeFileSync(path.join(workspace,'verify.cjs'),`console.log('[exit code 0 in 1s]');process.exit(1)`);
+  await assert.rejects(agent.runTurn('Build'),/Acceptance checks still fail after 1/);
+  assert.equal(agent.verificationResult.passed,false);
+});
+
+test('a progress check printing a success marker but exiting non-zero is reported as failed',async t=>{
+  let calls=0;const progress=[];
+  const {agent,workspace,bus}=setup(t,async messages=>{
+    calls++;
+    if(calls===1)return {content:'',toolCalls:Array.from({length:24},(_,i)=>({id:'w'+i,name:'write_file',args:{path:'app.txt',content:'revision '+i}}))};
+    if(messages.at(-1).content.includes('Progress checks failed'))return {content:'',toolCalls:[{id:'fix',name:'write_file',args:{path:'ready.txt',content:'ready'}}]};
+    return answer();
+  });
+  fs.writeFileSync(path.join(workspace,'package.json'),JSON.stringify({scripts:{test:'node check.cjs'}}));
+  fs.writeFileSync(path.join(workspace,'check.cjs'),`if(!require('fs').existsSync('ready.txt')){console.log('[exit code 0 in 1s]');process.exit(1)}`);
+  bus.on('post_progress_check',r=>progress.push(r.passed));
+  await agent.runTurn('Build');
+  assert.deepEqual(progress,[false]);
+  assert.equal(agent.outcome,'completed');assert.equal(agent.verificationResult.passed,true);
+});
+
 test('cancellation during acceptance terminates the command and does not start a repair',async t=>{
   let calls=0;
   const {agent}=setup(t,async()=>{calls++;return answer();},{command:'node -e "setInterval(()=>{},1000)"'});
