@@ -461,7 +461,7 @@ trois artefacts Loriq cités par le ticket, sans dépendance. La fusion de
 la pull request vaut acceptation ; #8, #9, #10 et #11 la référencent
 ensuite. SHA `1abfb2c` reporté sur l'entrée précédente.
 
-### (ce commit) — Contrat de mission et validation avant écriture — Closes #8
+### `354bd1a` — Contrat de mission et validation avant écriture — Closes #8
 
 `src/harness/store.ts` (nouveau), `src/harness/mission.ts` (nouveau),
 `src/agent.ts`, `src/context.ts`, `src/session.ts`, `src/index.ts`,
