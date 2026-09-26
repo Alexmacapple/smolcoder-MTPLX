@@ -24,12 +24,15 @@ sans collision pratique, lisible dans un `ls`.
 
 ### Contenu
 
-Deux fichiers par workspace, pas plus :
+Trois fichiers par workspace, pas plus (le troisième ajouté par #11,
+conformément à la rubrique « conséquences » ci-dessous) :
 
 - `contract.json` — le contrat de mission approuvé (motif A, plein).
   Schéma versionné (`smolcoder/contract/v1`), statuts fermés
   `proposed | approved | expired`, et l'approbation liée à l'empreinte du
   contrat : toute modification du contrat invalide l'approbation.
+- `policy.json` — la politique d'accès et sa version (ajouté par #11,
+  même grammaire, module propriétaire commun).
 - `proofs.jsonl` — journal en ajout seul (motifs B plein et C minimal) :
   une ligne JSON par événement, trois types exactement — `contract`
   (création ou changement d'état d'un contrat), `approval` (qui, quand,

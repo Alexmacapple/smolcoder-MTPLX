@@ -510,7 +510,7 @@ commandes du harnais et statut du bypass (#11).
 
 ## 2026-09-27
 
-### (ce commit) — Politique d'accès du profil mission — Closes #11
+### `a78fa69` — Politique d'accès du profil mission — Closes #11
 
 `src/harness/policy.ts` (nouveau), `src/harness/store.ts`,
 `src/harness/mission.ts`, `src/agent.ts`, `src/sandbox.ts`,
