@@ -146,7 +146,13 @@ découpé en quatre sous-tickets séquentiels :
 
 H06 minimal (baseline) → décision « stockage hôte » → H01 → H02 (le profil
 renforcé refuse le shell tant que H03-2 n'existe pas) → H03 en quatre
-sous-tickets → H04 → H05.
+sous-tickets → H04 → H07 (#19) → H05.
+
+Complément du 2026-09-26 au soir : H07 (#19, P2) ajouté après le socle de
+H04 — retours d'outils exploitables et péremption de lecture, recentrage
+d'une proposition plus large dont le curateur de contexte est repoussé
+(à instruire seulement si le banc montre que Qwen se noie) et dont les
+recouvrements avec #8, #9, #10 et #13 ont été renvoyés à ces tickets.
 
 ## Faits tranchés et erreurs relevées dans les revues
 

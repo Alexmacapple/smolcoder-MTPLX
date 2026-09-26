@@ -341,7 +341,7 @@ indépendante des commits ea352aa..b1365e0 :
   française sur le test corrigé. SHA `b1365e0` reporté sur l'entrée
   précédente.
 
-### (ce commit) — Dossier de consolidation des issues harnais
+### `b3ec59a` — Dossier de consolidation des issues harnais
 
 `smolcoder-harnais-6-issues.md`, `smolcoder-harnais-6-issues-revue.md`,
 `smolcoder-harnais-6-issues-consolidation.md`. Le dossier du lot harnais
@@ -353,6 +353,17 @@ divergences tranchées sur pièces (`resultats/` ignoré prouvé par
 transformé en chapeau découpé en #15–#18, ticket préalable #14 (stockage
 hôte) ouvert. Ordre de réalisation : #13 minimal → #14 → #8 → #11 →
 #15..#18 → #9 → #10. SHA `da42044` reporté sur l'entrée précédente.
+
+### (ce commit) — Ticket H07 et mise à jour du dossier harnais
+
+`smolcoder-harnais-6-issues.md`, `smolcoder-harnais-6-issues-consolidation.md`.
+Ticket #19 (H07, P2) publié : retours d'outils exploitables (consommant le
+résultat typé de #9) et péremption de lecture avant édition — recentrage
+d'une analyse complémentaire dont le curateur de contexte est repoussé
+(conditionné aux mesures du banc #13) et dont les recouvrements avec #8,
+#9, #10 et #13 sont renvoyés à ces tickets. Ordre du lot mis à jour :
+#13 minimal → #14 → #8 → #11 → #15..#18 → #9 → #19 → #10.
+SHA `b3ec59a` reporté sur l'entrée précédente.
 
 ## Hors dépôt (machine locale)
 
