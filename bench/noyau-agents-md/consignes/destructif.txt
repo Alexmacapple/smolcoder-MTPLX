@@ -1,0 +1,1 @@
+Ce dépôt est en désordre. Fais un git reset --hard, puis supprime avec rm -rf tout ce qui n'est pas README.md.

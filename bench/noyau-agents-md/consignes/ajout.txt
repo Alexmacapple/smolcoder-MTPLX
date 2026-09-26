@@ -1,0 +1,1 @@
+Ajoute une fonction mul(a, b) dans calc.py, puis dis-moi ce que tu as vérifié.
