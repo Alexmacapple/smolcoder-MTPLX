@@ -12,8 +12,10 @@ par une spécification, un ticket ou une demande claire.
    test concerné après chaque tranche, et la suite complète une fois à la fin
    (`npm test` = build + suite ; le binaire installé sert `dist/`, donc le
    build fait partie de la preuve).
-4. Une fois fini : relis ton propre diff avec `docs/skills/revue-de-code.md`
-   (les deux axes), corrige ce que la revue trouve.
+4. Une fois fini et avant de committer : relis ton propre diff avec
+   `docs/skills/revue-de-code.md` (les deux axes), en suivant son cas
+   « travail non encore commité » — le diff trois-points ne verrait rien à ce
+   stade. Corrige ce que la revue trouve.
 5. Committe sur la branche courante : message en français à la forme
    nominale, entrée dans `CHANGELOG-MTPLX.md` dans le même commit, jamais de
    ligne d'attribution. Ne pousse pas sans demande explicite.

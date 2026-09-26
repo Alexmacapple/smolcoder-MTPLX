@@ -365,7 +365,7 @@ d'une analyse complémentaire dont le curateur de contexte est repoussé
 #13 minimal → #14 → #8 → #11 → #15..#18 → #9 → #19 → #10.
 SHA `b3ec59a` reporté sur l'entrée précédente.
 
-### (ce commit) — Fiches de méthode portées des skills Matt Pocock
+### `e68dee2` — Fiches de méthode portées des skills Matt Pocock
 
 `docs/skills/` (sept fichiers), `AGENTS.md`. Six fiches françaises
 condensées depuis mattpocock/skills (commit `c55ee46`, MIT) : diagnostic
@@ -378,6 +378,18 @@ demande : session réelle, Qwen lit `diagnostic-bugs.md` et restitue les
 six phases (un appel d'outil, 38 s). L'effet sur la conduite reste une
 hypothèse à mesurer au banc, comme acté au ticket #20.
 SHA `f3d8f71` reporté sur l'entrée précédente.
+
+### (ce commit) — Revue avant commit : l'arbre de travail est inclus
+
+`docs/skills/revue-de-code.md`, `docs/skills/implementer.md`. Une analyse
+tierce a relevé une incohérence héritée de l'amont Pocock : la fiche
+d'implémentation demande la revue avant le commit, mais la fiche de revue
+n'examinait que `git diff <point>...HEAD`, aveugle à l'arbre de travail.
+La revue distingue désormais les deux cas (`git diff <point>` pour un
+travail non commité, trois-points pour une branche commitée), commence
+par `git status --short` pour séparer modifications humaines et
+modifications de l'agent, et la fiche d'implémentation renvoie au bon
+cas. SHA `e68dee2` reporté sur l'entrée précédente.
 
 ## Hors dépôt (machine locale)
 

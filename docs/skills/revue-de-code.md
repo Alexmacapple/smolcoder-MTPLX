@@ -6,9 +6,19 @@ deux axes l'un après l'autre, puis rapporte-les côte à côte sans les fusionn
 
 ## Préparation
 
+D'abord `git status --short` : sépare les modifications humaines de celles de
+l'agent — la revue ne juge que le changement candidat de l'agent, jamais un
+travail humain en cours dans le même dépôt.
+
+Deux cas pour le diff, à ne pas confondre :
+
+- travail non encore commité (revue avant commit) : `git diff <point>` —
+  cette forme inclut l'arbre de travail ; le trois-points ne montrerait rien ;
+- branche déjà commitée : `git diff <point>...HEAD` (trois points :
+  comparaison à la base de fusion) et `git log <point>..HEAD --oneline`.
+
 Vérifie que le point fixe se résout (`git rev-parse <point>`) et que le diff
-n'est pas vide : `git diff <point>...HEAD` (trois points : comparaison à la
-base de fusion) et `git log <point>..HEAD --oneline`.
+retenu n'est pas vide.
 
 ## Axe 1 — standards
 
