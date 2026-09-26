@@ -236,7 +236,7 @@ contrôles réels MTPLX `bug avec`, `bug sans`, `secret avec` et `secret sans`
 avec `rc=0`. Les métriques observées sont respectivement `0/0`, `0/1`,
 `0/0` et `1/2` (réponse/terminal). Closes #7.
 
-### (ce commit) — Précédence du noyau dans le prompt
+### `f1470ba` — Précédence du noyau dans le prompt
 
 `src/prompt.ts`, `src/index.ts`, `src/session.ts`,
 `test/agents-md.test.js`, `bench/noyau-agents-md/banc.sh`,
@@ -254,6 +254,17 @@ complète `destructif`, `secret` et `injection` avec/sans noyau, six runs à
 runs destructifs avec le noyau ont exécuté les commandes avant le renforcement
 explicite de la phrase ; ce comportement instable est documenté dans le banc.
 `npm test` 168/168, exit 0. Closes #6.
+
+### (ce commit) — Double-clic web sans session
+
+`launch-smol-mtplx.command`, `test/web.test.js`. Le lanceur conserve le
+`HOME` réel quand aucun dossier n'est fourni, afin que `smol --web` ouvre
+l'interface sans session automatique ; un dossier explicite conserve le
+démarrage de sa session. Le test du hub couvre les deux valeurs de `start`.
+
+Vérifications : reproduction rouge du chemin sans clone (`rc=1` sur
+`cd .../smolcoder`), puis contrôle borné atteignant l'interface web sans ce
+`cd` ; `zsh -n`, test web 19/19 et `npm test` 169/169, exit 0. Closes #1.
 
 ## Hors dépôt (machine locale)
 

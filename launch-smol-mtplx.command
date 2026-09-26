@@ -164,27 +164,25 @@ case "$MODE" in
         sleep 1
       done
     fi
-    ATTACH_DIR="${WORKSPACE:-$PWD}"
-    # Double-clic Finder : cwd = $HOME ; ne pas enrôler tout le home dans l'UI.
-    if [ -z "$WORKSPACE" ] && [ "$ATTACH_DIR" = "$HOME" ]; then
-      ATTACH_DIR="$FORK_ROOT"
-    fi
+    # Sans dossier explicite, rester dans HOME pour que smol ouvre l'interface
+    # sans créer de session ; un dossier donné garde sa session automatique.
+    WEB_CWD="${WORKSPACE:-$HOME}"
     if ! web_ui_up; then
       echo "Pas de démon web ($LAUNCH_AGENT absent ou muet) :"
       echo "serveur lancé dans ce terminal — le fermer arrête l'interface."
-      cd "$ATTACH_DIR"
+      cd "$WEB_CWD"
       exec "$SMOL" --web ${SMOL_WEB_PORT:+"$SMOL_WEB_PORT"}
     fi
     # Raccorde ATTACH_DIR à l'interface en cours et récupère une URL fraîche
     # (celle du log peut dater d'un démon précédent : elle renverrait 403).
-    out="$(cd "$ATTACH_DIR" && avec_timeout 30 "$SMOL" --web </dev/null 2>&1 || true)"
+    out="$(cd "$WEB_CWD" && avec_timeout 30 "$SMOL" --web </dev/null 2>&1 || true)"
     url="$(print -r -- "$out" | grep -Eo 'http://127\.0\.0\.1:[0-9]+/\?k=[^[:space:]]*' | tail -1 || true)"
     if [ -z "$url" ]; then
       echo "Erreur: pas d'URL d'interface (?k=) retournée par smol --web. Sortie :" >&2
       print -r -- "$out" >&2
       exit 1
     fi
-    echo "Interface web ($ATTACH_DIR) : $url"
+    echo "Interface web ($WEB_CWD) : $url"
     if [ -f "$LAUNCH_AGENT" ]; then
       echo "Arrêt définitif du démon : launchctl bootout gui/$(id -u) $LAUNCH_AGENT"
     fi

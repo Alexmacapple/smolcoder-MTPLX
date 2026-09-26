@@ -315,6 +315,28 @@ test("hub: token guard, page, ping, folder listing, and the running-hub record",
   assert.equal(readHubRecord(dataDir), null, "the record is removed on shutdown");
 });
 
+test("hub: adding a workspace starts a session only when requested", async () => {
+  const dataDir = tmpdir("smol-hub-start-");
+  const ws = path.join(dataDir, "proj");
+  fs.mkdirSync(ws);
+  const calls = [];
+  const hub = new WebHub({ port: 0, prefs: {}, help: "help", version: "9.9.9", dataDir, factory: fakeFactory(calls), quiet: true });
+  await hub.start();
+  const k = "?k=" + hub.authToken;
+  try {
+    const added = JSON.parse((await request(hub, "POST", "/workspaces/add" + k, { path: ws, start: false })).body);
+    assert.equal(added.id, undefined);
+    assert.equal(hub.snapshot().workspaces[0].sessions.length, 0);
+
+    const started = JSON.parse((await request(hub, "POST", "/workspaces/add" + k, { path: ws, start: true })).body);
+    assert.ok(started.id);
+    await until(() => calls.length === 1, 2000, "started workspace session");
+    assert.equal(hub.snapshot().workspaces[0].sessions.length, 1);
+  } finally {
+    hub.close();
+  }
+});
+
 test("hub: sessions start, echo, save, close, resume, delete; workspaces add and remove", async () => {
   const dataDir = tmpdir("smol-hub2-");
   const ws = path.join(dataDir, "proj");
