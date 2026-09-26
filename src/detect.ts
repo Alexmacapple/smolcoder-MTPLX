@@ -40,6 +40,8 @@ export interface DetectedModel {
   maxContext?: number;
   /** LM Studio only: whether the model is currently loaded. */
   loaded?: boolean;
+  /** Le modèle vient de la liste de repli OpenAI-compatible. */
+  openaiCompat?: boolean;
   /** LM Studio only: reasoning levels the model supports and its default. */
   reasoning?: ReasoningInfo;
   /** Whether the model accepts image input; undefined when the backend did not say. */
@@ -309,8 +311,9 @@ export async function identifyServer(base: string, timeoutMs = NETWORK_PROBE_TIM
           backend: "lmstudio" as const,
           baseUrl: base,
           contextWindow: hasCtx ? m.context_length : LMSTUDIO_JIT_GUESS,
+          openaiCompat: true,
           ...(hasCtx
-            ? { note: COMPAT_CONTEXT_DECLARED_NOTE }
+            ? { loaded: true, note: COMPAT_CONTEXT_DECLARED_NOTE }
             : { note: "context window unknown (OpenAI-compat listing) — assuming 4096 to be safe." }),
         };
       });

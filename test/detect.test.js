@@ -16,7 +16,7 @@ const {
   probeHosts,
   readLmStudioPort,
 } = require("../dist/detect");
-const { modelOptions } = require("../dist/session");
+const { autoPickModel, modelOptions } = require("../dist/session");
 
 /** A fake model server: `routes` maps a path to a JSON body (or [status, body]). */
 async function serve(routes) {
@@ -155,7 +155,10 @@ test("an OpenAI-compat-only listing (MTPLX) exposes context_length as the window
     assert.deepEqual(info.models.map((m) => m.id), ["mtplx-test"], "embeddings filtered out");
     assert.equal(info.models[0].contextWindow, 262144);
     assert.equal(info.models[0].note, "context window declared by the server (unverified)");
-    assert.match(modelOptions(info.models)[0].hint, /context window declared by the server \(unverified\)/);
+    assert.equal(info.models[0].loaded, true, "a declared context means the compat server serves the model");
+    assert.equal(info.models[0].openaiCompat, true);
+    assert.match(modelOptions(info.models)[0].hint, /^openai-compat · ctx 262,144/);
+    assert.equal(autoPickModel(info.models, undefined, undefined), info.models[0]);
   } finally {
     await server.close();
   }

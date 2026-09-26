@@ -287,7 +287,7 @@ Vérifications : reproduction rouge (`rc=1` sur le `cd` implicite), puis
 `zsh -n`, reproduction verte (`rc=2` avec le message attendu) et
 `npm test` 169/169, exit 0. Closes #3.
 
-### (ce commit) — Note de fenêtre compat déclarée
+### `94414f6` — Note de fenêtre compat déclarée
 
 `src/detect.ts`, `src/session.ts`, `test/detect.test.js`. La valeur
 `context_length` fournie par la liste OpenAI-compatible reste utilisée sans
@@ -296,7 +296,19 @@ server (unverified)` dans la détection, le sélecteur et le statut de session.
 Le repli à 4 096 conserve sa note d’estimation distincte.
 
 Vérifications : test ciblé rouge puis reconstruction et test ciblé verts
-(16/16) ; `npm test` à lancer avant le commit. Closes #4.
+(16/16) ; `npm test` 169/169, exit 0. Closes #4.
+
+### (ce commit) — Modèle compat marqué comme servi
+
+`src/detect.ts`, `src/session.ts`, `test/detect.test.js`. Les modèles de la
+branche OpenAI-compatible conservent `backend: "lmstudio"` pour l’adaptateur,
+mais portent un marqueur `openaiCompat`. Quand `context_length` est déclaré,
+le modèle est marqué `loaded`, le sélecteur affiche `openai-compat` avec sa
+fenêtre et `autoPickModel` peut le choisir comme modèle servi. Le repli sans
+fenêtre reste non chargé et conserve son estimation à 4 096.
+
+Vérifications : test ciblé rouge puis reconstruction et test ciblé verts
+(16/16) ; `npm test` à lancer avant le commit. Closes #5.
 
 ## Hors dépôt (machine locale)
 
