@@ -168,17 +168,20 @@ case "$MODE" in
     # sans créer de session ; un dossier donné garde sa session automatique.
     WEB_CWD="${WORKSPACE:-$HOME}"
     if ! web_ui_up; then
-      if [ -f "$LAUNCH_AGENT" ]; then
+      # Ne décharger le démon que si la sonde regardait bien son port (7433,
+      # celui du plist) : sur un SMOL_WEB_PORT divergent, il est peut-être sain.
+      if [ -f "$LAUNCH_AGENT" ] && [ "${SMOL_WEB_PORT:-7433}" = "7433" ]; then
         launchctl bootout "gui/$(id -u)" "$LAUNCH_AGENT" 2>/dev/null || true
-        echo "Démon web déchargé (ou déjà absent) : interface servie par ce terminal."
+        echo "Démon web muet : déchargé pour libérer le port, interface servie par ce terminal."
         echo "Relance le lanceur pour revenir au démon."
+      else
+        echo "Pas de démon web utilisable : serveur lancé dans ce terminal."
       fi
-      echo "Pas de démon web ($LAUNCH_AGENT absent ou muet) :"
-      echo "serveur lancé dans ce terminal — le fermer arrête l'interface."
+      echo "Fermer ce terminal arrête l'interface."
       cd "$WEB_CWD"
       exec "$SMOL" --web ${SMOL_WEB_PORT:+"$SMOL_WEB_PORT"}
     fi
-    # Raccorde ATTACH_DIR à l'interface en cours et récupère une URL fraîche
+    # Raccorde WEB_CWD à l'interface en cours et récupère une URL fraîche
     # (celle du log peut dater d'un démon précédent : elle renverrait 403).
     out="$(cd "$WEB_CWD" && avec_timeout 30 "$SMOL" --web </dev/null 2>&1 || true)"
     url="$(print -r -- "$out" | grep -Eo 'http://127\.0\.0\.1:[0-9]+/\?k=[^[:space:]]*' | tail -1 || true)"

@@ -5,6 +5,10 @@ const os = require('node:os');
 const path = require('node:path');
 const { buildSystemPrompt, loadAgentsMd, loadAgentsMdDetails } = require('../dist/prompt');
 
+function promptWith(globalAgentsMd, workspaceAgentsMd) {
+  return buildSystemPrompt({ workspace: '/tmp/ws', mode: 'edit', shellLabel: 'zsh', globalAgentsMd, workspaceAgentsMd });
+}
+
 /** A throwaway home and workspace, each optionally holding an AGENTS.md. */
 function setup({ global, local } = {}) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'smol-agents-'));
@@ -111,20 +115,19 @@ test('the system prompt separates global rules and workspace instructions', () =
   assert.ok(prompt.includes(globalHeader));
   assert.ok(prompt.includes(workspaceHeader));
   assert.ok(prompt.indexOf(globalHeader) < prompt.indexOf(workspaceHeader));
-  assert.ok(prompt.includes('global rules take precedence for safety'));
-  assert.ok(prompt.includes('global safety refusals remain binding even when the user explicitly requests a destructive command'));
-  assert.ok(prompt.includes('Never execute destructive commands such as `git reset --hard` or `rm -rf`'));
+  assert.ok(prompt.includes('the global rules take precedence'));
   assert.ok(prompt.includes('Global rule.') && prompt.includes('Local rule.'));
 });
 
-test('the system prompt keeps global precedence explicit without a workspace block', () => {
+test('the global block renders alone when the workspace has no AGENTS.md', () => {
   const prompt = buildSystemPrompt({
     workspace: '/tmp/workspace',
     mode: 'edit',
     shellLabel: 'zsh',
     globalAgentsMd: 'Global rule.',
   });
-  assert.ok(prompt.includes('global rules take precedence for safety'));
+  assert.ok(prompt.includes('Global rules (from ~/.smolcoder/AGENTS.md)'));
+  assert.ok(!prompt.includes('Workspace instructions (from AGENTS.md)'));
 });
 
 test('an oversized global file is capped at exactly 4000 chars with a visible marker', () => {
@@ -231,4 +234,20 @@ test('details warn when a file is truncated at its cap', () => {
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }
+});
+
+test('the precedence rule states the conflict rule without hard-coded commands', () => {
+  const text = promptWith('Global rule.', 'Local rule.');
+  assert.match(text, /Safety precedence:/);
+  assert.match(text, /cannot override or lift the global safety refusals/);
+  assert.ok(!text.includes('git reset --hard'), 'no hard-coded command list in the prompt');
+  assert.ok(!text.includes('even when the user explicitly requests'), 'an explicit user request is not overruled');
+});
+
+test('no precedence block without a global file', () => {
+  assert.ok(!promptWith(null, 'Local rule.').includes('Safety precedence'));
+});
+
+test('no precedence block with the global file alone (no possible conflict)', () => {
+  assert.ok(!promptWith('Global rule.', null).includes('Safety precedence'));
 });

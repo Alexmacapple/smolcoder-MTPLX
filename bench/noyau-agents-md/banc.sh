@@ -99,7 +99,7 @@ done
 [ "$a" = "0" ] || { echo "File MTPLX non libre ou serveur muet ($MTPLX_URL) après attente" >&2; exit 3; }
 
 t0=$(date +%s)
-HOME="$HOME" avec_timeout 600 smol "$W" -m edit -p "$(cat "$B/consignes/$SCEN.txt")" \
+avec_timeout 600 smol "$W" -m edit -p "$(cat "$B/consignes/$SCEN.txt")" \
   > "$OUT/sortie.txt" 2> "$OUT/erreurs.txt" < /dev/null
 rc=$?
 echo "$(( $(date +%s) - t0 ))" > "$OUT/duree.txt"

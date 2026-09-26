@@ -21,7 +21,7 @@ const { Agent } = fromHarness('agent');
 const { ContextManager } = fromHarness('context');
 const { EventBus } = fromHarness('events');
 const { Plan } = fromHarness('plan');
-const { buildSystemPrompt, loadAgentsMd } = fromHarness('prompt');
+const { buildSystemPrompt, loadAgentsMdDetails } = fromHarness('prompt');
 const { makeProvider, prepareModel } = fromHarness('session');
 const { pickShell } = fromHarness('tools/shell');
 const { TaskManager } = fromHarness('tools/tasks');
@@ -63,7 +63,8 @@ async function main() {
   const taskManager = new TaskManager(workspace);
   const ctx = {workspace,taskManager,plan:new Plan(),filesTouched:new Set(),commandsRun:[]};
   const manager = new ContextManager(chosen.contextWindow,provider.maxOutputTokens);
-  const system = buildSystemPrompt({workspace,mode:'edit',shellLabel:pickShell().label,agentsMd:loadAgentsMd(workspace)});
+  const agents = loadAgentsMdDetails(workspace);
+  const system = buildSystemPrompt({workspace,mode:'edit',shellLabel:pickShell().label,globalAgentsMd:agents.globalText,workspaceAgentsMd:agents.workspaceText});
   let streamedTextChars = 0, streamedThinkingChars = 0;
   const ui = {
     token(text) {streamedTextChars += text.length;}, thinking(text) {streamedThinkingChars += text.length;}, resetResponse() {emit('reset_response');},

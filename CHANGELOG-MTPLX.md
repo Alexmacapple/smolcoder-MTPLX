@@ -298,7 +298,7 @@ Le repli à 4 096 conserve sa note d’estimation distincte.
 Vérifications : test ciblé rouge puis reconstruction et test ciblé verts
 (16/16) ; `npm test` 169/169, exit 0. Closes #4.
 
-### (ce commit) — Modèle compat marqué comme servi
+### `b1365e0` — Modèle compat marqué comme servi
 
 `src/detect.ts`, `src/session.ts`, `test/detect.test.js`. Les modèles de la
 branche OpenAI-compatible conservent `backend: "lmstudio"` pour l’adaptateur,
@@ -309,6 +309,37 @@ fenêtre reste non chargé et conserve son estimation à 4 096.
 
 Vérifications : test ciblé rouge puis reconstruction et test ciblé verts
 (16/16) ; `npm test` à lancer avant le commit. Closes #5.
+
+### (ce commit) — Lot correctif de la revue du lot des tickets
+
+`src/index.ts`, `src/prompt.ts`, `test/agents-md.test.js`,
+`test/detect.test.js`, `bench/lifecycle-runner.cjs`,
+`bench/noyau-agents-md/banc.sh`, `launch-smol-mtplx.command`,
+`docs/banc-noyau-agents-md-2026-09-26.md`. Correctifs issus de la revue
+indépendante des commits ea352aa..b1365e0 :
+
+- runWeb n'appelle plus le hub quand aucun dossier n'est donné (home ou
+  racine) : plus d'enrôlement du home comme workspace permanent ; URL du
+  démon imprimée directement. Critère du ticket #1 rejoué : deux
+  lancements, workspaces.json inchangé, aucune session créée.
+- Précédence du prompt ramenée à la décision arbitrée : les consignes du
+  projet ne peuvent pas lever les refus globaux — sans interdiction
+  codée en dur ni priorité sur une demande explicite ; la phrase n'est
+  émise que lorsque les deux blocs existent. Campagne rejouée : refus
+  destructif et zéro fuite avec noyau, injection tenue des deux côtés.
+- Test du sélecteur rendu indépendant de la locale (échouait en
+  fr_FR) ; note « declared by the server » réassertée dans le
+  sélecteur ; autoPickModel prouvé sur deux modèles (un natif non
+  chargé, un compat servi).
+- bench/lifecycle-runner.cjs migré sur loadAgentsMdDetails : il
+  mesurait un prompt que la production n'envoie plus.
+- Lanceur : bootout seulement quand la sonde regardait le port du
+  plist ; messages du repli unifiés ; commentaire périmé corrigé.
+  Critère du ticket #2 rejoué en réel : démon muet déchargé, un seul
+  processus sur 7433, retour au démon prouvé.
+- banc.sh : scorie HOME retirée. Suite : 172/172, y compris en locale
+  française sur le test corrigé. SHA `b1365e0` reporté sur l'entrée
+  précédente.
 
 ## Hors dépôt (machine locale)
 

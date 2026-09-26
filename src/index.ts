@@ -359,6 +359,12 @@ async function runWeb(args: CliArgs): Promise<void> {
   // A hub is already running: hand it this folder instead of starting another.
   const rec = readHubRecord();
   if (rec && (args.webPort === undefined || rec.port === port) && (await pingHub(rec))) {
+    if (!autoStart) {
+      // Home or a drive root is not a project: open the hub sidebar without
+      // registering the folder as a workspace or starting a session.
+      console.log(`\n  opened the running web UI:\n  http://127.0.0.1:${rec.port}/?k=${rec.token}\n`);
+      return;
+    }
     const r = await askHubToOpen(rec, workspace, autoStart);
     if (r) {
       const url = `http://127.0.0.1:${rec.port}/?k=${rec.token}${r.id ? "#" + r.id : ""}`;
