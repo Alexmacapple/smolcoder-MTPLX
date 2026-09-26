@@ -18,6 +18,7 @@ import * as path from "path";
 import { DATA_DIR, loadConfig } from "../config";
 import { missionForWorkspace, missionTargets } from "../harness/mission";
 import { decide, terminalExec } from "../harness/policy";
+import { unavailableExecutor } from "../harness/sandbox-executor";
 import { noBackendsMessage, prepareModel, Session, SessionPrefs, SessionSnapshot, setupWithoutLocalModels } from "../session";
 import { tryFetchJson } from "../util";
 import { Attachment, classifyUpload, extOf, MAX_UPLOAD_BYTES, mimeForExt, safeName } from "../attachments";
@@ -583,13 +584,16 @@ export class WebHub {
     }
     const tid = `t${++this.termCounter}`;
     this.send({ t: "termopen", sid, tid, cwd: live.workspace });
+    // Profil mission (#16) : le shell du terminal vient de l'exécuteur isolé
+    // de la session ; une session qui n'en a pas n'ouvre aucun shell non isolé.
+    const executor = mission ? (live.session?.executor ?? unavailableExecutor("this session has no isolated executor")) : undefined;
     const term = new Terminal(tid, live.workspace, {
       output: (text) => this.send({ t: "term", sid, tid, s: text }),
       done: (code, cwd) => this.send({ t: "termdone", sid, tid, code, cwd }),
     }, mission ? {
       exec: () => terminalExec(mission),
       decide: (line, cwd) => decide(mission, { surface: "terminal", tool: "terminal", args: { command: line }, cwd }),
-    } : undefined);
+    } : undefined, executor);
     live.terminals.set(tid, term);
     this.changed();
     return { tid, cwd: term.cwd };

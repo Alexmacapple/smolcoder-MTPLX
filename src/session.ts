@@ -12,6 +12,7 @@ import { EventBus } from "./events";
 import { findModelsOnNetwork, FlowUI, manageHosts } from "./network";
 import { Mission, MissionPrefs } from "./harness/mission";
 import { BYPASS_UNDER_MISSION } from "./harness/policy";
+import { IsolatedExecutor, isolationLine, missionExecutor } from "./harness/sandbox-executor";
 import { Plan, PlanStep } from "./plan";
 import { buildSystemPrompt, loadAgentsMdDetails } from "./prompt";
 import { LmStudioProvider } from "./providers/lmstudio";
@@ -315,6 +316,9 @@ export interface SessionOptions {
   mission?: Mission | null;
   /** Qui approuve avec /approve : l'humain du terminal ou de la page web. */
   surface?: "terminal" | "web";
+  /** Profil mission : le backend isolé fourni par l'hôte (les tests en
+   * simulent un). Absent : le backend Seatbelt de la mission. */
+  isolation?: IsolatedExecutor;
 }
 
 export class Session {
@@ -339,6 +343,9 @@ export class Session {
   private readonly help: string;
   private ended = false;
   readonly mission: Mission | null;
+  /** Profil mission : l'exécuteur isolé des quatre surfaces (le hub le donne
+   * au terminal web de la session). Absent hors profil : l'adaptateur hôte. */
+  readonly executor?: IsolatedExecutor;
   private readonly surface: "terminal" | "web";
   private readonly commands: SlashCommand[];
 
@@ -356,13 +363,18 @@ export class Session {
 
     const provider = makeProvider(chosen);
     provider.setEffort(this.effort);
-    this.taskManager = new TaskManager(workspace);
+    this.mission = opts.mission ?? null;
+    // Profil mission (#16) : toutes les commandes passent par le backend isolé,
+    // qui refuse tout s'il est absent ou inopérant. Hors profil, rien ne change.
+    this.executor = this.mission ? (opts.isolation ?? missionExecutor(this.mission)) : undefined;
+    this.taskManager = new TaskManager(workspace, this.executor);
     this.toolCtx = {
       workspace,
       taskManager: this.taskManager,
       plan: new Plan(),
       filesTouched: new Set(),
       commandsRun: [],
+      ...(this.executor ? { executor: this.executor } : {}),
     };
     this.ctxMgr = new ContextManager(chosen.contextWindow, provider.maxOutputTokens);
     const agents = loadAgentsMdDetails(workspace);
@@ -371,7 +383,6 @@ export class Session {
     for (const w of agents.warnings) ui.status(`· ${w}`);
     // The step cap is a runaway-loop backstop, not a work limit — esc/ctrl+c
     // is the user's real kill switch, so set it far above any legitimate task.
-    this.mission = opts.mission ?? null;
     this.surface = opts.surface ?? "terminal";
     this.commands = this.mission ? [...SLASH_COMMANDS, ...MISSION_COMMANDS] : SLASH_COMMANDS;
     this.agent = new Agent(provider, mode0, this.sysPrompt(mode0), this.toolCtx, this.ctxMgr, this.bus, ui, true, 1000, undefined, this.mission);
@@ -479,6 +490,7 @@ export class Session {
           ? "· mission profile: the contract is approved; the agent works within it"
           : "· mission profile: the agent can read and plan; writes and commands stay blocked until you type /approve"
       );
+      if (this.executor) ui.status(isolationLine(this.executor.status));
       this.noteBypassUnderMission();
     }
   }

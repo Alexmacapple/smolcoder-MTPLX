@@ -4,7 +4,9 @@
 // un exécuteur ; aucune ne les lance elle-même. L'adaptateur hôte reprend à
 // l'identique le lancement historique : shell choisi par pickShell, groupe de
 // processus, destruction de l'arbre, délai et annulation. Un backend isolé
-// (#16), ou un faux dans les tests, se substitue à lui à cette couture. La
+// (#16), ou un faux dans les tests, se substitue à lui à cette couture ; le
+// backend Seatbelt (./sandbox-executor) reprend le lanceur commun (`launch`)
+// avec un autre programme, sandbox-exec, autour du même shell. La
 // décision d'accès reste prise avant, par la politique (#11) : l'exécuteur ne
 // juge rien, il exécute ce qu'on lui demande dans l'environnement donné.
 //
@@ -166,104 +168,145 @@ export interface Executor {
 /** Plafond de la capture "buffer" : quatre fois le rendu de run_command. */
 const CAPTURE_CAP = 32_000;
 
+/** Arguments du shell pour une requête : la ligne gérée par managedCommand,
+ * ou le shell persistant du terminal web (command null). */
+export function shellArgs(shell: ShellInfo, req: Pick<ExecRequest, "command" | "login">): string[] {
+  return req.command === null
+    ? shellDialect(shell) === "posix" ? (req.login ? ["-l"] : []) : ["-NoProfile", "-NonInteractive", "-Command", "-"]
+    : shell.argsFor(managedCommand(shell, req.command), req.login);
+}
+
+/** Le programme réellement lancé pour une requête. L'adaptateur hôte lance
+ * le shell ; le backend isolé (#16) lance sandbox-exec, qui exécute ce même
+ * shell sous son profil, dans le même processus (même pid, même groupe). */
+export interface LaunchSpec {
+  exe: string;
+  args: string[];
+  env: NodeJS.ProcessEnv;
+}
+
+/** Le lanceur commun : groupe de processus, capture, délai, annulation et
+ * destruction de l'arbre, pour le programme que nomme `spec`. Évalué après
+ * le constat d'annulation : une requête déjà annulée ne choisit rien. */
+export function launch(req: ExecRequest, spec: () => LaunchSpec): Execution {
+  const base = { exitCode: null, signal: null, output: "" };
+  let resolve!: (r: CommandResult) => void;
+  const result = new Promise<CommandResult>((r) => (resolve = r));
+  if (req.signal?.aborted) {
+    resolve({ ...base, started: false, status: "cancelled", durationMs: 0 });
+    return { result, write: () => false, kill: () => {} };
+  }
+  const { exe, args, env } = spec();
+  let output = "";
+  let finished = false;
+  const started = Date.now();
+
+  const proc = spawn(exe, args, {
+    cwd: req.cwd,
+    env,
+    detached: process.platform !== "win32", // process group for killTree
+    windowsHide: true,
+    stdio: [req.command === null ? "pipe" : "ignore", "pipe", "pipe"],
+  });
+  // Node ne fournit pas de pid quand le lancement échoue.
+  const spawned = proc.pid !== undefined;
+  const finish = (fields: Pick<CommandResult, "status"> & Partial<CommandResult>) =>
+    resolve({ ...base, started: spawned, durationMs: Date.now() - started, output, ...fields });
+
+  const append = req.capture === "buffer"
+    ? (chunk: Buffer) => {
+        // Keep the end of a long build/test log: failures usually appear there.
+        // Dropping all output after 32k hid the actual failure from the model.
+        output += chunk.toString("utf8");
+        if (output.length > CAPTURE_CAP) output = truncateMiddle(output, CAPTURE_CAP);
+      }
+    : (chunk: Buffer) => req.onOutput?.(chunk.toString("utf8"));
+  proc.stdout?.on("data", append);
+  proc.stderr?.on("data", append);
+
+  // User interrupt (esc / ctrl+c / web stop button, task stop): kill the whole tree now.
+  const onAbort = () => {
+    if (finished) return;
+    finished = true;
+    clearTimeout(timer);
+    cleanup();
+    killTree(proc.pid!);
+    proc.stdout?.destroy();
+    proc.stderr?.destroy();
+    finish({ status: "cancelled" });
+  };
+  req.signal?.addEventListener("abort", onAbort, { once: true });
+  const cleanup = () => req.signal?.removeEventListener("abort", onAbort);
+
+  const timer = req.timeoutMs === undefined ? undefined : setTimeout(() => {
+    if (finished) return;
+    finished = true;
+    cleanup();
+    killTree(proc.pid!);
+    proc.stdout?.destroy();
+    proc.stderr?.destroy();
+    finish({ status: "timeout", timeoutMs: req.timeoutMs });
+  }, req.timeoutMs);
+
+  proc.on("error", (err) => {
+    if (finished) return;
+    finished = true;
+    clearTimeout(timer);
+    cleanup();
+    finish({ status: "spawn_error", started: false, error: err.message });
+  });
+
+  proc.on("close", (code, sig) => {
+    if (!finished) {
+      finished = true;
+      clearTimeout(timer);
+      cleanup();
+      finish(code === null ? { status: "signaled", signal: sig } : { status: "exited", exitCode: code });
+    }
+    // Après le résultat : un échec de lancement est constaté avant la fermeture.
+    const onClose = req.onClose;
+    if (onClose) void result.then(() => onClose(code));
+  });
+
+  if (req.signal?.aborted) onAbort();
+
+  return {
+    result,
+    write(text: string): boolean {
+      if (!proc.stdin?.writable) return false;
+      proc.stdin.write(text);
+      return true;
+    },
+    kill(): void {
+      if (proc.pid) killTree(proc.pid);
+    },
+  };
+}
+
 /** L'adaptateur hôte : le processus tourne avec les droits du compte, dans
  * l'environnement demandé. Comportement historique des quatre surfaces. */
 export const hostExecutor: Executor = {
   start(req: ExecRequest): Execution {
-    const base = { exitCode: null, signal: null, output: "" };
-    let resolve!: (r: CommandResult) => void;
-    const result = new Promise<CommandResult>((r) => (resolve = r));
-    if (req.signal?.aborted) {
-      resolve({ ...base, started: false, status: "cancelled", durationMs: 0 });
-      return { result, write: () => false, kill: () => {} };
-    }
-    const shell = pickShell();
-    const args = req.command === null
-      ? shellDialect(shell) === "posix" ? (req.login ? ["-l"] : []) : ["-NoProfile", "-NonInteractive", "-Command", "-"]
-      : shell.argsFor(managedCommand(shell, req.command), req.login);
-    let output = "";
-    let finished = false;
-    const started = Date.now();
-
-    const proc = spawn(shell.exe, args, {
-      cwd: req.cwd,
-      env: req.env,
-      detached: process.platform !== "win32", // process group for killTree
-      windowsHide: true,
-      stdio: [req.command === null ? "pipe" : "ignore", "pipe", "pipe"],
+    return launch(req, () => {
+      const shell = pickShell();
+      return { exe: shell.exe, args: shellArgs(shell, req), env: req.env };
     });
-    // Node ne fournit pas de pid quand le lancement échoue.
-    const spawned = proc.pid !== undefined;
-    const finish = (fields: Pick<CommandResult, "status"> & Partial<CommandResult>) =>
-      resolve({ ...base, started: spawned, durationMs: Date.now() - started, output, ...fields });
-
-    const append = req.capture === "buffer"
-      ? (chunk: Buffer) => {
-          // Keep the end of a long build/test log: failures usually appear there.
-          // Dropping all output after 32k hid the actual failure from the model.
-          output += chunk.toString("utf8");
-          if (output.length > CAPTURE_CAP) output = truncateMiddle(output, CAPTURE_CAP);
-        }
-      : (chunk: Buffer) => req.onOutput?.(chunk.toString("utf8"));
-    proc.stdout?.on("data", append);
-    proc.stderr?.on("data", append);
-
-    // User interrupt (esc / ctrl+c / web stop button, task stop): kill the whole tree now.
-    const onAbort = () => {
-      if (finished) return;
-      finished = true;
-      clearTimeout(timer);
-      cleanup();
-      killTree(proc.pid!);
-      proc.stdout?.destroy();
-      proc.stderr?.destroy();
-      finish({ status: "cancelled" });
-    };
-    req.signal?.addEventListener("abort", onAbort, { once: true });
-    const cleanup = () => req.signal?.removeEventListener("abort", onAbort);
-
-    const timer = req.timeoutMs === undefined ? undefined : setTimeout(() => {
-      if (finished) return;
-      finished = true;
-      cleanup();
-      killTree(proc.pid!);
-      proc.stdout?.destroy();
-      proc.stderr?.destroy();
-      finish({ status: "timeout", timeoutMs: req.timeoutMs });
-    }, req.timeoutMs);
-
-    proc.on("error", (err) => {
-      if (finished) return;
-      finished = true;
-      clearTimeout(timer);
-      cleanup();
-      finish({ status: "spawn_error", started: false, error: err.message });
-    });
-
-    proc.on("close", (code, sig) => {
-      if (!finished) {
-        finished = true;
-        clearTimeout(timer);
-        cleanup();
-        finish(code === null ? { status: "signaled", signal: sig } : { status: "exited", exitCode: code });
-      }
-      // Après le résultat : un échec de lancement est constaté avant la fermeture.
-      const onClose = req.onClose;
-      if (onClose) void result.then(() => onClose(code));
-    });
-
-    if (req.signal?.aborted) onAbort();
-
-    return {
-      result,
-      write(text: string): boolean {
-        if (!proc.stdin?.writable) return false;
-        proc.stdin.write(text);
-        return true;
-      },
-      kill(): void {
-        if (proc.pid) killTree(proc.pid);
-      },
-    };
   },
 };
+
+/** Issue d'une sonde synchrone : le code de sortie, les flux, l'erreur du
+ * système (introuvable, délai dépassé). */
+export interface ProbeResult {
+  status: number | null;
+  stdout: string;
+  stderr: string;
+  error?: string;
+}
+
+/** Sonde courte et bornée d'un backend (#16), lancée par l'hôte avant toute
+ * commande du projet et hors des quatre surfaces ; seul l'appelant lit son
+ * issue. */
+export function probeSync(exe: string, args: string[], env: NodeJS.ProcessEnv, timeoutMs = 10_000): ProbeResult {
+  const r = spawnSync(exe, args, { env, encoding: "utf8", timeout: timeoutMs, stdio: ["ignore", "pipe", "pipe"], windowsHide: true });
+  return { status: r.status, stdout: r.stdout ?? "", stderr: r.stderr ?? "", ...(r.error ? { error: r.error.message } : {}) };
+}

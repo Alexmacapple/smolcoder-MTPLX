@@ -15,6 +15,7 @@ import { Agent } from "./agent";
 import { loadConfig } from "./config";
 import { authorizeHeadless, Mission, MISSION_EXIT_CODE, MissionError, missionExitCode, missionReport } from "./harness/mission";
 import { BYPASS_UNDER_MISSION, decisionReport, POLICY_SUSPENDED_EXIT_CODE, PolicySuspension } from "./harness/policy";
+import { isolationLine, missionExecutor } from "./harness/sandbox-executor";
 import { ContextManager } from "./context";
 import { EventBus } from "./events";
 import { terminalLogo } from "./logo";
@@ -291,13 +292,17 @@ async function runHeadless(args: CliArgs, mission: Mission | null): Promise<void
   const shell = pickShell();
   const provider = makeProvider(chosen);
   provider.setEffort(args.effort !== undefined ? args.effort : (cfg.effort ?? null));
-  const taskManager = new TaskManager(args.workspace);
+  // Profil mission (#16) : toutes les commandes passent par le backend isolé,
+  // qui refuse tout s'il est absent ou inopérant. Hors profil, rien ne change.
+  const isolation = mission ? missionExecutor(mission) : undefined;
+  const taskManager = new TaskManager(args.workspace, isolation);
   const toolCtx: ToolContext = {
     workspace: args.workspace,
     taskManager,
     plan: new Plan(),
     filesTouched: new Set(),
     commandsRun: [],
+    ...(isolation ? { executor: isolation } : {}),
   };
   const ctxMgr = new ContextManager(chosen.contextWindow, provider.maxOutputTokens);
   const agents = loadAgentsMdDetails(args.workspace);
@@ -319,6 +324,10 @@ async function runHeadless(args: CliArgs, mission: Mission | null): Promise<void
   ui.println(sessionLine(chosen, mode));
   if (chosen.note) ui.warn(`  ${chosen.note}`);
   if (mission && mode === "bypass") ui.status(BYPASS_UNDER_MISSION);
+  if (isolation) {
+    process.stderr.write(`[isolation] ${JSON.stringify(isolation.status)}\n`);
+    ui.status(isolationLine(isolation.status));
+  }
   const effortSetting = args.effort !== undefined ? args.effort : (cfg.effort ?? null);
   ui.status(`  effort ${provider.effortLabel() ?? effortSetting ?? "default"}`);
   const advice = effortAdvice(chosen, effortSetting);
