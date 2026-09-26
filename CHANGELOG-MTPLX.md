@@ -161,7 +161,7 @@ Windows). Vérifié : après `npm run build`, `dist/index.js` porte
 `-rwxr-xr-x` et `smol --version` répond. SHA `6f859a9` reporté sur
 l'entrée précédente.
 
-### (ce commit) — Les onze correctifs test-first de l'audit
+### `a733bba` — Les onze correctifs test-first de l'audit
 
 `src/detect.ts`, `src/prompt.ts`, `src/index.ts`, `src/session.ts`,
 `test/detect.test.js`, `test/agents-md.test.js`,
@@ -198,6 +198,16 @@ déchargé par bootout puis rechargé par le lanceur (bootstrap), URL
 fraîche exit 0 ; run réel du banc rc=0 avec workspace sous TMPDIR et
 zéro dossier créé dans le dépôt. Restent ouverts les douze constats à
 décision humaine. SHA `ac7ad3e` reporté sur l'entrée précédente.
+
+### (ce commit) — Mémo de décision des constats en attente
+
+`docs/memo-decisions-audit.md`. Les treize constats de l'audit restés
+ouverts (douze « décision humaine », un mécanique écarté), chacun avec
+enjeu, recommandation argumentée et coût : sessions par lancement,
+course KeepAlive, dépendance au clone, sens de `context_length`,
+étiquette et précédence du prompt, opt-out du noyau, protocole du banc
+(HOME, métrique clé), `DATA_DIR`. z02-004 y est clos de fait par le
+passage sous TMPDIR. SHA `a733bba` reporté sur l'entrée précédente.
 
 ## Hors dépôt (machine locale)
 
