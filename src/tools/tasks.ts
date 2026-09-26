@@ -2,15 +2,18 @@
 // separate tools — one schema costs fewer context tokens, and small models
 // handle enum dispatch on a single tool fine. Each task keeps a ring buffer of
 // recent output so the agent (and the user, via /tasks and /logs) has
-// visibility. All tasks are killed when smolcoder exits.
+// visibility. All tasks are killed when smolcoder exits. The processes come
+// from the executor (src/harness/executor.ts); stopping a task cancels its
+// execution, which kills the whole tree.
 
-import { ChildProcess, spawn } from "child_process";
-import { ExecOptions, pickShell, killTree, managedCommand } from "./shell";
+import { Executor, hostExecutor } from "../harness/executor";
+import { ExecOptions } from "./shell";
 
 interface Task {
   id: string;
   command: string;
-  proc: ChildProcess;
+  /** Arrêt : l'exécuteur tue l'arbre et ferme les flux. */
+  halt: AbortController;
   lines: string[];
   status: "running" | "exited" | "stopped";
   exitCode: number | null;
@@ -23,46 +26,48 @@ export class TaskManager {
   private tasks = new Map<string, Task>();
   private counter = 0;
 
-  constructor(private cwd: string) {}
+  /** `executor` : la couture d'exécution, l'adaptateur hôte par défaut. */
+  constructor(private cwd: string, private executor: Executor = hostExecutor) {}
 
   /** `exec` : contexte imposé par la politique du profil mission. */
   start(command: string, exec?: ExecOptions): string {
-    const shell = pickShell();
     const id = `t${++this.counter}`;
-    const proc = spawn(shell.exe, shell.argsFor(managedCommand(shell, command), exec?.login ?? true), {
+    const lines: string[] = [];
+    const push = (text: string) => {
+      for (const line of text.split(/\r?\n/)) {
+        if (line === "") continue;
+        lines.push(line);
+        if (lines.length > RING_SIZE) lines.shift();
+      }
+    };
+    const halt = new AbortController();
+    const run = this.executor.start({
+      surface: "task",
+      command,
       cwd: this.cwd,
       env: exec?.env ?? process.env,
-      detached: process.platform !== "win32",
-      windowsHide: true,
-      stdio: ["ignore", "pipe", "pipe"],
+      login: exec?.login ?? true,
+      signal: halt.signal,
+      capture: "stream",
+      onOutput: push,
     });
     const task: Task = {
       id,
       command,
-      proc,
-      lines: [],
+      halt,
+      lines,
       status: "running",
       exitCode: null,
       startedAt: Date.now(),
     };
-    const push = (chunk: Buffer) => {
-      for (const line of chunk.toString("utf8").split(/\r?\n/)) {
-        if (line === "") continue;
-        task.lines.push(line);
-        if (task.lines.length > RING_SIZE) task.lines.shift();
-      }
-    };
-    proc.stdout?.on("data", push);
-    proc.stderr?.on("data", push);
-    proc.on("error", (err) => {
-      task.lines.push(`[failed to start: ${err.message}]`);
-      task.status = "exited";
-      task.exitCode = -1;
-    });
-    proc.on("close", (code) => {
-      if (task.status === "running") {
+    void run.result.then((r) => {
+      if (r.status === "spawn_error") {
+        task.lines.push(`[failed to start: ${r.error}]`);
         task.status = "exited";
-        task.exitCode = code;
+        task.exitCode = -1;
+      } else if (task.status === "running") {
+        task.status = "exited";
+        task.exitCode = r.exitCode;
       }
     });
     this.tasks.set(id, task);
@@ -95,9 +100,7 @@ export class TaskManager {
     if (!task) return this.unknownTask(taskId);
     if (task.status !== "running") return `Task ${taskId} already ${task.status}.`;
     task.status = "stopped";
-    killTree(task.proc.pid!);
-    task.proc.stdout?.destroy();
-    task.proc.stderr?.destroy();
+    task.halt.abort();
     return `Task ${taskId} stopped. (${task.command})`;
   }
 
@@ -140,9 +143,7 @@ export class TaskManager {
       if (t.status === "running") {
         t.status = "stopped";
         try {
-          killTree(t.proc.pid!);
-          t.proc.stdout?.destroy();
-          t.proc.stderr?.destroy();
+          t.halt.abort();
         } catch {
           /* ignore */
         }

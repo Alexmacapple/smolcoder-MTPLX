@@ -8,6 +8,7 @@ import { ToolSpec } from "../providers/types";
 import { editFile, listFiles, readFile, writeFile } from "./fs-tools";
 import { syntaxCheck } from "./check";
 import { ExecOptions, runCommand } from "./shell";
+import type { Executor } from "../harness/executor";
 import { TaskManager } from "./tasks";
 import { PathRules, resolveInWorkspace, SandboxError } from "../sandbox";
 import { truncateMiddle } from "../util";
@@ -156,6 +157,10 @@ export interface ToolContext {
    * par un argument du modèle. Absents = comportement courant. */
   exec?: ExecOptions;
   protect?: PathRules;
+  /** La couture d'exécution de run_command et des vérifications automatiques,
+   * fixée par l'hôte ; absente = l'adaptateur hôte. Les tâches et le terminal
+   * reçoivent la leur à leur construction. */
+  executor?: Executor;
 }
 
 export async function executeTool(
@@ -206,7 +211,7 @@ export async function executeTool(
         if (typeof args.command !== "string" || !args.command.trim()) {
           return 'Error: command is required. Example: {"command": "npm test"}';
         }
-        result = await runCommand(args.command, ctx.workspace, signal, ctx.exec);
+        result = await runCommand(args.command, ctx.workspace, signal, ctx.exec, ctx.executor);
         ctx.commandsRun.push(`${args.command} → ${result.split("\n").at(-1)}`);
         if (ctx.commandsRun.length > 50) ctx.commandsRun.splice(0, ctx.commandsRun.length - 50);
         break;
