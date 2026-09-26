@@ -34,6 +34,20 @@ en français, code et identifiants en anglais, commits conventionnels en
 français), chargé à chaque session par smolcoder et conservé après
 compactage.
 
+### Consignes globales `~/.smolcoder/AGENTS.md`
+
+`src/prompt.ts`. smolcoder ne lisait que l'`AGENTS.md` du dossier de
+travail : les règles communes devaient être recopiées dans chaque projet,
+et un `AGENTS.md` de plus de 8 000 caractères perdait sa fin. Il charge
+désormais d'abord `~/.smolcoder/AGENTS.md` (plafond 4 000 caractères),
+puis celui du projet (plafond inchangé, 8 000), sans lire deux fois le
+même fichier. Six tests dans `test/agents-md.test.js`, rouges sur les deux
+cas de chargement global avant le correctif ; suite complète 152/152.
+
+`docs/agents-md-global.md` : le noyau à installer comme
+`~/.smolcoder/AGENTS.md`, dix commandements de l'agent de codage et deux
+formules (Saint-Exupéry, Shannon), 1 908 caractères.
+
 ## Hors dépôt (machine locale)
 
 - Fork créé : `Alexmacapple/smolcoder-MTPLX`.
