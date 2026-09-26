@@ -449,6 +449,18 @@ sauté. Non couvert, renvoyé aux autres tickets : états par critère
 du workspace, et garantie anti-altération, conditionnelle à #11/#12.
 SHA `1abfb2c` reporté sur l'entrée précédente.
 
+### `da9279c` — Décision d'architecture du stockage hôte
+
+`docs/decision-stockage-hote.md`. La page de décision du ticket #14,
+rédigée sur le pré-arbitrage validé : `~/.smolcoder/harness/<empreinte>/`
+avec `contract.json` (schéma versionné, statuts fermés, approbation liée
+à l'empreinte) et `proofs.jsonl` (journal en ajout seul, trois types
+d'événements), écritures atomiques, module propriétaire unique de la
+grammaire, fail-closed, états discrets sans score. Motifs lus dans les
+trois artefacts Loriq cités par le ticket, sans dépendance. La fusion de
+la pull request vaut acceptation ; #8, #9, #10 et #11 la référencent
+ensuite. SHA `1abfb2c` reporté sur l'entrée précédente.
+
 ## Hors dépôt (machine locale)
 
 - Fork créé : `Alexmacapple/smolcoder-MTPLX`.
