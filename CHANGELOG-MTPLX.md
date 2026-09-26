@@ -379,7 +379,7 @@ six phases (un appel d'outil, 38 s). L'effet sur la conduite reste une
 hypothèse à mesurer au banc, comme acté au ticket #20.
 SHA `f3d8f71` reporté sur l'entrée précédente.
 
-### (ce commit) — Revue avant commit : l'arbre de travail est inclus
+### `1abfb2c` — Revue avant commit : l'arbre de travail est inclus
 
 `docs/skills/revue-de-code.md`, `docs/skills/implementer.md`. Une analyse
 tierce a relevé une incohérence héritée de l'amont Pocock : la fiche
@@ -390,6 +390,34 @@ travail non commité, trois-points pour une branche commitée), commence
 par `git status --short` pour séparer modifications humaines et
 modifications de l'agent, et la fiche d'implémentation renvoie au bon
 cas. SHA `e68dee2` reporté sur l'entrée précédente.
+
+### (ce commit) — Résultat d'exécution typé pour les vérifications
+
+`src/tools/shell.ts`, `src/agent.ts`, `test/verification.test.js`,
+`test/process-lifecycle.test.js`. Socle du ticket #9 (H04, amendements 1
+et 2). L'exécuteur shell remonte un `CommandResult` : lancement, issue
+(`exited`, `signaled`, `timeout`, `cancelled`, `spawn_error`), code de
+sortie réel, signal, durée et sortie. Le texte montré au modèle en devient
+une projection (`renderCommandResult`) au format inchangé ; `runCommand`
+garde sa signature, `runCommandResult` accepte un délai optionnel
+(120 s par défaut, abaissé par les tests). `verify` et `checkProgress`
+décident sur le code de sortie réel (`commandPassed`), plus sur une
+expression régulière appliquée à la chaîne mêlant journaux et statut.
+
+Défaut réel corrigé : une commande d'acceptation sortie avec le code 0 mais
+dont le journal commence par « Error » (« Errors: 0, 12 checks passed »)
+était déclarée en échec et relancée jusqu'à épuisement du budget. Le cas
+inverse (sortie imprimant « [exit code 0 in 1s] » avec un code 1) était
+déjà rejeté grâce au préfixe « Error » du rendu : il est désormais fixé
+par deux tests de garde, acceptation et contrôle de progression.
+
+Vérifications : test d'acceptation rouge avant correctif (« Acceptance
+checks still fail after 1 attempts » sur une sortie `[exit code 0 in
+0.1s]`), vert après ; six tests ajoutés ; `npm test` 178/178, aucun test
+sauté. Non couvert, renvoyé aux autres tickets : états par critère
+`passed/failed/not_run/error`, preuves par empreinte, `report.json` hors
+du workspace, et garantie anti-altération, conditionnelle à #11/#12.
+SHA `1abfb2c` reporté sur l'entrée précédente.
 
 ## Hors dépôt (machine locale)
 

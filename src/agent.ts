@@ -21,7 +21,7 @@ import { commandEscapesWorkspace } from "./sandbox";
 import { abortableDelay } from "./providers/transport";
 import { truncateMiddle } from "./util";
 import { createHash } from "crypto";
-import { runCommand } from "./tools/shell";
+import { commandPassed, renderCommandResult, runCommandResult } from "./tools/shell";
 import { failureSignature, projectVerification } from "./verification";
 
 /** Supplied by the caller, never generated or changed by a model tool. */
@@ -154,15 +154,21 @@ export class Agent {
     return { originalRequest: this.originalRequest, currentRequest: this.currentRequest, verificationLine: this.verificationInstruction() + failure + progress, filesTouched: this.toolCtx.filesTouched, commandsRun: this.toolCtx.commandsRun, planLine: this.toolCtx.plan.compactLine() };
   }
 
+  /** Le verdict vient du code de sortie réel ; le texte, projection du même
+   * résultat, ne sert qu'à l'affichage et au retour donné au modèle. */
+  private async runCheck(command: string, signal: AbortSignal): Promise<{ passed: boolean; output: string }> {
+    const result = await runCommandResult(command, this.toolCtx.workspace, signal);
+    if (signal.aborted) throw abortError();
+    return { passed: commandPassed(result), output: renderCommandResult(result) };
+  }
+
   private async checkProgress(signal: AbortSignal): Promise<boolean> {
     const command = projectVerification(this.toolCtx.workspace);
     if (!command) return false;
     this.ui.status("· checking implementation progress");
     this.ui.toolCall("verification", { command });
     this.ctxMgr.prepareBackground(this.messages, this.tools, this.provider, this.compactState());
-    const output = await runCommand(command, this.toolCtx.workspace, signal);
-    if (signal.aborted) throw abortError();
-    const passed = !output.startsWith("Error") && /\[exit code 0 in [^\]]+\]\s*$/.test(output);
+    const { passed, output } = await this.runCheck(command, signal);
     this.progressFailure = passed ? "" : output;
     this.ui.toolResult(output);
     await this.bus.emit("post_progress_check", { command, passed, output });
@@ -195,9 +201,7 @@ export class Agent {
     if (attempts > (check.maxAttempts ?? 6)) throw new Error("Acceptance attempt limit reached before the agent finished. The task is incomplete.");
     this.ui.status(`· checking acceptance (${attempts}/${check.maxAttempts ?? 6})`);
     this.ui.toolCall("verification", { command: check.command });
-    const output = await runCommand(check.command, this.toolCtx.workspace, signal);
-    if (signal.aborted) throw abortError();
-    const passed = !output.startsWith("Error") && /\[exit code 0 in [^\]]+\]\s*$/.test(output);
+    const { passed, output } = await this.runCheck(check.command, signal);
     this.sameVerificationFailures = passed ? 0
       : this.verificationResult && !this.verificationResult.passed && failureSignature(this.verificationResult.output) === failureSignature(output)
         ? this.sameVerificationFailures + 1 : 1;

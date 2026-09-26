@@ -82,8 +82,60 @@ export function managedCommand(shell: ShellInfo, command: string): string {
     : command;
 }
 
-export function runCommand(command: string, cwd: string, signal?: AbortSignal): Promise<string> {
-  if (signal?.aborted) return Promise.resolve("Error: command cancelled before starting");
+/** Issue d'une commande au premier plan, telle que l'observe le système. Les
+ * décisions (acceptation, contrôles de progression) lisent ces champs, jamais
+ * le texte affiché au modèle, qui n'en est qu'une projection. */
+export interface CommandResult {
+  /** Le processus a été créé (faux : annulé avant le lancement, ou échec du lancement). */
+  started: boolean;
+  status: "exited" | "signaled" | "timeout" | "cancelled" | "spawn_error";
+  /** Code de sortie réel du processus ; null s'il n'est pas sorti de lui-même. */
+  exitCode: number | null;
+  /** Signal de terminaison rapporté par le système, le cas échéant. */
+  signal: NodeJS.Signals | null;
+  durationMs: number;
+  /** stdout et stderr mêlés, plafonnés en gardant le début et la fin. */
+  output: string;
+  /** Délai appliqué, renseigné quand status vaut "timeout". */
+  timeoutMs?: number;
+  /** Message du système quand status vaut "spawn_error". */
+  error?: string;
+}
+
+/** Seul un processus sorti de lui-même avec le code 0 réussit. */
+export function commandPassed(result: CommandResult): boolean {
+  return result.status === "exited" && result.exitCode === 0;
+}
+
+/** Projection texte montrée au modèle : format historique inchangé. */
+export function renderCommandResult(result: CommandResult): string {
+  const { output } = result;
+  switch (result.status) {
+    case "spawn_error":
+      return `Error: could not start command: ${result.error}`;
+    case "cancelled":
+      if (!result.started) return "Error: command cancelled before starting";
+      return (output.trim() ? truncateMiddle(output, OUTPUT_CAP) + "\n" : "") +
+        "[command cancelled by the user before it finished]";
+    case "timeout":
+      return "Error: " + truncateMiddle(output, OUTPUT_CAP) +
+        `\n[command timed out after ${(result.timeoutMs ?? DEFAULT_TIMEOUT_MS) / 1000}s and was killed. For tests/builds, isolate the stuck test or phase and inspect its loop or initialization before rerunning. For a persistent dev server, use task {"action": "start"}.]`;
+    default: {
+      const code = result.exitCode ?? "?";
+      const secs = (result.durationMs / 1000).toFixed(1);
+      const body = output.trim() ? truncateMiddle(output, OUTPUT_CAP) : "(no output)";
+      return `${result.exitCode !== 0 ? `Error: command exited with code ${code}\n` : ""}${body}\n[exit code ${code} in ${secs}s]`;
+    }
+  }
+}
+
+export async function runCommand(command: string, cwd: string, signal?: AbortSignal): Promise<string> {
+  return renderCommandResult(await runCommandResult(command, cwd, signal));
+}
+
+export function runCommandResult(command: string, cwd: string, signal?: AbortSignal, timeoutMs = DEFAULT_TIMEOUT_MS): Promise<CommandResult> {
+  const base = { exitCode: null, signal: null, output: "" };
+  if (signal?.aborted) return Promise.resolve({ ...base, started: false, status: "cancelled", durationMs: 0 });
   return new Promise((resolve) => {
     const shell = pickShell();
     let output = "";
@@ -97,6 +149,10 @@ export function runCommand(command: string, cwd: string, signal?: AbortSignal): 
       windowsHide: true,
       stdio: ["ignore", "pipe", "pipe"],
     });
+    // Node ne fournit pas de pid quand le lancement échoue.
+    const spawned = proc.pid !== undefined;
+    const finish = (fields: Pick<CommandResult, "status"> & Partial<CommandResult>) =>
+      resolve({ ...base, started: spawned, durationMs: Date.now() - started, output, ...fields });
 
     const append = (chunk: Buffer) => {
       // Keep the end of a long build/test log: failures usually appear there.
@@ -116,10 +172,7 @@ export function runCommand(command: string, cwd: string, signal?: AbortSignal): 
       killTree(proc.pid!);
       proc.stdout.destroy();
       proc.stderr.destroy();
-      resolve(
-        (output.trim() ? truncateMiddle(output, OUTPUT_CAP) + "\n" : "") +
-          "[command cancelled by the user before it finished]"
-      );
+      finish({ status: "cancelled" });
     };
     signal?.addEventListener("abort", onAbort, { once: true });
     const cleanup = () => signal?.removeEventListener("abort", onAbort);
@@ -131,28 +184,23 @@ export function runCommand(command: string, cwd: string, signal?: AbortSignal): 
       killTree(proc.pid!);
       proc.stdout.destroy();
       proc.stderr.destroy();
-      resolve(
-        "Error: " + truncateMiddle(output, OUTPUT_CAP) +
-          `\n[command timed out after ${DEFAULT_TIMEOUT_MS / 1000}s and was killed. For tests/builds, isolate the stuck test or phase and inspect its loop or initialization before rerunning. For a persistent dev server, use task {"action": "start"}.]`
-      );
-    }, DEFAULT_TIMEOUT_MS);
+      finish({ status: "timeout", timeoutMs });
+    }, timeoutMs);
 
     proc.on("error", (err) => {
       if (finished) return;
       finished = true;
       clearTimeout(timer);
       cleanup();
-      resolve(`Error: could not start command: ${err.message}`);
+      finish({ status: "spawn_error", started: false, error: err.message });
     });
 
-    proc.on("close", (code) => {
+    proc.on("close", (code, sig) => {
       if (finished) return;
       finished = true;
       clearTimeout(timer);
       cleanup();
-      const secs = ((Date.now() - started) / 1000).toFixed(1);
-      const body = output.trim() ? truncateMiddle(output, OUTPUT_CAP) : "(no output)";
-      resolve(`${code !== 0 ? `Error: command exited with code ${code ?? "?"}\n` : ""}${body}\n[exit code ${code ?? "?"} in ${secs}s]`);
+      finish(code === null ? { status: "signaled", signal: sig } : { status: "exited", exitCode: code });
     });
 
     if (signal?.aborted) onAbort();
