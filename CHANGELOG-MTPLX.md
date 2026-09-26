@@ -379,7 +379,7 @@ six phases (un appel d'outil, 38 s). L'effet sur la conduite reste une
 hypothèse à mesurer au banc, comme acté au ticket #20.
 SHA `f3d8f71` reporté sur l'entrée précédente.
 
-### (ce commit) — Revue avant commit : l'arbre de travail est inclus
+### `1abfb2c` — Revue avant commit : l'arbre de travail est inclus
 
 `docs/skills/revue-de-code.md`, `docs/skills/implementer.md`. Une analyse
 tierce a relevé une incohérence héritée de l'amont Pocock : la fiche
@@ -390,6 +390,18 @@ travail non commité, trois-points pour une branche commitée), commence
 par `git status --short` pour séparer modifications humaines et
 modifications de l'agent, et la fiche d'implémentation renvoie au bon
 cas. SHA `e68dee2` reporté sur l'entrée précédente.
+
+### (ce commit) — Décision d'architecture du stockage hôte
+
+`docs/decision-stockage-hote.md`. La page de décision du ticket #14,
+rédigée sur le pré-arbitrage validé : `~/.smolcoder/harness/<empreinte>/`
+avec `contract.json` (schéma versionné, statuts fermés, approbation liée
+à l'empreinte) et `proofs.jsonl` (journal en ajout seul, trois types
+d'événements), écritures atomiques, module propriétaire unique de la
+grammaire, fail-closed, états discrets sans score. Motifs lus dans les
+trois artefacts Loriq cités par le ticket, sans dépendance. La fusion de
+la pull request vaut acceptation ; #8, #9, #10 et #11 la référencent
+ensuite. SHA `1abfb2c` reporté sur l'entrée précédente.
 
 ## Hors dépôt (machine locale)
 
