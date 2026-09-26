@@ -585,7 +585,7 @@ la décision #14 (« #11 : fichier à définir ») alors que sa rubrique
 politique à l'approbation (`policyRef` reste réservé), sortie 4 testée par
 ses briques et non par le CLI contre un backend.
 
-### `6125f04` — README à l'instant T, historique replié
+### `de90eef` — README à l'instant T, historique replié
 
 `README.md`. La partie française reflète le projet actuel : le pourquoi
 du harnais (les consignes sont consultatives, le banc l'a mesuré ; le
