@@ -383,11 +383,14 @@ export function appendProof(dir: string, input: ProofInput): ProofEvent {
 // Écrite par l'hôte (la politique par défaut du profil, à la préparation) ou
 // par l'appelant de confiance, à la main ; jamais par un outil du modèle ni
 // par un fichier du workspace. Schéma fermé, tous les champs obligatoires :
-// une politique partielle est illisible, pas complétée en silence. Aucune
-// valeur ne peut rendre le profil plus large que le sandbox courant : pas de
-// règle « tout autoriser » pour les commandes, et les chemins restent
-// confinés au workspace quoi que dise la politique. Sa version est son
-// empreinte : elle se constate, elle n'est jamais un champ modifiable.
+// une politique partielle est illisible, pas complétée en silence. Seule
+// exception, `network` (#16) : son absence vaut la valeur la plus stricte,
+// aucune destination, et laisse intacte la version des politiques écrites
+// avant lui. Aucune valeur ne peut rendre le profil plus large que le
+// sandbox courant : pas de règle « tout autoriser » pour les commandes, et
+// les chemins restent confinés au workspace quoi que dise la politique. Sa
+// version est son empreinte : elle se constate, elle n'est jamais un champ
+// modifiable.
 
 export const POLICY_SCHEMA = "smolcoder/policy/v1";
 export const POLICY_FILE = "policy.json";
@@ -408,6 +411,10 @@ export interface AccessPolicy {
   /** Variables d'environnement transmises nommément aux sous-processus, en
    * plus de PATH, HOME, TERM et LANG. */
   env: string[];
+  /** Destinations réseau que le backend isolé (#16) laisse joindre, de la
+   * forme `localhost:<port>` : Seatbelt ne sait pas filtrer un hôte distant
+   * (docs/decision-backend-isole.md). Absent : aucune. */
+  network?: string[];
 }
 
 /** La politique par défaut du profil : celle du sandbox courant, en plus
@@ -422,10 +429,18 @@ export const DEFAULT_POLICY: AccessPolicy = {
 
 export type PolicyRead = { state: "absent" } | ReadFailure | { state: "ok"; policy: AccessPolicy; version: string };
 
-const POLICY_FIELDS = ["schema", "paths", "commands", "tasks", "env"];
+const POLICY_FIELDS = ["schema", "paths", "commands", "tasks", "env", "network"];
+const OPTIONAL_POLICY_FIELDS = ["schema", "network"];
 const PATTERN_RE = /^[^\\/\x00]{1,100}$/;
 const ENV_NAME_RE = /^[A-Za-z_][A-Za-z0-9_]{0,99}$/;
 const POLICY_ITEMS_MAX = 50;
+
+/** Une destination réseau nommée : `localhost:<port>`, port de 1 à 65535
+ * écrit sans zéro de tête. Grammaire partagée avec le profil Seatbelt. */
+export function isNetworkDestination(v: unknown): v is string {
+  const m = typeof v === "string" ? /^localhost:([1-9][0-9]{0,4})$/.exec(v) : null;
+  return !!m && Number(m[1]) <= 65535;
+}
 
 function patterns(obj: Record<string, unknown>, key: string): string[] {
   const v = obj[key];
@@ -446,7 +461,7 @@ function rule(obj: Record<string, unknown>, key: string): PolicyRule {
 /** Corps de la politique (sans `schema`), normalisé. */
 function parsePolicyBody(raw: Record<string, unknown>): AccessPolicy {
   onlyFields(raw, POLICY_FIELDS);
-  for (const key of POLICY_FIELDS) if (key !== "schema" && raw[key] === undefined) throw new ContractError(`policy field "${key}" is required`);
+  for (const key of POLICY_FIELDS) if (!OPTIONAL_POLICY_FIELDS.includes(key) && raw[key] === undefined) throw new ContractError(`policy field "${key}" is required`);
   const paths = raw.paths;
   if (!isObject(paths)) throw new ContractError('policy field "paths" must be {"protect": [...], "except": [...]}');
   onlyFields(paths, ["protect", "except"], "paths.");
@@ -454,11 +469,17 @@ function parsePolicyBody(raw: Record<string, unknown>): AccessPolicy {
   if (!Array.isArray(env) || env.length > POLICY_ITEMS_MAX || !env.every((n) => typeof n === "string" && ENV_NAME_RE.test(n))) {
     throw new ContractError(`policy field "env" must be a list of at most ${POLICY_ITEMS_MAX} environment variable names`);
   }
+  const network = raw.network;
+  if (network !== undefined && (!Array.isArray(network) || network.length > POLICY_ITEMS_MAX || !network.every(isNetworkDestination))) {
+    throw new ContractError(`policy field "network" must be a list of at most ${POLICY_ITEMS_MAX} destinations "localhost:<port>" (port 1-65535): the isolated backend cannot filter a remote host`);
+  }
   return {
     paths: { protect: patterns(paths, "protect"), except: patterns(paths, "except") },
     commands: rule(raw, "commands"),
     tasks: rule(raw, "tasks"),
     env: env as string[],
+    // Absent : absent aussi du résultat, pour que l'empreinte ne change pas.
+    ...(network !== undefined ? { network: network as string[] } : {}),
   };
 }
 

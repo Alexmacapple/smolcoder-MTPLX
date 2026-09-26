@@ -115,8 +115,8 @@ données) est refusée.
 
 ### Schéma
 
-Fermé, tous les champs obligatoires : une politique partielle est illisible,
-jamais complétée en silence. La politique par défaut :
+Fermé, tous les champs obligatoires sauf `network` : une politique partielle
+est illisible, jamais complétée en silence. La politique par défaut :
 
 ```json
 {
@@ -140,6 +140,11 @@ jamais complétée en silence. La politique par défaut :
   refuse. Aucune valeur n'est plus large que le sandbox courant.
 - `env` : variables transmises nommément aux sous-processus, en plus de
   `PATH`, `HOME`, `TERM` et `LANG`.
+- `network` (facultatif, #16) : destinations que les commandes isolées
+  peuvent joindre, de la forme `localhost:<port>` (par exemple
+  `["localhost:5173"]`) ; absent, aucune — son absence ne change pas la
+  version d'une politique écrite avant lui. Seatbelt ne sait pas filtrer un
+  hôte distant : toute autre forme rend la politique illisible.
 
 La politique par défaut est celle du sandbox courant, en plus strict (secrets
 `.env*` et métadonnées `.git` protégés, tâches de fond soumises à décision
@@ -170,6 +175,23 @@ d'outils), le transcript (que l'interface web sauvegarde tel quel dans
 `~/.smolcoder/sessions/`) et ce que smol affiche (stdout et stderr, sortie
 des sous-processus comprise). Le modèle ne lit pas le terminal web, qui reçoit
 néanmoins le même environnement minimal.
+
+### Isolation du système (macOS, ticket #16)
+
+Sous le profil, les quatre surfaces lancent leurs commandes par le backend
+Seatbelt (`sandbox-exec`), dont le profil est généré depuis la politique à
+chaque lancement : lecture du système et du workspace, écriture dans le
+workspace et un TMPDIR privé à la session, noms protégés et stockage hôte
+refusés, réseau fermé sauf les destinations de `network`. La session
+l'annonce à l'ouverture (`· isolation: macOS Seatbelt …`) ; le headless
+écrit aussi une ligne `[isolation] {…}` sur stderr.
+
+Backend absent ou inopérant (autre système que macOS, `sandbox-exec`
+introuvable, sonde en échec, workspace qui contient le dossier personnel) :
+la ligne d'ouverture dit `· isolation unavailable (…)` et chaque commande
+est refusée avec ce motif ; rien n'est relancé dans le shell non isolé.
+Modèle de menace, choix et limites : `docs/decision-backend-isole.md`.
+Preuves sur macOS réel : `npm run test:os`.
 
 ### Bypass, sortie du profil, hooks, pièces jointes
 
@@ -219,7 +241,11 @@ le reprend en tête, relu dans le stockage hôte au moment de la compaction
   #12) : le jugement des commandes lit leur texte, avec des faux négatifs
   connus (`grep -r motif .` lit `.env` sans le nommer, `cd` sans argument
   mène au dossier personnel, substitution de commande) et des faux positifs
-  (un message de commit qui cite `.env`).
+  (un message de commit qui cite `.env`). Sur macOS, le backend Seatbelt
+  (#16) prive ces faux négatifs d'effet sur ce qu'il protège : le système
+  refuse la lecture quel que soit le texte de la commande ; ses limites
+  (réseau, écoute, descendants détachés, git) sont dans
+  `docs/decision-backend-isole.md`.
 - La politique n'est pas liée à l'approbation : l'appelant qui la modifie
   après approbation change les droits sans nouvelle approbation (la version
   figure dans chaque décision). `policyRef` du contrat reste réservé.

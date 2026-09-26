@@ -668,6 +668,85 @@ Restes : isolation réelle (#16), empreinte des outils (#17), intégration et
 campagne OS (#18) ; aucun appelant ne choisit encore d'exécuteur ; les sondes
 de `check.ts` et `detect.ts` restent hors de l'exécuteur, à trancher avec #16.
 
+### (ce commit) — Backend macOS isolé (Seatbelt) — Réf #16
+
+`src/harness/sandbox-executor.ts` (nouveau), `src/harness/executor.ts`,
+`src/harness/store.ts`, `src/session.ts`, `src/index.ts`, `src/web/hub.ts`,
+`docs/decision-backend-isole.md` (nouveau), `docs/profil-mission.md`,
+`package.json`, `test/sandbox-executor.test.js` (nouveau),
+`test/os/seatbelt.os.test.js` (nouveau), `test/policy.test.js`. Ticket #16
+(H03-2), deuxième sous-ticket du chapeau #12, derrière le contrat
+d'exécuteur (#15).
+
+Évaluation d'abord : huit scripts d'expériences jetables sur ce Mac
+(macOS 27.0), hors dépôt, résumés dans la décision d'architecture. Seatbelt
+(`sandbox-exec`, déprécié mais fonctionnel) confine fichiers, réseau,
+sous-processus et services du système ; aucun blocage rédhibitoire. La
+décision (`docs/decision-backend-isole.md`) pose le modèle de menace
+(l'agent confiné et ce qu'il lance), le choix, ses limites mesurées et les
+alternatives écartées.
+
+Sous `--mission`, les quatre surfaces lancent leurs commandes par un
+exécuteur Seatbelt : `sandbox-exec -p <profil>` autour du shell habituel,
+profil généré depuis la politique à chaque lancement (refus par défaut,
+lecture du système et du workspace, écriture dans le workspace et un
+TMPDIR privé à la session, noms protégés et stockage hôte refusés en
+dernier, réseau fermé sauf les destinations nommées, aucune écoute). Le
+backend est sondé à sa création (présence, profil accepté, stockage hôte
+illisible depuis le bac) ; absent, inopérant, sur Linux ou Windows, ou
+quand le workspace contient le dossier personnel, il refuse chaque commande
+avec son motif, sans jamais relancer dans le shell non isolé. La session
+l'annonce à l'ouverture (`· isolation: …`), le headless écrit aussi
+`[isolation] {…}` sur stderr. Hors profil, rien ne change : aucun
+exécuteur n'est posé, l'adaptateur hôte sert comme avant.
+
+Écarts déclarés. `policy.json` gagne un champ `network` (liste de
+`localhost:<port>`), seul champ facultatif d'un schéma où tous les autres
+sont obligatoires : son absence vaut la valeur la plus stricte, aucune
+destination, et laisse inchangée la version des politiques existantes
+(`smolcoder/policy/v1@b8568bb66a5429ae` pour la politique par défaut, fixée
+par un test). L'exécuteur isolé ajoute `TMPDIR` à l'environnement demandé,
+et rien d'autre, alors que l'adaptateur hôte le transmet tel quel.
+`hostExecutor` passe par un lanceur commun (`launch`, `shellArgs`, plus
+`probeSync` pour la sonde) : `git diff -w` ne montre que le programme, les
+arguments et l'environnement désormais lus dans `spec`. Le hub ouvre le
+terminal d'une mission avec l'exécuteur de sa session et refuse d'ouvrir un
+shell sans lui ; le faux de session de `test/policy.test.js` (`missionHub`)
+nomme donc l'adaptateur hôte (`executor: hostExecutor`), seule modification
+d'un test existant. Sous le profil, git ne fonctionne plus (dossier
+personnel illisible, `.git` protégé) ni les outils installés sous le
+dossier personnel : effet voulu de l'isolation, que l'empreinte de #17
+devra arbitrer.
+
+Vérifications. Rouge d'abord : douze tests nommés « H03-2 AC1 » à
+« H03-2 AC5 » ; `npm test` 242 verts sur 254, onze échecs sur le module absent et
+AC2 sur `policy.json: unknown field "network"`. Module et grammaire posés
+sans branchement : quatre échecs comportementaux, dont `run_command` sous
+`--mission` sans backend qui s'exécute encore sur l'hôte (`[exit code 0 in
+0.1s]`), le repli interdit. Après branchement : `H02 AC2` échoue tant que le
+faux de session n'a pas d'exécuteur (le hub refuse le shell), puis
+`npm test` 254/254, aucun test sauté. Preuves sur macOS réel : `npm run
+test:os` (`test/os/seatbelt.os.test.js`, hors `npm test`) 9/9 — faux secret
+externe, faux `~/.ssh`, stockage hôte, `.env` (casse, liens symbolique et
+dur), `.git/hooks`, `/tmp` hors borne refusés, sous-processus et petit-fils
+détaché compris ; serveur HTTP interdit, API locale non autorisée, port
+fermé, DNS et adresse distante refusés (`EPERM`), destination nommée
+jointe, aussi depuis un sous-processus ; délai, arrêt de tâche et
+interruption du terminal tuent chaque descendant, vérifié pid par pid ;
+même frontière pour les quatre surfaces sous la décision d'accès ;
+`sandbox-exec` absent ou qui ne confine pas : rien ne tourne ; `npm test`
+de fixture sous isolation. Deux mutations du code compilé, profil ouvert
+puis profil ouvert et sonde neutralisée, font échouer respectivement cinq
+et six de ces tests.
+
+Restes, d'où « Réf » et non « Closes » : un descendant détaché par `setsid`
+survit à la destruction du groupe (comme sous l'adaptateur hôte), confiné
+mais vivant — le critère « arrêt/timeout tuant les descendants » n'est donc
+couvert que pour l'arbre du groupe ; filtrage des hôtes distants (proxy),
+écoute d'un serveur de développement, git et outils sous le dossier
+personnel (#17) ; indication dans l'interface et campagne archivée (#18) ;
+les sondes de `check.ts` et `detect.ts` restent hors de l'exécuteur.
+
 ## Hors dépôt (machine locale)
 
 - Fork créé : `Alexmacapple/smolcoder-MTPLX`.

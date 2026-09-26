@@ -36,6 +36,7 @@ const { EventBus } = require("../dist/events");
 const { Plan } = require("../dist/plan");
 const { TaskManager } = require("../dist/tools/tasks");
 const { WebHub } = require("../dist/web/hub");
+const { hostExecutor } = require("../dist/harness/executor");
 
 const tmp = (prefix) => fs.mkdtempSync(path.join(os.tmpdir(), prefix));
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -277,7 +278,10 @@ function request(hub, method, p, body) {
 async function missionHub(s) {
   const factory = async (ui, workspace) => {
     const session = {
-      chosen: { id: "fake-model", backend: "ollama" }, workspace, onExit: null, mission: s.m,
+      // #16 : sous mission, le hub prend l'exécuteur du terminal dans la
+      // session et n'ouvre aucun shell sans lui ; ce faux nomme l'adaptateur
+      // hôte, l'isolation est éprouvée par test/sandbox-executor.test.js.
+      chosen: { id: "fake-model", backend: "ollama" }, workspace, onExit: null, mission: s.m, executor: hostExecutor,
       taskManager: { killAll() {}, runningSummary: () => [], recentUrls: () => [] },
       state: () => ({ mode: "edit", model: "fake-model", backend: "ollama", workspace, urls: [], commands: [] }),
       announce() {}, restore() {}, snapshot: () => ({ messages: [], plan: [], filesTouched: [], commandsRun: [], originalRequest: "", currentRequest: "", mode: "edit", effort: null, model: "fake-model", backend: "ollama" }),

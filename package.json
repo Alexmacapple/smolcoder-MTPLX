@@ -37,7 +37,8 @@
     "build": "npm run clean && tsc && node -e \"require('fs').chmodSync('dist/index.js', 0o755)\"",
     "dev": "tsc -w",
     "prepublishOnly": "npm test",
-    "test": "npm run build && node scripts/test.cjs"
+    "test": "npm run build && node scripts/test.cjs",
+    "test:os": "npm run build && node --test test/os/seatbelt.os.test.js"
   },
   "engines": {
     "node": ">=18"
