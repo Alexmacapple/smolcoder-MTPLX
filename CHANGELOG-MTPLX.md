@@ -112,7 +112,7 @@ retirées car déjà portées par le noyau global : relire avant d'éditer
 de périmètre annoncé (couvert par le mode d'échec « plus grand bien
 silencieux »). SHA `ccd2215` reporté sur l'entrée précédente.
 
-### (ce commit) — Correctifs issus de l'audit ShipGuard
+### `6f859a9` — Correctifs issus de l'audit ShipGuard
 
 `src/prompt.ts`, `src/detect.ts`, `test/agents-md.test.js`,
 `test/detect.test.js`, `bench/noyau-agents-md/banc.sh`,
@@ -149,6 +149,17 @@ constats à décision humaine restent ouverts (sens de `context_length`
 selon le serveur, précédence des règles projet vs noyau, session par
 lancement, course serveur de secours contre KeepAlive). SHA `f1010d0`
 reporté sur l'entrée précédente.
+
+### (ce commit) — Bit exécutable préservé au build
+
+`package.json`. Le script `build` régénérait `dist/index.js` sans le
+bit exécutable (tsc n'en pose pas), ce qui cassait le binaire `smol`
+(« permission denied ») après tout `npm run build` ou `npm test`. Le
+script ajoute désormais `node -e "require('fs').chmodSync('dist/index.js', 0o755)"`,
+sur le modèle du script `clean` (cross-platform, inoffensif sous
+Windows). Vérifié : après `npm run build`, `dist/index.js` porte
+`-rwxr-xr-x` et `smol --version` répond. SHA `6f859a9` reporté sur
+l'entrée précédente.
 
 ## Hors dépôt (machine locale)
 
