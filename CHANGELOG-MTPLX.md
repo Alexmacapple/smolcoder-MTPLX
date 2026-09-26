@@ -266,7 +266,7 @@ Vérifications : reproduction rouge du chemin sans clone (`rc=1` sur
 `cd .../smolcoder`), puis contrôle borné atteignant l'interface web sans ce
 `cd` ; `zsh -n`, test web 19/19 et `npm test` 169/169, exit 0. Closes #1.
 
-### (ce commit) — Repli web après déchargement du démon
+### `c554e98` — Repli web après déchargement du démon
 
 `launch-smol-mtplx.command`. Quand le démon reste muet après la tentative de
 reconnexion, le lanceur exécute `launchctl bootout gui/$(id -u) "$LAUNCH_AGENT"`
@@ -275,6 +275,17 @@ est désormais servi par le terminal.
 
 Vérifications : `zsh -n`, ordre contrôlé `bootout` avant `exec` et
 `npm test` 169/169, exit 0. Closes #2.
+
+### (ce commit) — Garde du clone pour la session
+
+`launch-smol-mtplx.command`. Le mode `--session` sans dossier refuse désormais
+explicitement l'absence de `$HOME/smolcoder` avec `exit 2` et indique de passer
+un dossier en argument ; le mode web sans dossier reste celui de #1 et n'exige
+plus ce clone.
+
+Vérifications : reproduction rouge (`rc=1` sur le `cd` implicite), puis
+`zsh -n`, reproduction verte (`rc=2` avec le message attendu) et
+`npm test` 169/169, exit 0. Closes #3.
 
 ## Hors dépôt (machine locale)
 

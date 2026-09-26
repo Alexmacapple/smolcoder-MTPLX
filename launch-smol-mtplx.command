@@ -194,6 +194,10 @@ case "$MODE" in
     open "$url"
     ;;
   session)
+    if [ -z "$WORKSPACE" ] && [ ! -d "$FORK_ROOT" ]; then
+      echo "Erreur: le clone $FORK_ROOT est absent — passe un dossier en argument : launch-smol-mtplx.command <dossier>" >&2
+      exit 2
+    fi
     WORKSPACE="${WORKSPACE:-$FORK_ROOT}"
     cd "$WORKSPACE"
     clear || true
