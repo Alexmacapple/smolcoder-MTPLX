@@ -170,6 +170,43 @@ test("an OpenAI-compat listing without context info falls back to the 4096 guess
   }
 });
 
+test("compat listing: aberrant context_length values fall back to the 4096 guess", async () => {
+  // 1e400 must travel as raw JSON (JSON.parse turns it into Infinity); the
+  // stringify-based helper would send null, so serve the body verbatim.
+  const raw = '{"object":"list","data":[{"id":"inf-model","context_length":1e400},{"id":"frac-model","context_length":0.5},{"id":"tiny-model","context_length":1}]}';
+  const server = http.createServer((req, res) => {
+    if (req.url === "/v1/models") {
+      res.writeHead(200, { "content-type": "application/json" });
+      res.end(raw);
+    } else {
+      res.writeHead(404, { "content-type": "application/json" });
+      res.end('{"error":"not found"}');
+    }
+  });
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const port = server.address().port;
+  try {
+    const info = await identifyServer(`http://127.0.0.1:${port}`, 2000);
+    for (const m of info.models) {
+      assert.equal(m.contextWindow, 4096, `${m.id} must fall back to the guess`);
+      assert.ok(m.note, `${m.id} must announce the guess`);
+    }
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+  }
+});
+
+test("compat listing: a null entry does not crash identification", async () => {
+  const server = await serve({ "/v1/models": { object: "list", data: [null, { id: "good-model", context_length: 262144 }] } });
+  try {
+    const info = await identifyServer(`http://127.0.0.1:${server.port}`, 2000);
+    assert.deepEqual(info.models.map((m) => m.id), ["good-model"]);
+    assert.equal(info.models[0].contextWindow, 262144);
+  } finally {
+    await server.close();
+  }
+});
+
 test("an Ollama server's OpenAI-compatible listing does not make it look like LM Studio", async () => {
   const server = await serve({ "/api/tags": { models: [] }, "/v1/models": { object: "list", data: [{ id: "x" }] } });
   try {

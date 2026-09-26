@@ -11,7 +11,7 @@ import { detectAll, DetectedModel, resolveContextWindow } from "./detect";
 import { EventBus } from "./events";
 import { findModelsOnNetwork, FlowUI, manageHosts } from "./network";
 import { Plan, PlanStep } from "./plan";
-import { buildSystemPrompt, loadAgentsMd } from "./prompt";
+import { buildSystemPrompt, loadAgentsMdDetails } from "./prompt";
 import { LmStudioProvider } from "./providers/lmstudio";
 import { OllamaProvider } from "./providers/ollama";
 import { Effort, Msg, Provider } from "./providers/types";
@@ -342,7 +342,9 @@ export class Session {
       commandsRun: [],
     };
     this.ctxMgr = new ContextManager(chosen.contextWindow, provider.maxOutputTokens);
-    this.agentsMd = loadAgentsMd(workspace);
+    const agents = loadAgentsMdDetails(workspace);
+    this.agentsMd = agents.text;
+    for (const w of agents.warnings) ui.status(`· ${w}`);
     // The step cap is a runaway-loop backstop, not a work limit — esc/ctrl+c
     // is the user's real kill switch, so set it far above any legitimate task.
     this.agent = new Agent(provider, mode0, this.sysPrompt(mode0), this.toolCtx, this.ctxMgr, this.bus, ui, true, 1000);

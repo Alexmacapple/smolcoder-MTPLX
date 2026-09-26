@@ -14,18 +14,29 @@ import { Mode } from "./tools/index";
 const AGENTS_MD_CAP_CHARS = 8000; // ~2k tokens — small-context friendly
 const GLOBAL_AGENTS_MD_CAP_CHARS = 4000; // ~1k tokens — rules shared by every workspace
 
-/** Read one AGENTS.md file, capped; null when missing, empty or unreadable. */
-function readAgentsFile(p: string, cap: number, label: string): string | null {
+/** One AGENTS.md read: capped text (null when missing or empty), plus a
+ * warning when the file was truncated or present but unreadable. */
+interface AgentsFileRead {
+  text: string | null;
+  warning: string | null;
+}
+
+function readAgentsFile(p: string, cap: number, label: string): AgentsFileRead {
   try {
-    if (!fs.existsSync(p)) return null;
+    if (!fs.existsSync(p)) return { text: null, warning: null };
     let text = fs.readFileSync(p, "utf8").trim();
-    if (!text) return null;
+    if (!text) return { text: null, warning: null };
     if (text.length > cap) {
-      text = text.slice(0, cap) + `\n[${label} was truncated here to save context]`;
+      // Never cut inside a surrogate pair: back off one unit if needed.
+      let cut = cap;
+      const code = text.charCodeAt(cut - 1);
+      if (code >= 0xd800 && code <= 0xdbff) cut -= 1;
+      text = text.slice(0, cut) + `\n[${label} was truncated here to save context]`;
+      return { text, warning: `${label} truncated at ${cap} chars — trailing rules are not seen` };
     }
-    return text;
-  } catch {
-    return null;
+    return { text, warning: null };
+  } catch (err: any) {
+    return { text: null, warning: `${label} present but unreadable (${err?.code ?? err}) — ignored` };
   }
 }
 
@@ -39,16 +50,33 @@ function fileIdentity(p: string): string {
   }
 }
 
-/** Read the global ~/.smolcoder/AGENTS.md, then the workspace's AGENTS.md. */
-export function loadAgentsMd(workspace: string, home: string = os.homedir()): string | null {
+/** What loadAgentsMdDetails reports besides the combined text: which files
+ * actually contributed, and anything the user should know (truncation,
+ * unreadable file). */
+export interface AgentsMdDetails {
+  text: string | null;
+  sources: string[];
+  warnings: string[];
+}
+
+/** Read the global ~/.smolcoder/AGENTS.md, then the workspace's AGENTS.md,
+ * with provenance and warnings for the caller to surface. */
+export function loadAgentsMdDetails(workspace: string, home: string = os.homedir()): AgentsMdDetails {
   const globalPath = path.join(home, ".smolcoder", "AGENTS.md");
   const localPath = path.join(workspace, "AGENTS.md");
-  const parts = [readAgentsFile(globalPath, GLOBAL_AGENTS_MD_CAP_CHARS, "~/.smolcoder/AGENTS.md")];
+  const reads = [{ label: "~/.smolcoder/AGENTS.md", read: readAgentsFile(globalPath, GLOBAL_AGENTS_MD_CAP_CHARS, "~/.smolcoder/AGENTS.md") }];
   if (fileIdentity(localPath) !== fileIdentity(globalPath)) {
-    parts.push(readAgentsFile(localPath, AGENTS_MD_CAP_CHARS, "AGENTS.md"));
+    reads.push({ label: "AGENTS.md", read: readAgentsFile(localPath, AGENTS_MD_CAP_CHARS, "AGENTS.md") });
   }
-  const loaded = parts.filter((part): part is string => part !== null);
-  return loaded.length ? loaded.join("\n\n") : null;
+  const sources = reads.filter((r) => r.read.text !== null).map((r) => r.label);
+  const warnings = reads.map((r) => r.read.warning).filter((w): w is string => w !== null);
+  const loaded = reads.map((r) => r.read.text).filter((t): t is string => t !== null);
+  return { text: loaded.length ? loaded.join("\n\n") : null, sources, warnings };
+}
+
+/** Read the global ~/.smolcoder/AGENTS.md, then the workspace's AGENTS.md. */
+export function loadAgentsMd(workspace: string, home: string = os.homedir()): string | null {
+  return loadAgentsMdDetails(workspace, home).text;
 }
 
 export function buildSystemPrompt(opts: {

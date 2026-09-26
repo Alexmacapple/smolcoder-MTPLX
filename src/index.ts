@@ -17,7 +17,7 @@ import { ContextManager } from "./context";
 import { EventBus } from "./events";
 import { terminalLogo } from "./logo";
 import { Plan } from "./plan";
-import { buildSystemPrompt, loadAgentsMd } from "./prompt";
+import { buildSystemPrompt, loadAgentsMdDetails } from "./prompt";
 import { Effort } from "./providers/types";
 import {
   effortAdvice,
@@ -233,9 +233,10 @@ async function runHeadless(args: CliArgs): Promise<void> {
     commandsRun: [],
   };
   const ctxMgr = new ContextManager(chosen.contextWindow, provider.maxOutputTokens);
-  const agentsMd = loadAgentsMd(args.workspace);
-  if (agentsMd) ui.status(`· AGENTS.md loaded (${agentsMd.split("\n").length} lines)`);
-  const systemPrompt = buildSystemPrompt({ workspace: args.workspace, mode, shellLabel: shell.label, agentsMd });
+  const agents = loadAgentsMdDetails(args.workspace);
+  for (const w of agents.warnings) ui.status(`· ${w}`);
+  if (agents.text) ui.status(`· Instructions loaded: ${agents.sources.join(" + ")} (${agents.text.split("\n").length} lines)`);
+  const systemPrompt = buildSystemPrompt({ workspace: args.workspace, mode, shellLabel: shell.label, agentsMd: agents.text });
   const agent = new Agent(provider, mode, systemPrompt, toolCtx, ctxMgr, bus, ui, false, 1000,
     args.verify ? { command: args.verify, maxAttempts: args.verifyAttempts } : undefined);
   reportCompactions(bus, ui);

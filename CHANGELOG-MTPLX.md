@@ -150,7 +150,7 @@ selon le serveur, précédence des règles projet vs noyau, session par
 lancement, course serveur de secours contre KeepAlive). SHA `f1010d0`
 reporté sur l'entrée précédente.
 
-### (ce commit) — Bit exécutable préservé au build
+### `ac7ad3e` — Bit exécutable préservé au build
 
 `package.json`. Le script `build` régénérait `dist/index.js` sans le
 bit exécutable (tsc n'en pose pas), ce qui cassait le binaire `smol`
@@ -160,6 +160,44 @@ sur le modèle du script `clean` (cross-platform, inoffensif sous
 Windows). Vérifié : après `npm run build`, `dist/index.js` porte
 `-rwxr-xr-x` et `smol --version` répond. SHA `6f859a9` reporté sur
 l'entrée précédente.
+
+### (ce commit) — Les onze correctifs test-first de l'audit
+
+`src/detect.ts`, `src/prompt.ts`, `src/index.ts`, `src/session.ts`,
+`test/detect.test.js`, `test/agents-md.test.js`,
+`bench/noyau-agents-md/banc.sh`, `bench/.gitignore`,
+`launch-smol-mtplx.command`. Solde des constats test-first de l'audit
+ShipGuard, en rouge/vert.
+
+- `detect.ts` : `context_length` accepté seulement s'il est un entier
+  sûr d'au moins 1 024 (Infinity, fraction ou valeur minuscule
+  retombent sur 4 096 avec note) ; une entrée `null` dans la liste
+  compat ne fait plus tomber `identifyServer`.
+- `prompt.ts` : `loadAgentsMdDetails` expose provenance et
+  avertissements — fichier présent mais illisible signalé (plus de
+  perte silencieuse des garde-fous), troncature annoncée à l'écran,
+  coupe qui recule d'un caractère devant une paire de substitution
+  UTF-16. `index.ts` affiche « Instructions loaded: global + workspace »
+  au lieu du libellé trompeur ; `session.ts` relaie les avertissements.
+- `banc.sh` : workspaces et HOME temporaires créés sous TMPDIR, hors
+  du dépôt (un agent qui supprime `W/.git` ne fait plus remonter git
+  au fork) ; `resultats/` ignoré par git ; timeout par SIGTERM au
+  groupe de processus (node exécute son nettoyage, plus d'orphelins),
+  KILL cinq secondes après en dernier recours.
+- Lanceur : option inconnue, dossier introuvable ou argument
+  surnuméraire rejetés avec usage (exit 2) ; `launchctl bootstrap`
+  puis `kickstart` puis `load` en cascade, consigne d'arrêt en
+  `bootout` ; attache `smol --web` bornée à 30 s ; `--test` sous le
+  même wrapper SIGTERM.
+
+Vérifications : phase rouge 6/6 (Infinity traversait, TypeError sur
+null, API details absente, demi-substitution coupée) puis suite
+163/163 exit 0 ; wrapper prouvé (rc 143, zéro processus survivant du
+groupe, exec raté rc 2) ; cas négatifs du lanceur exit 2 ; démon
+déchargé par bootout puis rechargé par le lanceur (bootstrap), URL
+fraîche exit 0 ; run réel du banc rc=0 avec workspace sous TMPDIR et
+zéro dossier créé dans le dépôt. Restent ouverts les douze constats à
+décision humaine. SHA `ac7ad3e` reporté sur l'entrée précédente.
 
 ## Hors dépôt (machine locale)
 

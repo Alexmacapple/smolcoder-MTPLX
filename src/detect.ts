@@ -298,9 +298,11 @@ export async function identifyServer(base: string, timeoutMs = NETWORK_PROBE_TIM
   const compat = await tryFetchJson(`${base}/v1/models`, undefined, timeoutMs);
   if (compat && Array.isArray(compat.data)) {
     const models = compat.data
-      .filter((m: any) => !String(m.id).includes("embed"))
+      .filter((m: any) => m && typeof m === "object" && m.id != null && !String(m.id).includes("embed"))
       .map((m: any) => {
-        const hasCtx = typeof m.context_length === "number" && m.context_length > 0;
+        // The listing is third-party data: only a sane window is trusted
+        // (Infinity, fractions or tiny values would break budgeting).
+        const hasCtx = Number.isSafeInteger(m.context_length) && m.context_length >= 1024;
         return {
           id: m.id as string,
           backend: "lmstudio" as const,

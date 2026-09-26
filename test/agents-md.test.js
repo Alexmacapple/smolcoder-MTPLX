@@ -3,7 +3,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
-const { loadAgentsMd } = require('../dist/prompt');
+const { loadAgentsMd, loadAgentsMdDetails } = require('../dist/prompt');
 
 /** A throwaway home and workspace, each optionally holding an AGENTS.md. */
 function setup({ global, local } = {}) {
@@ -104,6 +104,56 @@ test('an unreadable AGENTS.md (a directory) is ignored like a missing one', () =
   try {
     fs.mkdirSync(path.join(workspace, 'AGENTS.md'));
     assert.equal(loadAgentsMd(workspace, home), 'Global rule.');
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('truncation never leaves half a surrogate pair at the cut', () => {
+  // The 4000th char would be the high half of the emoji: the cut must back off.
+  const { root, home, workspace } = setup({ global: 'a'.repeat(3999) + '😀' + 'b'.repeat(100) });
+  try {
+    const text = loadAgentsMd(workspace, home);
+    const cutPart = text.split('\n[')[0];
+    assert.ok(!/[\uD800-\uDBFF]$/.test(cutPart), 'no lone high surrogate at the cut');
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('details expose the loaded sources and no warnings on a clean load', () => {
+  const { root, home, workspace } = setup({ global: 'Global rule.', local: 'Local rule.' });
+  try {
+    const d = loadAgentsMdDetails(workspace, home);
+    assert.deepEqual(d.sources, ['~/.smolcoder/AGENTS.md', 'AGENTS.md']);
+    assert.deepEqual(d.warnings, []);
+    assert.equal(d.text, loadAgentsMd(workspace, home));
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('details warn when a present AGENTS.md is unreadable', () => {
+  const { root, home, workspace } = setup({ global: 'Global rule.' });
+  try {
+    fs.mkdirSync(path.join(workspace, 'AGENTS.md'));
+    const d = loadAgentsMdDetails(workspace, home);
+    assert.equal(d.text, 'Global rule.');
+    assert.equal(d.warnings.length, 1);
+    assert.match(d.warnings[0], /AGENTS\.md/);
+    assert.match(d.warnings[0], /unreadable|illisible/i);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('details warn when a file is truncated at its cap', () => {
+  const { root, home, workspace } = setup({ global: 'G'.repeat(20000) });
+  try {
+    const d = loadAgentsMdDetails(workspace, home);
+    assert.equal(d.warnings.length, 1);
+    assert.match(d.warnings[0], /truncated/i);
+    assert.match(d.warnings[0], /4000|4 000/);
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }
