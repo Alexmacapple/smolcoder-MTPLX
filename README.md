@@ -45,9 +45,8 @@ npm install -g git+https://github.com/Alexmacapple/smolcoder-MTPLX.git
 ```
 
 Puis écrire `~/.smolcoder.json` (ci-dessus) et lancer `smol` depuis un
-dossier de projet. Le patch est candidat pour un pull request vers le
-dépôt amont ; tant qu'il n'est pas intégré, installer ce fork plutôt
-que le paquet amont.
+dossier de projet. Ce fork est la version de référence pour MTPLX :
+installer ce dépôt, pas le paquet amont.
 
 ---
 
