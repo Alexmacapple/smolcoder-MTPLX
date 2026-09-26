@@ -379,7 +379,7 @@ six phases (un appel d'outil, 38 s). L'effet sur la conduite reste une
 hypothèse à mesurer au banc, comme acté au ticket #20.
 SHA `f3d8f71` reporté sur l'entrée précédente.
 
-### (ce commit) — Revue avant commit : l'arbre de travail est inclus
+### 1abfb2c — Revue avant commit : l'arbre de travail est inclus
 
 `docs/skills/revue-de-code.md`, `docs/skills/implementer.md`. Une analyse
 tierce a relevé une incohérence héritée de l'amont Pocock : la fiche
@@ -390,6 +390,36 @@ travail non commité, trois-points pour une branche commitée), commence
 par `git status --short` pour séparer modifications humaines et
 modifications de l'agent, et la fiche d'implémentation renvoie au bon
 cas. SHA `e68dee2` reporté sur l'entrée précédente.
+
+### (ce commit) — Baseline durable du banc MTPLX — Closes #13
+
+bench/noyau-agents-md/banc.sh, verrou-campagne.sh, campagne.sh et
+test-banc.sh, docs/banc-noyau-agents-md-2026-09-26.md. Chaque essai valide écrit désormais
+un répertoire horodaté unique et un manifeste JSON atomique, avec SHA du
+harnais, prompt, modèle et réponses serveur réellement observés, version
+MTPLX lorsqu’elle est disponible, paramètres bruts, scénario, condition et
+statut machine-lisible. Le verrou PID empêche toute campagne concurrente ; le
+runner conserve toutes les répétitions appariées, identifiées dans chaque
+manifeste. Les statuts séparent succès, échec de vérification, refus de
+sécurité attendu, MTPLX indisponible et blocage du harnais : aucun cas non
+exécuté ne devient un succès. Une réussite fonctionnelle exige aussi le
+périmètre externe attendu ; la récupération de verrou périmé et les
+interruptions ne peuvent pas ouvrir une campagne concurrente.
+
+Vérifications : bash -n sur les quatre scripts et git diff --check verts ;
+usage du banc et répétitions 000 refusés avec exit 2 ; verrou vivant refusé
+avec exit 4 et manifeste blocage_harnais (smol_started=false) ; verrou
+périmé récupéré, MTPLX volontairement indisponible classé
+mtplx_indisponible (exit 3) sans verrou restant ; campagne simulée de deux
+répétitions produit quatre manifestes, appariés par identifiant et numéro ;
+contrôle réel MTPLX bug/avec en 34 s, manifeste succes, modèle
+mtplx-qwen38-27b-optimized-speed-fp16 confirmé par snapshot, test et
+périmètre indépendants verts ; version MTPLX non exposée, enregistrée
+inconnue ; test-banc.sh prouve sans modèle succès, violation de périmètre,
+timeout et quatre manifests appariés pour deux répétitions ; npm test 172/172,
+exit 0 après npm ci (le compilateur global TypeScript 6 ne convenait pas en
+l’absence de dépendances locales). SHA
+1abfb2c reporté sur l’entrée précédente.
 
 ## Hors dépôt (machine locale)
 
