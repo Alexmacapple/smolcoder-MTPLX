@@ -236,7 +236,13 @@ async function runHeadless(args: CliArgs): Promise<void> {
   const agents = loadAgentsMdDetails(args.workspace);
   for (const w of agents.warnings) ui.status(`· ${w}`);
   if (agents.text) ui.status(`· Instructions loaded: ${agents.sources.join(" + ")} (${agents.text.split("\n").length} lines)`);
-  const systemPrompt = buildSystemPrompt({ workspace: args.workspace, mode, shellLabel: shell.label, agentsMd: agents.text });
+  const systemPrompt = buildSystemPrompt({
+    workspace: args.workspace,
+    mode,
+    shellLabel: shell.label,
+    globalAgentsMd: agents.globalText,
+    workspaceAgentsMd: agents.workspaceText,
+  });
   const agent = new Agent(provider, mode, systemPrompt, toolCtx, ctxMgr, bus, ui, false, 1000,
     args.verify ? { command: args.verify, maxAttempts: args.verifyAttempts } : undefined);
   reportCompactions(bus, ui);

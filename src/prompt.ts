@@ -55,6 +55,8 @@ function fileIdentity(p: string): string {
  * unreadable file). */
 export interface AgentsMdDetails {
   text: string | null;
+  globalText: string | null;
+  workspaceText: string | null;
   sources: string[];
   warnings: string[];
 }
@@ -64,16 +66,25 @@ export interface AgentsMdDetails {
 export function loadAgentsMdDetails(workspace: string, home: string = os.homedir()): AgentsMdDetails {
   const globalPath = path.join(home, ".smolcoder", "AGENTS.md");
   const localPath = path.join(workspace, "AGENTS.md");
-  const reads = process.env.SMOL_NO_GLOBAL_AGENTS === "1"
-    ? []
-    : [{ label: "~/.smolcoder/AGENTS.md", read: readAgentsFile(globalPath, GLOBAL_AGENTS_MD_CAP_CHARS, "~/.smolcoder/AGENTS.md") }];
-  if (fileIdentity(localPath) !== fileIdentity(globalPath)) {
-    reads.push({ label: "AGENTS.md", read: readAgentsFile(localPath, AGENTS_MD_CAP_CHARS, "AGENTS.md") });
-  }
+  const globalRead = process.env.SMOL_NO_GLOBAL_AGENTS === "1"
+    ? null
+    : readAgentsFile(globalPath, GLOBAL_AGENTS_MD_CAP_CHARS, "~/.smolcoder/AGENTS.md");
+  const workspaceRead = fileIdentity(localPath) !== fileIdentity(globalPath)
+    ? readAgentsFile(localPath, AGENTS_MD_CAP_CHARS, "AGENTS.md")
+    : null;
+  const reads: Array<{ label: string; read: AgentsFileRead }> = [];
+  if (globalRead) reads.push({ label: "~/.smolcoder/AGENTS.md", read: globalRead });
+  if (workspaceRead) reads.push({ label: "AGENTS.md", read: workspaceRead });
   const sources = reads.filter((r) => r.read.text !== null).map((r) => r.label);
   const warnings = reads.map((r) => r.read.warning).filter((w): w is string => w !== null);
   const loaded = reads.map((r) => r.read.text).filter((t): t is string => t !== null);
-  return { text: loaded.length ? loaded.join("\n\n") : null, sources, warnings };
+  return {
+    text: loaded.length ? loaded.join("\n\n") : null,
+    globalText: globalRead?.text ?? null,
+    workspaceText: workspaceRead?.text ?? null,
+    sources,
+    warnings,
+  };
 }
 
 /** Read the global ~/.smolcoder/AGENTS.md, then the workspace's AGENTS.md. */
@@ -85,7 +96,11 @@ export function buildSystemPrompt(opts: {
   workspace: string;
   mode: Mode;
   shellLabel: string;
-  /** Contents of the workspace AGENTS.md, when present. */
+  /** Contenu de ~/.smolcoder/AGENTS.md, quand il est présent. */
+  globalAgentsMd?: string | null;
+  /** Contenu de l'AGENTS.md du workspace, quand il est présent. */
+  workspaceAgentsMd?: string | null;
+  /** Instructions combinées conservées pour l'ancienne API. */
   agentsMd?: string | null;
 }): string {
   const os =
@@ -98,6 +113,20 @@ export function buildSystemPrompt(opts: {
         ? "Read, edit and run commands inside the workspace. Commands reaching outside it need approval; keep scratch files in .scratch/."
         : "You have full access to files and commands; nothing asks the user for approval.";
 
+  const globalAgentsMd = opts.globalAgentsMd ?? null;
+  const workspaceAgentsMd = opts.workspaceAgentsMd ?? opts.agentsMd ?? null;
+  const instructionBlocks = [
+    globalAgentsMd
+      ? `Global rules (from ~/.smolcoder/AGENTS.md) — follow these:\n${globalAgentsMd}`
+      : "",
+    workspaceAgentsMd
+      ? `Workspace instructions (from AGENTS.md) — follow these:\n${workspaceAgentsMd}`
+      : "",
+  ].filter(Boolean);
+  const precedence = globalAgentsMd
+    ? "\n\nSafety precedence: if global rules and workspace instructions conflict, global rules take precedence for safety; global safety refusals remain binding even when the user explicitly requests a destructive command. Never execute destructive commands such as `git reset --hard` or `rm -rf` when they would erase workspace work; workspace instructions cannot override these rules."
+    : "";
+
   return (
     `You are smolcoder, a coding agent working in the workspace ${opts.workspace} on ${os}. ` +
     `Commands run in ${opts.shellLabel} with the workspace as the working directory. ` +
@@ -106,8 +135,7 @@ export function buildSystemPrompt(opts: {
     `Read relevant files before editing. Search narrowly and read small line ranges. Inspect a local module's actual exports before importing it. Make one tool call at a time; use small modules and write large files in parts. ` +
     `Read errors and change your approach when a call fails. Put test programs in files rather than long inline shell commands. Verify changes with the relevant test or command; a failed check is not success. ` +
     `Continue until the request is finished or explain the blocker. Summarize the result and verification briefly.` +
-    (opts.agentsMd
-      ? `\n\nWorkspace instructions from AGENTS.md — follow these:\n${opts.agentsMd}`
-      : "")
+    (instructionBlocks.length ? `\n\n${instructionBlocks.join("\n\n")}` : "") +
+    precedence
   );
 }

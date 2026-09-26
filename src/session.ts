@@ -314,7 +314,8 @@ export class Session {
    * session after the first one). */
   onTurnDone: (() => void) | null = null;
 
-  private readonly agentsMd: string | null;
+  private readonly globalAgentsMd: string | null;
+  private readonly workspaceAgentsMd: string | null;
   private readonly prefs: SessionPrefs;
   private readonly help: string;
   private ended = false;
@@ -343,7 +344,8 @@ export class Session {
     };
     this.ctxMgr = new ContextManager(chosen.contextWindow, provider.maxOutputTokens);
     const agents = loadAgentsMdDetails(workspace);
-    this.agentsMd = agents.text;
+    this.globalAgentsMd = agents.globalText;
+    this.workspaceAgentsMd = agents.workspaceText;
     for (const w of agents.warnings) ui.status(`· ${w}`);
     // The step cap is a runaway-loop backstop, not a work limit — esc/ctrl+c
     // is the user's real kill switch, so set it far above any legitimate task.
@@ -365,7 +367,13 @@ export class Session {
   }
 
   private sysPrompt(mode: Mode): string {
-    return buildSystemPrompt({ workspace: this.workspace, mode, shellLabel: this.shell.label, agentsMd: this.agentsMd });
+    return buildSystemPrompt({
+      workspace: this.workspace,
+      mode,
+      shellLabel: this.shell.label,
+      globalAgentsMd: this.globalAgentsMd,
+      workspaceAgentsMd: this.workspaceAgentsMd,
+    });
   }
 
   private persist(): void {

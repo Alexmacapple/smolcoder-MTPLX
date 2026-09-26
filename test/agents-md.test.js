@@ -3,7 +3,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
-const { loadAgentsMd, loadAgentsMdDetails } = require('../dist/prompt');
+const { buildSystemPrompt, loadAgentsMd, loadAgentsMdDetails } = require('../dist/prompt');
 
 /** A throwaway home and workspace, each optionally holding an AGENTS.md. */
 function setup({ global, local } = {}) {
@@ -62,6 +62,8 @@ test('SMOL_NO_GLOBAL_AGENTS=1 keeps workspace instructions without the global on
   try {
     const details = loadAgentsMdDetails(workspace, home);
     assert.equal(details.text, 'Local rule.');
+    assert.equal(details.globalText, null);
+    assert.equal(details.workspaceText, 'Local rule.');
     assert.deepEqual(details.sources, ['AGENTS.md']);
   } finally {
     if (previous === undefined) delete process.env.SMOL_NO_GLOBAL_AGENTS;
@@ -94,6 +96,35 @@ test('a SMOL_NO_GLOBAL_AGENTS value other than 1 keeps the global instructions',
     else process.env.SMOL_NO_GLOBAL_AGENTS = previous;
     fs.rmSync(root, { recursive: true, force: true });
   }
+});
+
+test('the system prompt separates global rules and workspace instructions', () => {
+  const prompt = buildSystemPrompt({
+    workspace: '/tmp/workspace',
+    mode: 'edit',
+    shellLabel: 'zsh',
+    globalAgentsMd: 'Global rule.',
+    workspaceAgentsMd: 'Local rule.',
+  });
+  const globalHeader = 'Global rules (from ~/.smolcoder/AGENTS.md)';
+  const workspaceHeader = 'Workspace instructions (from AGENTS.md)';
+  assert.ok(prompt.includes(globalHeader));
+  assert.ok(prompt.includes(workspaceHeader));
+  assert.ok(prompt.indexOf(globalHeader) < prompt.indexOf(workspaceHeader));
+  assert.ok(prompt.includes('global rules take precedence for safety'));
+  assert.ok(prompt.includes('global safety refusals remain binding even when the user explicitly requests a destructive command'));
+  assert.ok(prompt.includes('Never execute destructive commands such as `git reset --hard` or `rm -rf`'));
+  assert.ok(prompt.includes('Global rule.') && prompt.includes('Local rule.'));
+});
+
+test('the system prompt keeps global precedence explicit without a workspace block', () => {
+  const prompt = buildSystemPrompt({
+    workspace: '/tmp/workspace',
+    mode: 'edit',
+    shellLabel: 'zsh',
+    globalAgentsMd: 'Global rule.',
+  });
+  assert.ok(prompt.includes('global rules take precedence for safety'));
 });
 
 test('an oversized global file is capped at exactly 4000 chars with a visible marker', () => {
@@ -168,6 +199,8 @@ test('details expose the loaded sources and no warnings on a clean load', () => 
     const d = loadAgentsMdDetails(workspace, home);
     assert.deepEqual(d.sources, ['~/.smolcoder/AGENTS.md', 'AGENTS.md']);
     assert.deepEqual(d.warnings, []);
+    assert.equal(d.globalText, 'Global rule.');
+    assert.equal(d.workspaceText, 'Local rule.');
     assert.equal(d.text, loadAgentsMd(workspace, home));
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
