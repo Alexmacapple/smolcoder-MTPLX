@@ -461,6 +461,53 @@ trois artefacts Loriq cités par le ticket, sans dépendance. La fusion de
 la pull request vaut acceptation ; #8, #9, #10 et #11 la référencent
 ensuite. SHA `1abfb2c` reporté sur l'entrée précédente.
 
+### (ce commit) — Contrat de mission et validation avant écriture — Closes #8
+
+`src/harness/store.ts` (nouveau), `src/harness/mission.ts` (nouveau),
+`src/agent.ts`, `src/context.ts`, `src/session.ts`, `src/index.ts`,
+`src/web/hub.ts`, `src/web/store.ts` (`writeAtomic` exporté),
+`docs/profil-mission.md`, `test/harness-store.test.js`,
+`test/mission.test.js`. Ticket #8 (H01), sur la décision du stockage hôte
+(#14).
+
+Le stockage hôte a son module propriétaire unique : empreinte du workspace
+(SHA-256 du chemin réel, seize caractères hexadécimaux), `contract.json`
+au schéma `smolcoder/contract/v1` fermé, statuts `proposed | approved |
+expired`, `proofs.jsonl` en ajout seul avec les trois événements
+`contract`, `approval`, `verdict`, écritures atomiques, lectures bornées et
+fail-closed (`unreadable`, `unknown-schema`, `truncated-tail` explicites,
+aucun ajout derrière une ligne tronquée).
+
+Le profil renforcé est opt-in par `--mission <contrat.json>` (fichier hors
+du workspace) ; sans lui, rien ne change. Parcours préparer → approuver →
+exécuter : avant approbation, seuls la lecture et le plan passent, toute
+écriture, édition ou commande est refusée dans `gateAndExecute`, avant
+toute autre porte, même en bypass et quoi que prétende le modèle.
+L'approbation est un acte de l'hôte : `--approve <empreinte>` en headless,
+`/approve` avec confirmation humaine en terminal et en web ; elle est liée
+à l'empreinte du contrat, et toute modification du contrat l'invalide. Le
+budget `budgets.maxSteps` est un état persistant de l'hôte ; épuisé, le
+contrat expire, et l'élargir exige une nouvelle approbation. Aucun plafond
+global de contexte. La compaction reprend le contrat relu dans le stockage
+hôte, hors du résumé du modèle. Headless sans approbation : vue du
+contrat, ligne `[mission]` explicite, sortie 3, sans appel au modèle ni
+attente. Nom du profil et limites : `docs/profil-mission.md`.
+
+Vérifications, méthode rouge puis vert avec le fournisseur simulé : écriture
+avant approbation rouge (« write_file must not run before approval », le
+fichier était créé) ; approbation survivant à un contrat modifié rouge
+(état `approved` au lieu de `proposed`) ; budget rouge (« Missing expected
+rejection ») ; note de compaction sans contrat rouge ; headless rouge
+(« Unknown option "--mission" », sortie 1 au lieu de 3) ; sessions terminal
+et web rouges (`Created hello.txt` avant approbation). Les deux gardes du
+profil par défaut, vertes avant comme après. Vingt-neuf tests ajoutés,
+chaque critère d'acceptation du ticket couvert par des tests nommés
+« H01 AC1 » à « H01 AC5 » ; `npm test` 207/207, aucun test sauté. Contrôle
+réel du CLI : `smol -p … --mission` sans approbation sort en 3 avec l'état
+`proposed` et un seul événement `contract` au journal. Non couvert, renvoyé :
+verrou multi-sessions (#10), verdicts (#9), point de passage unique des
+commandes du harnais et statut du bypass (#11).
+
 ## Hors dépôt (machine locale)
 
 - Fork créé : `Alexmacapple/smolcoder-MTPLX`.

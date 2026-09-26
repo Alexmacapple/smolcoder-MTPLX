@@ -23,6 +23,7 @@ import { truncateMiddle } from "./util";
 import { createHash } from "crypto";
 import { commandPassed, renderCommandResult, runCommandResult } from "./tools/shell";
 import { failureSignature, projectVerification } from "./verification";
+import type { Mission } from "./harness/mission";
 
 /** Supplied by the caller, never generated or changed by a model tool. */
 export interface Verification {
@@ -78,7 +79,10 @@ export class Agent {
     private interactive: boolean,
     /** Tool-call budget per user turn. Headless runs get a much larger one. */
     private maxSteps = 30,
-    private callerVerification?: Verification
+    private callerVerification?: Verification,
+    /** Profil renforcé (--mission) : contrat tenu par l'hôte. null = parcours
+     * conversationnel courant, strictement inchangé. */
+    readonly mission: Mission | null = null
   ) {
     this.verification = callerVerification;
     if (callerVerification && (!callerVerification.command.trim() || (callerVerification.maxAttempts !== undefined && (!Number.isSafeInteger(callerVerification.maxAttempts) || callerVerification.maxAttempts < 1)))) throw new Error("Verification needs a command and a positive attempt limit.");
@@ -151,7 +155,7 @@ export class Agent {
     const failure = this.verificationResult && !this.verificationResult.passed
       ? `\nLast acceptance failure (actual command output; resolve before completion):\n${truncateMiddle(this.verificationResult.output, 1800)}` : "";
     const progress = this.progressFailure ? `\nLast project check failure (may predate subsequent edits):\n${truncateMiddle(this.progressFailure, 1800)}` : "";
-    return { originalRequest: this.originalRequest, currentRequest: this.currentRequest, verificationLine: this.verificationInstruction() + failure + progress, filesTouched: this.toolCtx.filesTouched, commandsRun: this.toolCtx.commandsRun, planLine: this.toolCtx.plan.compactLine() };
+    return { originalRequest: this.originalRequest, currentRequest: this.currentRequest, verificationLine: this.verificationInstruction() + failure + progress, filesTouched: this.toolCtx.filesTouched, commandsRun: this.toolCtx.commandsRun, planLine: this.toolCtx.plan.compactLine(), ...(this.mission ? { contractLine: this.mission.modelBlock() } : {}) };
   }
 
   /** Le verdict vient du code de sortie réel ; le texte, projection du même
@@ -180,6 +184,11 @@ export class Agent {
 
   private verificationInstruction(): string {
     return this.verification ? `\n${this.verification.source === "project" ? `Project checks (${this.verification.command})` : "Caller-owned acceptance checks"} must pass before completion. The harness runs them automatically and returns failures for repair. Use project files and returned failures to fix the application. Do not weaken or bypass acceptance checks.` : "";
+  }
+
+  /** Le contrat relu dans le stockage hôte ; vide hors profil mission. */
+  private missionInstruction(): string {
+    return this.mission ? `\n\n${this.mission.modelBlock()}` : "";
   }
 
   private discoverVerification(wroteThisTurn: boolean): void {
@@ -267,7 +276,7 @@ export class Agent {
     this.currentRequest = requestNote; // the task compaction must never lose
     this.messages.push({
       role: "user",
-      content: request + (rendered.text ? "\n\n" + rendered.text : "") + this.verificationInstruction(),
+      content: request + (rendered.text ? "\n\n" + rendered.text : "") + this.verificationInstruction() + this.missionInstruction(),
       ...(rendered.images.length ? { images: rendered.images } : {}),
     });
     this.abort = new AbortController();
@@ -310,6 +319,9 @@ export class Agent {
     try {
       await this.refreshLoadedWindow();
       agentLoop: while (steps++ < this.maxSteps) {
+        // Profil mission : chaque pas du modèle est débité du budget
+        // persistant du contrat ; au-delà, le contrat expire et le tour s'arrête.
+        this.mission?.chargeStep();
         // Context management before every request.
         await this.bus.emit("pre_request");
         if (this.ctxMgr.needsAttention(this.messages, this.tools)) {
@@ -654,6 +666,10 @@ export class Agent {
     args: Record<string, any>,
     signal?: AbortSignal
   ): Promise<string> {
+    // Profil mission : la porte du contrat passe avant toutes les autres, y
+    // compris en bypass, et avant toute demande d'approbation de commande.
+    const blocked = this.mission?.denial(name, args);
+    if (blocked) return `Error: ${blocked}`;
     const command = commandOf(name, args);
     // Gate everywhere except bypass (defense-in-depth: in ro mode exec tools are
     // already rejected before this point by the tool-existence check). Edit

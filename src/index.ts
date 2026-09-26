@@ -13,6 +13,7 @@ import * as os from "os";
 import * as path from "path";
 import { Agent } from "./agent";
 import { loadConfig } from "./config";
+import { authorizeHeadless, Mission, MISSION_EXIT_CODE, MissionError, missionExitCode, missionReport } from "./harness/mission";
 import { ContextManager } from "./context";
 import { EventBus } from "./events";
 import { terminalLogo } from "./logo";
@@ -51,6 +52,10 @@ interface CliArgs {
   print?: string;
   verify?: string;
   verifyAttempts?: number;
+  /** Profil renforcé : fichier de contrat de mission (hors du workspace). */
+  mission?: string;
+  /** Approbation headless de l'appelant : l'empreinte exacte du contrat. */
+  approve?: string;
   effort?: Effort | null; // null = explicit "default"
   web?: boolean;
   webPort?: number;
@@ -97,6 +102,18 @@ function parseArgs(argv: string[]): CliArgs {
     } else if (a === "--verify-attempts") {
       args.verifyAttempts = Number(argv[++i]);
       if (!Number.isSafeInteger(args.verifyAttempts) || args.verifyAttempts < 1) throw new Error('--verify-attempts must be a positive whole number');
+    } else if (a === "--mission") {
+      args.mission = argv[++i];
+      if (!args.mission?.trim()) {
+        console.error("--mission needs a contract file (JSON, outside the workspace).");
+        process.exit(1);
+      }
+    } else if (a === "--approve") {
+      args.approve = argv[++i];
+      if (!/^[0-9a-f]{64}$/.test(args.approve ?? "")) {
+        console.error("--approve needs the contract fingerprint: 64 hexadecimal characters, as printed by smol --mission.");
+        process.exit(1);
+      }
     } else if (a === "--print" || a === "-p") args.print = argv[++i];
     else if (a === "--web") {
       args.web = true;
@@ -130,6 +147,12 @@ ${c.bold("Options:")}
   --ctx <tokens>               force a context window (Ollama: sends num_ctx)
   --verify <command>           headless acceptance gate; automatically repair failures
   --verify-attempts <count>     maximum acceptance checks (default 6; requires --verify)
+  --mission <contract.json>    reinforced profile: a mission contract (kept outside the
+                               workspace) must be approved before any write or command;
+                               its budgets.maxSteps is a step budget kept across runs
+  --approve <fingerprint>      headless approval of that exact contract (requires -p and
+                               --mission); in the terminal or web UI, type /approve.
+                               Without approval a -p run stops with exit code 3
   --effort <level>             reasoning effort: off, low, medium, high, default
   --web [port]                 browser UI (default port ${DEFAULT_WEB_PORT}): a sidebar of your
                                workspaces and sessions, an embedded browser and
@@ -197,20 +220,59 @@ async function main(): Promise<void> {
   }
   if (args.verify && (!args.print || args.web)) throw new Error('--verify requires a headless -p run');
   if (args.verifyAttempts !== undefined && !args.verify) throw new Error('--verify-attempts requires --verify');
+  if (args.approve !== undefined && !args.mission) {
+    console.error("--approve requires --mission <contract file>.");
+    process.exit(1);
+  }
+  if (args.approve !== undefined && (args.print === undefined || args.web)) {
+    console.error("--approve is the headless caller's approval: it requires a -p run. In the terminal or web UI, type /approve.");
+    process.exit(1);
+  }
   if (!fs.existsSync(args.workspace) || !fs.statSync(args.workspace).isDirectory()) {
     console.error(`Workspace folder does not exist: ${args.workspace}`);
     process.exit(1);
   }
+  const mission = args.mission ? prepareMission(args) : null;
 
-  if (args.print !== undefined) await runHeadless(args);
+  if (args.print !== undefined) await runHeadless(args, mission);
   else if (args.web) await runWeb(args);
-  else await runInteractive(args);
+  else await runInteractive(args, mission);
+}
+
+/** Profil mission : contrat validé et proposé dans le stockage hôte avant
+ * toute autre chose. Contrat invalide : sortie 1 ; stockage hôte dans un
+ * état qui interdit de décider (illisible, schéma inconnu…) : sortie 3. */
+function prepareMission(args: CliArgs): Mission {
+  try {
+    return Mission.prepare({ source: args.mission!, workspace: args.workspace });
+  } catch (err: any) {
+    console.error(String(err?.message ?? err));
+    if (err instanceof MissionError && err.state) {
+      process.stderr.write(`[mission] ${JSON.stringify({ state: err.state, contract: path.resolve(args.mission!) })}\n`);
+      process.exit(MISSION_EXIT_CODE);
+    }
+    process.exit(1);
+  }
 }
 
 // ---- headless (-p) ---------------------------------------------------------
 
-async function runHeadless(args: CliArgs): Promise<void> {
+async function runHeadless(args: CliArgs, mission: Mission | null): Promise<void> {
   const ui = new UI();
+  if (mission) {
+    // Décidé avant de chercher un modèle : sans approbation valable, rien ne
+    // tourne, rien n'attend de réponse, la sortie est non nulle.
+    const gate = authorizeHeadless(mission, args.approve);
+    process.stderr.write(`[mission] ${JSON.stringify(gate.report)}\n`);
+    if (!gate.ok) {
+      ui.println(mission.markdown());
+      ui.error(gate.message);
+      ui.close();
+      process.exitCode = MISSION_EXIT_CODE;
+      return;
+    }
+    ui.status(`· ${gate.message}`);
+  }
   const bus = new EventBus();
   const cfg = loadConfig();
   const chosen = await prepareModel(prefsOf(args), cfg);
@@ -244,7 +306,7 @@ async function runHeadless(args: CliArgs): Promise<void> {
     workspaceAgentsMd: agents.workspaceText,
   });
   const agent = new Agent(provider, mode, systemPrompt, toolCtx, ctxMgr, bus, ui, false, 1000,
-    args.verify ? { command: args.verify, maxAttempts: args.verifyAttempts } : undefined);
+    args.verify ? { command: args.verify, maxAttempts: args.verifyAttempts } : undefined, mission);
   reportCompactions(bus, ui);
   process.on("exit", () => taskManager.killAll());
   installSignalCleanup(() => taskManager.killAll());
@@ -261,6 +323,14 @@ async function runHeadless(args: CliArgs): Promise<void> {
   } catch (err: any) {
     ui.error(`\n${err?.message ?? err}`);
     process.exitCode = 1;
+  }
+  const missionEnd = mission ? mission.status() : null;
+  if (mission && missionEnd) {
+    const code = missionExitCode(missionEnd);
+    if (code !== null) {
+      process.exitCode = code;
+      process.stderr.write(`[mission] ${JSON.stringify(missionReport(mission, missionEnd))}\n`);
+    }
   }
   const st = agent.lastTurnStats;
   if (st) {
@@ -280,6 +350,7 @@ async function runHeadless(args: CliArgs): Promise<void> {
         promptTokensLast: st.promptTokensLast,
         contextWindow: chosen.contextWindow,
         planDone: toolCtx.plan.exists ? `${toolCtx.plan.doneCount}/${toolCtx.plan.steps.length}` : null,
+        ...(mission && missionEnd ? { mission: missionReport(mission, missionEnd) } : {}),
       })}\n`
     );
   }
@@ -289,7 +360,7 @@ async function runHeadless(args: CliArgs): Promise<void> {
 
 // ---- interactive TUI -------------------------------------------------------
 
-async function runInteractive(args: CliArgs): Promise<void> {
+async function runInteractive(args: CliArgs, mission: Mission | null): Promise<void> {
   if (!process.stdout.isTTY || !process.stdin.isTTY) {
     console.error(
       'Interactive mode needs a terminal. For headless use, run: smol -p "your prompt" — or serve a browser UI with --web'
@@ -322,7 +393,7 @@ async function runInteractive(args: CliArgs): Promise<void> {
     }
   }
 
-  const session = new Session(tui, { workspace: args.workspace, chosen, prefs: prefsOf(args), cfg, help: HELP });
+  const session = new Session(tui, { workspace: args.workspace, chosen, prefs: prefsOf(args), cfg, help: HELP, mission, surface: "terminal" });
   session.onExit = () => process.exit(0);
   process.on("exit", () => session.taskManager.killAll());
   installSignalCleanup(() => {
@@ -359,6 +430,12 @@ async function runWeb(args: CliArgs): Promise<void> {
   // A hub is already running: hand it this folder instead of starting another.
   const rec = readHubRecord();
   if (rec && (args.webPort === undefined || rec.port === port) && (await pingHub(rec))) {
+    if (args.mission) {
+      // Le hub en marche ne peut pas recevoir de contrat : refus explicite
+      // plutôt qu'une session ouverte sans le profil demandé.
+      console.error(`--mission needs its own web UI, and one is already running on port ${rec.port}. Stop it, or start another: smol --web ${rec.port + 1} ${workspace} --mission ${args.mission}`);
+      process.exit(1);
+    }
     if (!autoStart) {
       // Home or a drive root is not a project: open the hub sidebar without
       // registering the folder as a workspace or starting a session.
@@ -375,7 +452,8 @@ async function runWeb(args: CliArgs): Promise<void> {
     }
   }
 
-  const hub = new WebHub({ port, prefs: prefsOf(args), help: HELP, version: VERSION });
+  const prefs = { ...prefsOf(args), ...(args.mission ? { mission: { source: path.resolve(args.mission), workspace } } : {}) };
+  const hub = new WebHub({ port, prefs, help: HELP, version: VERSION });
   try {
     await hub.start();
   } catch (err: any) {

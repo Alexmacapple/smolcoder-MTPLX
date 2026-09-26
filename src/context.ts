@@ -50,6 +50,9 @@ export interface CompactState {
   commandsRun: string[];
   planLine?: string | null;
   verificationLine?: string;
+  /** Profil mission : le contrat relu dans le stockage hôte, jamais tronqué
+   * ni confié au résumé du modèle. */
+  contractLine?: string;
 }
 
 /** Tool-call args for a tool-result message (the call lives on the preceding
@@ -482,6 +485,7 @@ export class ContextManager {
 
     const note =
       `[The conversation so far was compacted to save context. Continue the task from these notes — do not start over, and do not redo finished steps.]\n` +
+      (state.contractLine ? state.contractLine + "\n" : "") +
       requestLines +
       (state.verificationLine ? state.verificationLine + "\n" : "") +
       (facts.length ? truncateEnd(facts.join("\n"), 2400) + "\n" : "") +

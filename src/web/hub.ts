@@ -16,6 +16,7 @@ import * as http from "http";
 import * as os from "os";
 import * as path from "path";
 import { DATA_DIR, loadConfig } from "../config";
+import { missionForWorkspace } from "../harness/mission";
 import { noBackendsMessage, prepareModel, Session, SessionPrefs, SessionSnapshot, setupWithoutLocalModels } from "../session";
 import { tryFetchJson } from "../util";
 import { Attachment, classifyUpload, extOf, MAX_UPLOAD_BYTES, mimeForExt, safeName } from "../attachments";
@@ -215,7 +216,8 @@ function defaultFactory(help: string): SessionFactory {
     // Nothing on this computer: the page offers to look on the network.
     if (!chosen) chosen = await setupWithoutLocalModels(ui, prefs);
     if (!chosen) throw new Error(noBackendsMessage());
-    return new Session(ui, { workspace, chosen, prefs, cfg, help });
+    // Profil mission (smol --web --mission) : seulement pour le workspace visé.
+    return new Session(ui, { workspace, chosen, prefs, cfg, help, surface: "web", mission: missionForWorkspace(prefs.mission, workspace) });
   };
 }
 

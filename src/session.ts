@@ -10,6 +10,7 @@ import { ContextManager } from "./context";
 import { detectAll, DetectedModel, resolveContextWindow } from "./detect";
 import { EventBus } from "./events";
 import { findModelsOnNetwork, FlowUI, manageHosts } from "./network";
+import { Mission, MissionPrefs } from "./harness/mission";
 import { Plan, PlanStep } from "./plan";
 import { buildSystemPrompt, loadAgentsMdDetails } from "./prompt";
 import { LmStudioProvider } from "./providers/lmstudio";
@@ -31,7 +32,15 @@ export interface SessionPrefs {
   baseUrl?: string;
   ctx?: number;
   effort?: Effort | null;
+  /** Profil mission du hub web : le contrat et le workspace qu'il vise. */
+  mission?: MissionPrefs;
 }
+
+/** Ajoutées seulement sous le profil mission : sans lui, le menu est inchangé. */
+export const MISSION_COMMANDS: SlashCommand[] = [
+  { name: "mission", desc: "Show the mission contract and its state" },
+  { name: "approve", desc: "Approve the mission contract (your decision, not the model's)" },
+];
 
 export const SLASH_COMMANDS: SlashCommand[] = [
   { name: "models", desc: "Switch model · add models from other machines" },
@@ -301,6 +310,10 @@ export interface SessionOptions {
   cfg: Config;
   /** Text printed by /help. */
   help: string;
+  /** Profil renforcé : contrat préparé par l'hôte. Absent = parcours courant. */
+  mission?: Mission | null;
+  /** Qui approuve avec /approve : l'humain du terminal ou de la page web. */
+  surface?: "terminal" | "web";
 }
 
 export class Session {
@@ -324,6 +337,9 @@ export class Session {
   private readonly prefs: SessionPrefs;
   private readonly help: string;
   private ended = false;
+  readonly mission: Mission | null;
+  private readonly surface: "terminal" | "web";
+  private readonly commands: SlashCommand[];
 
   constructor(
     readonly ui: SessionUI,
@@ -354,9 +370,12 @@ export class Session {
     for (const w of agents.warnings) ui.status(`· ${w}`);
     // The step cap is a runaway-loop backstop, not a work limit — esc/ctrl+c
     // is the user's real kill switch, so set it far above any legitimate task.
-    this.agent = new Agent(provider, mode0, this.sysPrompt(mode0), this.toolCtx, this.ctxMgr, this.bus, ui, true, 1000);
+    this.mission = opts.mission ?? null;
+    this.surface = opts.surface ?? "terminal";
+    this.commands = this.mission ? [...SLASH_COMMANDS, ...MISSION_COMMANDS] : SLASH_COMMANDS;
+    this.agent = new Agent(provider, mode0, this.sysPrompt(mode0), this.toolCtx, this.ctxMgr, this.bus, ui, true, 1000, undefined, this.mission);
 
-    ui.slashCommands = SLASH_COMMANDS;
+    ui.slashCommands = this.commands;
     ui.hintLeft = workspace.replace(os.homedir(), "~");
     ui.getStatus = () => this.statusLine();
     ui.onModeCycle = () => {
@@ -403,8 +422,15 @@ export class Session {
               : c.cyan(`plan ${plan.doneCount}/${plan.steps.length}`)
           }`
         : "") +
-      (tasks ? ` ${c.dim("·")} ${c.green(`${tasks} task${tasks > 1 ? "s" : ""}`)}` : "")
+      (tasks ? ` ${c.dim("·")} ${c.green(`${tasks} task${tasks > 1 ? "s" : ""}`)}` : "") +
+      (this.mission ? ` ${c.dim("·")} ${this.missionLabel()}` : "")
     );
+  }
+
+  private missionLabel(): string {
+    const s = this.mission!.status();
+    const label = `mission ${s.state} ${s.steps}/${s.maxSteps}`;
+    return s.state === "approved" ? c.green(label) : c.yellow(label);
   }
 
   /** Structured status for the web page's status bar. */
@@ -425,8 +451,9 @@ export class Session {
       plan: plan.exists ? { steps: plan.steps, current: plan.currentIndex } : null,
       tasks: this.taskManager.runningSummary().length,
       workspace: this.workspace,
-      commands: SLASH_COMMANDS,
+      commands: this.commands,
       urls: this.taskManager.recentUrls(),
+      ...(this.mission ? { mission: { ...this.mission.status(), id: this.mission.contract.id, fingerprint: this.mission.fingerprint } } : {}),
     };
   }
 
@@ -436,6 +463,41 @@ export class Session {
     if (this.chosen.note) ui.warn(`  ${this.chosen.note}`);
     const advice = effortAdvice(this.chosen, this.effort);
     if (advice) ui.warn(`  ${advice}`);
+    if (this.mission) {
+      ui.println(this.mission.markdown());
+      ui.status(
+        this.mission.status().state === "approved"
+          ? "· mission profile: the contract is approved; the agent works within it"
+          : "· mission profile: the agent can read and plan; writes and commands stay blocked until you type /approve"
+      );
+    }
+  }
+
+  /** L'approbation humaine du terminal ou de la page web : la vue du
+   * contrat, puis une confirmation explicite liée à son empreinte. */
+  private async approveMission(): Promise<void> {
+    const { ui } = this;
+    const mission = this.mission!;
+    ui.println(mission.markdown());
+    const st = mission.status();
+    if (st.state === "approved") {
+      ui.status("· this contract is already approved");
+      return;
+    }
+    const pick = await ui.select(`Approve mission contract ${mission.fingerprint.slice(0, 16)}? Writes and commands are then allowed within ${st.maxSteps - st.steps} model steps.`, [
+      { label: "Approve", hint: "record my approval of this exact contract" },
+      { label: "Cancel", hint: "keep writes and commands blocked" },
+    ]);
+    if (pick !== 0) {
+      ui.status("· not approved — writes and commands stay blocked");
+      return;
+    }
+    try {
+      mission.approve(this.surface === "web" ? "web-human" : "terminal-human");
+      ui.status(`· mission approved (${mission.fingerprint.slice(0, 16)})`);
+    } catch (err: any) {
+      ui.error(String(err?.message ?? err));
+    }
   }
 
   snapshot(): SessionSnapshot {
@@ -530,6 +592,14 @@ export class Session {
             agent.resetTranscript();
             toolCtx.plan.reset();
             ui.status("· conversation cleared");
+            break;
+          case "mission":
+            if (!this.mission) ui.warn(`Unknown command /${cmd} — try /help`);
+            else ui.println(this.mission.markdown());
+            break;
+          case "approve":
+            if (!this.mission) ui.warn(`Unknown command /${cmd} — try /help`);
+            else await this.approveMission();
             break;
           default:
             ui.warn(`Unknown command /${cmd} — try /help`);
