@@ -1,4 +1,96 @@
-# Préambule — fork MTPLX (français)
+# smolcoder-MTPLX — un harnais pour agent de code 100 % local
+
+> **Crédit original** : ce projet est un fork de
+> [smolcoder](https://github.com/leonvanzyl/smolcoder) de Leon van Zyl,
+> licence MIT. Le README amont complet est conservé en bas de page.
+
+Ce dépôt fait tourner **Qwen 3.8 27B** servi localement par **MTPLX**
+(API compatible OpenAI sur `127.0.0.1:8000`) comme agent de code sur un
+Mac — et construit autour de lui un **harnais** : des garde-fous
+exécutables, mesurés, détenus par l'humain.
+
+## Pourquoi un harnais
+
+Un petit modèle local est docile : il suit les consignes qu'on lui
+donne — y compris les mauvaises. Le banc comportemental de ce dépôt l'a
+mesuré : sans garde-fous, une demande destructive est exécutée
+(`git reset --hard`, `rm -rf`) et une clé secrète est affichée ; avec
+le noyau de consignes, les refus tiennent. Mais une consigne reste
+consultative : ce dépôt transforme donc, ticket après ticket, les
+promesses en **mécanismes** — ce que le logiciel refuse effectivement,
+ce qu'il prouve, ce qu'il journalise.
+
+## Ce qui est implémenté (au 27 septembre 2026)
+
+- **Détection MTPLX et fenêtre réelle** : `context_length` lu depuis
+  `/v1/models` (262 144 au lieu de 4 096 estimés), valeurs aberrantes
+  rejetées, modèles compat marqués « servis » et sélectionnables.
+- **Consignes à deux étages** : noyau global `~/.smolcoder/AGENTS.md`
+  (dix commandements, opt-out `SMOL_NO_GLOBAL_AGENTS=1`) puis
+  `AGENTS.md` du projet, blocs séparés avec **précédence de sécurité**
+  explicite — validés par campagnes de banc (destructif, secret,
+  injection).
+- **Profil `--mission`** (opt-in, comportement par défaut inchangé) :
+  un **contrat de mission approuvé par l'humain** avant toute
+  écriture — stockage hôte hors du workspace
+  (`~/.smolcoder/harness/…` : `contract.json`, `policy.json`,
+  `proofs.jsonl` en ajout seul), approbation liée à l'empreinte du
+  contrat, budget de pas, refus headless explicite. Détail :
+  `docs/profil-mission.md` et `docs/decision-stockage-hote.md`.
+- **Politique d'accès `allow / ask / deny`** évaluée avant chaque
+  effet, sur quatre surfaces (commandes, tâches de fond, terminal web,
+  vérifications automatiques), fail-closed, environnement minimal
+  transmis aux sous-processus — les secrets de l'hôte n'atteignent
+  plus les commandes.
+- **Verdicts sur résultats typés** : le succès d'une vérification est
+  le code de sortie réel du processus, plus jamais une lecture du
+  texte affiché.
+- **Banc comportemental reproductible** (`bench/noyau-agents-md/`) :
+  un dossier horodaté et un manifeste par run, statuts
+  machine-lisibles (succès ≠ refus de sécurité ≠ panne serveur),
+  verrou de campagne, répétitions appariées.
+- **Fiches de méthode** (`docs/skills/`) : diagnostic de bugs, TDD,
+  revue à deux axes, conception de modules — portées des skills de
+  Matt Pocock, chargées à la demande par l'agent.
+- **Lanceur macOS** (`launch-smol-mtplx.command`) : interface web par
+  défaut avec URL fraîche, session terminal, test de contrôle.
+
+**Chantiers restants**, dans l'ordre :
+[isolation OS en quatre étapes](https://github.com/Alexmacapple/smolcoder-MTPLX/issues/12)
+(#15 à #18), [retours d'outils exploitables](https://github.com/Alexmacapple/smolcoder-MTPLX/issues/19)
+(#19), puis [reprise durable](https://github.com/Alexmacapple/smolcoder-MTPLX/issues/10)
+(#10). Chaque livraison passe par une pull request, des tests
+rouge/vert et une entrée dans `CHANGELOG-MTPLX.md`.
+
+## Installer et lancer
+
+```bash
+npm install -g git+https://github.com/Alexmacapple/smolcoder-MTPLX.git
+```
+
+Déclarer le host MTPLX dans `~/.smolcoder.json` :
+
+```json
+{
+  "hosts": [
+    { "address": "http://127.0.0.1:8000", "name": "mtplx" }
+  ]
+}
+```
+
+Puis `smol` depuis un dossier de projet — ou, sous contrat :
+`smol --mission <contrat.json>` (l'écriture attend l'approbation
+humaine). Ce fork est la version de référence pour MTPLX : installer
+ce dépôt, pas le paquet amont.
+
+## Sources de vérité
+
+Le journal complet est `CHANGELOG-MTPLX.md` (chaque changement, sa
+preuve, son commit). Les décisions d'architecture vivent dans `docs/`,
+le dossier du lot harnais dans `smolcoder-harnais-6-issues*.md`.
+
+<details>
+<summary><strong>Historique — le fork d'origine (26 septembre 2026)</strong></summary>
 
 > **Crédit original** : ce projet est [smolcoder](https://github.com/leonvanzyl/smolcoder)
 > de Leon van Zyl, licence MIT. Tout le contenu ci-dessous est le sien ;
@@ -49,6 +141,11 @@ dossier de projet. Ce fork est la version de référence pour MTPLX :
 installer ce dépôt, pas le paquet amont.
 
 ---
+
+</details>
+
+<details>
+<summary><strong>README amont — smolcoder, par Leon van Zyl (anglais)</strong></summary>
 
 # smolcoder
 
@@ -220,3 +317,5 @@ Issues and pull requests are welcome at [github.com/leonvanzyl/smolcoder](https:
 ## License
 
 [MIT](LICENSE)
+
+</details>

@@ -585,6 +585,18 @@ la décision #14 (« #11 : fichier à définir ») alors que sa rubrique
 politique à l'approbation (`policyRef` reste réservé), sortie 4 testée par
 ses briques et non par le CLI contre un backend.
 
+### `6125f04` — README à l'instant T, historique replié
+
+`README.md`. La partie française reflète le projet actuel : le pourquoi
+du harnais (les consignes sont consultatives, le banc l'a mesuré ; le
+dépôt transforme les promesses en mécanismes), l'inventaire de ce qui
+est implémenté (fenêtre réelle, consignes à deux étages, profil
+--mission et stockage hôte, politique d'accès, verdicts typés, banc
+reproductible, fiches de méthode, lanceur), les chantiers restants dans
+l'ordre, et les sources de vérité. L'explication détaillée du fork
+d'origine et le README amont complet passent en divulgation progressive
+(sections repliables), crédit amont conservé en tête.
+
 ## Hors dépôt (machine locale)
 
 - Fork créé : `Alexmacapple/smolcoder-MTPLX`.
