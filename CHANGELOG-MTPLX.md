@@ -199,7 +199,7 @@ fraîche exit 0 ; run réel du banc rc=0 avec workspace sous TMPDIR et
 zéro dossier créé dans le dépôt. Restent ouverts les douze constats à
 décision humaine. SHA `ac7ad3e` reporté sur l'entrée précédente.
 
-### (ce commit) — Mémo de décision des constats en attente
+### `b0583fc` — Mémo de décision des constats en attente
 
 `docs/memo-decisions-audit.md`. Les treize constats de l'audit restés
 ouverts (douze « décision humaine », un mécanique écarté), chacun avec
@@ -208,6 +208,18 @@ course KeepAlive, dépendance au clone, sens de `context_length`,
 étiquette et précédence du prompt, opt-out du noyau, protocole du banc
 (HOME, métrique clé), `DATA_DIR`. z02-004 y est clos de fait par le
 passage sous TMPDIR. SHA `a733bba` reporté sur l'entrée précédente.
+
+### (ce commit) — Arbitrage des treize constats en attente
+
+`docs/memo-decisions-audit.md`, `AGENTS.md`. Les treize points du mémo
+arbitrés un à un avec Alex : tickets #1 à #5 (sessions au lancement,
+bootout avant repli, clone absent, note de fenêtre déclarée, modèle
+compat servi), #6 (blocs et précédence du prompt, validés par banc avec
+scénario injection), #7 (opt-out du noyau, condition « sans » propre,
+doubles métriques du secret) ; z01-019 documenté dans l'AGENTS.md du
+fork (consignes lues à l'ouverture de session) ; z02-004 clos de fait
+par a733bba ; z01-014 laissé tel quel. SHA `b0583fc` reporté sur
+l'entrée précédente.
 
 ## Hors dépôt (machine locale)
 

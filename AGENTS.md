@@ -17,6 +17,10 @@ du workspace `~/Claude` (`AGENTS.md`).
 - Surface du fork sur l'amont : `src/detect.ts` (context_length) et
   `src/prompt.ts` (AGENTS.md global). Garder le fork minimal ; ne
   jamais éditer `dist/` (généré).
+- Les consignes (noyau global et ce fichier) sont lues à l'ouverture de
+  session : après une modification, ouvrir une nouvelle session — les
+  sessions en cours, y compris dans le démon web, gardent l'ancienne
+  version.
 
 ## Langue
 
