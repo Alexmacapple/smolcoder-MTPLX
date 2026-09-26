@@ -21,6 +21,10 @@ du workspace `~/Claude` (`AGENTS.md`).
   session : après une modification, ouvrir une nouvelle session — les
   sessions en cours, y compris dans le démon web, gardent l'ancienne
   version.
+- Des fiches de méthode sont dans `docs/skills/` (sommaire :
+  `docs/skills/index.md`). Avant de diagnostiquer un bug, écrire des tests,
+  relire un diff, implémenter une demande, concevoir une interface ou
+  résoudre un conflit git : lis la fiche correspondante.
 
 ## Langue
 

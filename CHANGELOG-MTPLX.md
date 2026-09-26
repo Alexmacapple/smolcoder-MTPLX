@@ -354,7 +354,7 @@ transformé en chapeau découpé en #15–#18, ticket préalable #14 (stockage
 hôte) ouvert. Ordre de réalisation : #13 minimal → #14 → #8 → #11 →
 #15..#18 → #9 → #10. SHA `da42044` reporté sur l'entrée précédente.
 
-### (ce commit) — Ticket H07 et mise à jour du dossier harnais
+### `f3d8f71` — Ticket H07 et mise à jour du dossier harnais
 
 `smolcoder-harnais-6-issues.md`, `smolcoder-harnais-6-issues-consolidation.md`.
 Ticket #19 (H07, P2) publié : retours d'outils exploitables (consommant le
@@ -364,6 +364,20 @@ d'une analyse complémentaire dont le curateur de contexte est repoussé
 #9, #10 et #13 sont renvoyés à ces tickets. Ordre du lot mis à jour :
 #13 minimal → #14 → #8 → #11 → #15..#18 → #9 → #19 → #10.
 SHA `b3ec59a` reporté sur l'entrée précédente.
+
+### (ce commit) — Fiches de méthode portées des skills Matt Pocock
+
+`docs/skills/` (sept fichiers), `AGENTS.md`. Six fiches françaises
+condensées depuis mattpocock/skills (commit `c55ee46`, MIT) : diagnostic
+de bugs, TDD, revue de code à deux axes (réécrite mono-agent — smol n'a
+pas de sous-agents), implémentation, conception de modules, conflits
+git ; plus un index, seule cible du pointeur ajouté à `AGENTS.md`
+(4 205 caractères, plafond 8 000). Les skills de pilotage produit ne
+sont pas portés (listés dans l'index). Preuve de chargement à la
+demande : session réelle, Qwen lit `diagnostic-bugs.md` et restitue les
+six phases (un appel d'outil, 38 s). L'effet sur la conduite reste une
+hypothèse à mesurer au banc, comme acté au ticket #20.
+SHA `f3d8f71` reporté sur l'entrée précédente.
 
 ## Hors dépôt (machine locale)
 
