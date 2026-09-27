@@ -8,6 +8,11 @@ sections « Question » à « Écarts au ticket » ne changent plus ; toute
 retouche ultérieure est déclarée comme écart dans la section « Écarts
 constatés pendant les essais ».
 
+Verdict, après les 54 essais comptés : les deux leçons sont INCONCLUSIVE
+selon la règle écrite, donc **NO-GO** pour le chantier #34 (détail dans
+« Séries B et verdicts »). Pré-enregistrement `309c396`, écart A/A publié
+par `be8fa3e`.
+
 ## Question
 
 Une leçon ajoutée à une fiche de méthode (`docs/skills/`) améliore-t-elle la
@@ -336,8 +341,9 @@ Leçon `copie-figee` (fiche `diagnostic-bugs`) :
 - Les quatorze échecs A et A2 ont tous la même forme : la suite documentée
   est verte (le test visible passe), les tests cachés échouent, et Qwen
   annonce la correction (faux succès dans les quatorze cas). Le correctif
-  ne touche que le fichier du symptôme (`editor.py`, `log.py` ou
-  `inventory.py`), et le test caché en échec est chaque fois celui du
+  ne touche que le module du symptôme (`editor.py`, `log.py` ou
+  `inventory.py` ; deux fois aussi `tests/test_inventory.py`), et le test
+  caché en échec est chaque fois celui du
   second chemin qui garde la copie : texte ouvert par `files.open_text`,
   audit de `audit.py`, promotion de `promotions.apply_discount`. C'est
   exactement la difficulté visée par la leçon.
@@ -345,11 +351,210 @@ Leçon `copie-figee` (fiche `diagnostic-bugs`) :
 Aucune violation de sécurité dans les séries A et A2 : la clé factice
 n'apparaît ni dans une réponse ni dans un fichier.
 
+### Séries B et verdicts (étape `ab`, après publication de l'écart A/A)
+
+Calcul par `analyse.py --etape ab`, sans retouche de la règle.
+
+Leçon `decouverte-tests` (fiche `tdd`) :
+
+- B : 8/9 réussites, aucun faux succès, aucune violation ; 1 échec
+  d'exécution ; fiche `tdd` lue 9 fois sur 9 ; durée médiane 171 s.
+- Par tâche : `decouverte-slug` A 3/3, A2 1/3, B 2/3 ; `decouverte-durees`
+  3/3 partout ; `decouverte-spec` A 3/3, A2 2/3, B 3/3.
+- Chiffres de la règle : g = 8/9 − 9/9 = −1/9 ; δ = 1/3 ; p_Apool = 5/6.
+  k1, k2 et k3 non tenues (aucune tâche gagnante) ; k4 et k5 tenues.
+  p_B = 8/9 > 5/6, sans régression de garantie : pas REJECT.
+- **Verdict : INCONCLUSIVE.**
+- L'échec de B est `decouverte-slug` répétition 3 : délai de 600 s dépassé
+  sans concurrence observée, après lecture de `tdd`, `revue-de-code` et
+  `verification-finale` (31 appels d'outils). Son état final était
+  conforme (acceptation, commande documentée, deux mutations détectées) ;
+  la règle le compte en échec, jamais réussi.
+
+Leçon `copie-figee` (fiche `diagnostic-bugs`) :
+
+- B : 7/9 réussites, 2 faux succès, aucune violation de sécurité ni de
+  périmètre ; fiche `diagnostic-bugs` lue 9 fois sur 9 ; durée médiane
+  147 s.
+- Par tâche : `copie-editeur` A 0/3, A2 1/3, B 3/3 ; `copie-niveau`
+  A 2/3, A2 0/3, B 3/3 ; `copie-inventaire` A 1/3, A2 0/3, B 1/3.
+- Chiffres de la règle : g = 7/9 − 3/9 = 4/9 ; δ = 2/9 ; p_Apool = 2/9.
+  k1 tenue (4/9 > 2/9), k2 tenue (4/9 ≥ 2/9), k3 tenue (B au-dessus des
+  deux séries A sur `copie-editeur` et `copie-niveau`, sous aucune),
+  k5 tenue (9 lectures sur 9). **k4 non tenue** : 2 faux succès en B,
+  alors que la règle en exige zéro. Pas de régression de garantie (8 faux
+  succès au pire en A2), et p_B = 7/9 > 2/9 : pas REJECT.
+- **Verdict : INCONCLUSIVE.**
+- Les deux échecs B sont sur `copie-inventaire` (répétitions 1 et 2) :
+  même forme qu'en A, promotion de `promotions.apply_discount` manquée,
+  correction annoncée.
+
+### Verdict global
+
+**NO-GO** : aucune leçon n'est KEEP selon la règle écrite avant les
+essais. Le chantier #34 ne s'ouvre pas sur la base de cette étude.
+
+### Ce que montrent les traces (descriptif, hors règle)
+
+Ces constats ne changent aucun verdict ; ils disent ce que la règle a
+mesuré.
+
+- `decouverte-tests` : la difficulté visée ne s'est produite dans aucun
+  essai. Dans les 27 essais comptés, A et A2 compris, le nouveau test
+  tourne dans la suite documentée (mutation de la nouvelle fonction
+  détectée à chaque fois) et Qwen joue la commande documentée. Sans
+  difficulté à corriger en A, la leçon ne pouvait rien montrer : les
+  écarts de réussite viennent des scripts pilotes laissés dans `.scratch/`
+  (trois fois en A2) et d'un délai dépassé (une fois en B). L'étude ne dit
+  donc rien de l'utilité de cette leçon sur des tâches où la difficulté
+  apparaît.
+- `copie-figee` : le comportement visé change nettement. Le second endroit
+  qui garde la copie est corrigé dans 7 essais B sur 9, contre 3 sur 9 en
+  A et 1 sur 9 en A2 ; les faux succès passent de 6 et 8 à 2. Qwen utilise
+  `search` 16 fois en B, contre 2 et 5 en A et A2 ; dans les six réussites
+  B de `copie-editeur` et `copie-niveau`, il modifie aussi le module qui
+  garde ou lit la copie (`spellcheck.py`, `audit.py`), ce qu'aucun échec A
+  ou A2 ne fait. Le prix est une durée médiane presque doublée (147 s
+  contre 85 et 76 s). Indication hors protocole, sans valeur de décision :
+  un test exact de Fisher unilatéral sur 7/9 contre 4/18 donne p ≈ 0,009.
+  Le point dur est `copie-inventaire`, où la copie vit dans un cache
+  modifié depuis un autre module : 1 réussite sur 3 en B comme en A. Les
+  deux échecs B y invalident le cache dans `remove` et `set_price`,
+  ajoutent un test de régression, mais manquent
+  `promotions.apply_discount` ; l'un cite même la leçon (« sans recopier
+  la valeur au symptôme »).
+- Les fiches sont lues : la fiche concernée l'est dans les 54 essais
+  comptés. Qwen en lit souvent d'autres (`implementer`, `revue-de-code`,
+  `verification-finale`). Pour la leçon `decouverte-tests`, les 8 essais
+  qui lisent `verification-finale` ont une durée médiane de 356 s contre
+  149 s pour les 19 autres ; ils portent 4 des 5 essais les plus longs et
+  les trois violations de périmètre.
+- Candidat de leçon observé, non mesuré ici : après `verification-finale`,
+  Qwen écrit son script pilote dans `.scratch/` et le laisse dans le projet
+  (trois fois en A2, en le déclarant). Une fois, il y est passé parce que
+  la commande en ligne contenant `//` avait été bloquée. C'est une
+  difficulté réelle, tracée, pour une étude ultérieure.
+
+### Essais écartés
+
+- `20260927T134906Z-decouverte-tests-decouverte-durees-A2.2GxnLy` et
+  `20260927T145447Z-decouverte-tests-decouverte-durees-B.3nXlBJ` :
+  `mtplx_indisponible`, délai dépassé pendant la session Qwen d'un autre
+  client (voir plus haut) ; rejoués et comptés à la passe 1
+  (`20260927T162345Z-…-A2.hpuIxv`, `20260927T162642Z-…-B.TsGsvF`, tous deux
+  `succes`).
+- Aucun autre essai écarté : aucun `blocage_harnais`, aucun manifeste d'un
+  autre SHA, arbre du harnais propre et binaire figé dans les 56
+  manifestes. Aucun essai compté n'a vu `active_requests` atteindre 2.
+
+Durée totale : campagne de 3 h 04 (13 h 30 à 16 h 34 UTC), 2 h 55 de
+temps d'essai cumulé (10 473 s), conception et tests déterministes en
+amont non comptés.
+
+### Inventaire des essais
+
+Tous les dossiers sont conservés sous `bench/lecons-fiches/resultats/`
+(ignoré par Git, à archiver hors du dépôt avant de supprimer le worktree),
+avec traces, état final archivé (`espace-final.tar.gz`, sans `.env`) et
+manifeste. SHA-256 de chaque `manifeste.json` :
+
+- `20260927T133044Z-decouverte-tests-decouverte-slug-A.5u5nrM` : succes, 272 s, `bf13b8fa7e4e1f649462e3d4439ad8bc991f82058ad32f25e3c00606ada3f801`
+- `20260927T133519Z-decouverte-tests-decouverte-slug-A2.zEYTVH` : succes, 96 s, `8ab29ad91daaeb0b59324667cd8194a48e62da18d0967017856ee35b4d0367c3`
+- `20260927T133657Z-decouverte-tests-decouverte-slug-B.uTTP87` : succes, 110 s, `cef3aa75ec6808f7e2aabed5ac017f992afe81d6ebc65c68e1f98dcfd22480fd`
+- `20260927T133850Z-copie-figee-copie-editeur-A.qPl9ah` : echec_test, 54 s, `f0444b5ab551796ce0fe95f01b6e5a40b0ce595c13bdebb3fdf534894921b094`
+- `20260927T133946Z-copie-figee-copie-editeur-A2.oG4ApO` : succes, 234 s, `df823557d70ffe00403e380c55fa479f947d32a48a4fedb10aa39fd51f035887`
+- `20260927T134342Z-copie-figee-copie-editeur-B.HZVwlo` : succes, 161 s, `048b35384f78d86d569b90833caa490a81884c4d417bddc9d97a4fd29857e50c`
+- `20260927T134625Z-decouverte-tests-decouverte-durees-A.GAirYI` : succes, 158 s, `a2d5cbc144fbe15d92cc920f03fae93942529b816dde777eeea58be34321ca76`
+- `20260927T134906Z-decouverte-tests-decouverte-durees-A2.2GxnLy` : mtplx_indisponible, non compté, 605 s, `c4bb5a71ebf53726961e431b9cdd903d705787eecf7ae613442e0b036a93d17c`
+- `20260927T135916Z-decouverte-tests-decouverte-durees-B.Kf7CMj` : succes, 141 s, `ca495cad5c42cb448a8d85576126f250080b246826acb0263051cb6485c60cb2`
+- `20260927T140428Z-copie-figee-copie-niveau-A.zZWbFn` : succes, 96 s, `bb459bfb5b844e19fba3060929dedc35a03a380044bb1fbafa92eb909b2c5354`
+- `20260927T140607Z-copie-figee-copie-niveau-A2.IkVYBm` : echec_test, 72 s, `d56e2058e056c7120fcf493bc7c4a5dbbb51cecee09411ae6e0e0610e6060e10`
+- `20260927T140720Z-copie-figee-copie-niveau-B.D5pM1a` : succes, 124 s, `8a50e12e19141ed4b43ed39fe852e0ab56e45223703af9e66e6ea24d460ea3f0`
+- `20260927T140926Z-decouverte-tests-decouverte-spec-A.vNG9jP` : succes, 108 s, `a96f5428af3b7c779ca4005d72fbfeb846ee09a9d5c7635c4c79672f48573558`
+- `20260927T141116Z-decouverte-tests-decouverte-spec-A2.UHVhT6` : echec_test, 325 s, `accb82cfb0111335df9ead88f2a6fbd4b48e8a449905087d92ba05ddf8d81f11`
+- `20260927T141643Z-decouverte-tests-decouverte-spec-B.V9Tp6M` : succes, 339 s, `d9ad568c7b2789f118951670abf4ccb9905a909d53ff1096ce0e701ba842448f`
+- `20260927T142224Z-copie-figee-copie-inventaire-A.kDx3FI` : succes, 187 s, `29d9ffa633887fad25f2dafec92b59d6372ba176ce0f7e9a16aed09ce86a7231`
+- `20260927T142533Z-copie-figee-copie-inventaire-A2.WsdP03` : echec_test, 94 s, `60eedf99bc6e02bcf14365d5406784ef3c9b2e1b271b5450c15e40bbafb7fbf8`
+- `20260927T142709Z-copie-figee-copie-inventaire-B.b4CsMz` : echec_test, 89 s, `3dc77e11da1ea3e7f2df2f5ea9c0d15844756de7d720aca47e1632e47d6bcdc6`
+- `20260927T142840Z-decouverte-tests-decouverte-slug-A2.U4VvFS` : echec_test, 561 s, `8eae17a6c02e4382b1277509c7601fa47d341a683227a48a9bf974d455cbf50b`
+- `20260927T143803Z-decouverte-tests-decouverte-slug-B.L5JoVn` : succes, 164 s, `80248bb6569866598626cdbc4dec55c3981affcf2b658b18d219454d0ef2ba87`
+- `20260927T144049Z-decouverte-tests-decouverte-slug-A.ZmFsC5` : succes, 79 s, `7610b17f6641935065e19f8cc6f7be2fe3be793c022eec831084a11db10ec68a`
+- `20260927T144210Z-copie-figee-copie-editeur-A2.WyhywU` : echec_test, 55 s, `50d3c0c6cf849cbf860ade1b02c2d2e12a53d1b75e375379555180f9a564de3f`
+- `20260927T144307Z-copie-figee-copie-editeur-B.tx1SMV` : succes, 259 s, `b6ecd882b12e932d11862780f366fa0673795ebcda4fef1e25864dd86719a77c`
+- `20260927T144728Z-copie-figee-copie-editeur-A.sY6ziD` : echec_test, 58 s, `fdef904f2e6162ad1e2d169580e3236ca3edcfa35af91108608f6d32e57e6ec7`
+- `20260927T144828Z-decouverte-tests-decouverte-durees-A2.SvRn7C` : succes, 376 s, `888ee1871e41687c11d7fc26bd0c13b204d9aa5b609cd6e3d4d561da83474efa`
+- `20260927T145447Z-decouverte-tests-decouverte-durees-B.3nXlBJ` : mtplx_indisponible, non compté, 605 s, `5733ad9863e8c7421e57b0f6a74776651c10547ce22a04e81b97579f45976448`
+- `20260927T150457Z-decouverte-tests-decouverte-durees-A.D8PQxn` : succes, 425 s, `804a248eae8a0398e335e7c12d1020830505c13782a27c9db7537e84fd8ba243`
+- `20260927T151357Z-copie-figee-copie-niveau-A2.6MreOK` : echec_test, 72 s, `654324f3a75daa38bf798311730bafbf64387912a0e20fc770b0094bde006431`
+- `20260927T151511Z-copie-figee-copie-niveau-B.GeQtr7` : succes, 76 s, `408529977d704765b5c9e7482dbdb2b543b54e6b4108927492bf794890f10da4`
+- `20260927T151629Z-copie-figee-copie-niveau-A.YjUpr5` : echec_test, 55 s, `551d21807192254ef7fded2451f00e112972c7932b5de049272768372b0223aa`
+- `20260927T151726Z-decouverte-tests-decouverte-spec-A2.lgtFZ3` : succes, 79 s, `bec78e8085fc6e6a2c5248ceca78cabe9863fa37a0398d80e68402b58e80f5d3`
+- `20260927T151850Z-decouverte-tests-decouverte-spec-B.Gfr8Qi` : succes, 171 s, `8ade6709ec5f8ef4867b8fe32b1052331a1ae82461b5d411be7f5cd42d6651a8`
+- `20260927T152146Z-decouverte-tests-decouverte-spec-A.RGIKGg` : succes, 98 s, `7799ba77a6ad7e149f1109b25bee052109c41008f78120447b4a5ae464f98c10`
+- `20260927T152331Z-copie-figee-copie-inventaire-A2.CQSk8A` : echec_test, 108 s, `3f982caf08e0aaa11c95b55bebfed89b8fe785371f27eef65476b3715303690d`
+- `20260927T152524Z-copie-figee-copie-inventaire-B.nCCeYj` : echec_test, 112 s, `348da1a9d7dc449e16d742f29d2878846e845595411ac3bc8ef7dfb6a3fdcbde`
+- `20260927T152720Z-copie-figee-copie-inventaire-A.UX2AY1` : echec_test, 85 s, `0bb7e0f8208ca6bbd4f44c3d9e842d5603ca8d3161661a1bbb726f3397006959`
+- `20260927T152850Z-decouverte-tests-decouverte-slug-B.rEX0C4` : echec_execution, 605 s, `ebdb67a9bce13804d7be8ddd7a2cdb681ddab9643889c4ea33e225934cedefd1`
+- `20260927T153900Z-decouverte-tests-decouverte-slug-A.WlTISN` : succes, 188 s, `cf869eeb5b49e792c320515269a3a33c7486d0ff6a3259e39f9bcd7d6bf2f842`
+- `20260927T154210Z-decouverte-tests-decouverte-slug-A2.WS8eer` : echec_test, 282 s, `79296be1959026bf01806a4f9f5a1507cf8abbb44318323ebc8dd36e62debbc4`
+- `20260927T154654Z-copie-figee-copie-editeur-B.nAIf8I` : succes, 149 s, `c7ad3ca7ad16622d85f0daaa489905da3a952f6ed62f21ffd1adb30c9f8e7497`
+- `20260927T154926Z-copie-figee-copie-editeur-A.TlazHi` : echec_test, 54 s, `1bcedcab0183cf12a78d63a3d793d335ff2b5227c7fccc186916d6c1e81ac8a0`
+- `20260927T155022Z-copie-figee-copie-editeur-A2.2ADGuC` : echec_test, 60 s, `8611d09d6ca6f856213546b0740d8f6aa1fe239e33452f70c133a46d2b843a48`
+- `20260927T155125Z-decouverte-tests-decouverte-durees-B.J0Pi6c` : succes, 316 s, `f7231e8a16455a92b499ed8950b1c4c0e259028509c8fc971ea152b0bdcfa44d`
+- `20260927T155644Z-decouverte-tests-decouverte-durees-A.L3bBAq` : succes, 149 s, `2366ae66677813051384e0595ab3b40618bbe43d3b091bbecb1209efbd60174b`
+- `20260927T155916Z-decouverte-tests-decouverte-durees-A2.6ZudT3` : succes, 241 s, `f70523b6fe83a00e2633a93f9ee06a89480ef9f3abbc81b6e6f347ba145b4521`
+- `20260927T160321Z-copie-figee-copie-niveau-B.i24kDC` : succes, 147 s, `b799c914c7bb1848efb2d4ca81d8e4f608075f92841b0ce0a5b7f7bc4e32d28b`
+- `20260927T160550Z-copie-figee-copie-niveau-A.JSJw6e` : succes, 94 s, `8ab49dce4f19debfb2b9c8bf1117016af5986f4a2c572171cc9db19861a53b4d`
+- `20260927T160727Z-copie-figee-copie-niveau-A2.J5ja4E` : echec_test, 76 s, `ab54b125f81c86f578ca5bea4a38d077613d6d4b4c78ca5ecd8461ddb7d199b2`
+- `20260927T160846Z-decouverte-tests-decouverte-spec-B.H2Xd77` : succes, 101 s, `4d5f4624ff148fd92287da7aaf95414e3598ec0e763b292a0f19c801720ff6ae`
+- `20260927T161031Z-decouverte-tests-decouverte-spec-A.YJUvjo` : succes, 77 s, `113fb2d3ae0c1f3b53f0a26e35e09e4ab1890839c9403cc568d631a7ac6fe29f`
+- `20260927T161151Z-decouverte-tests-decouverte-spec-A2.ngIJWA` : succes, 212 s, `892932e38f23ffcb399fd2b19e875efc09d4c4cc539a9b41483f81aedf9ff57e`
+- `20260927T161526Z-copie-figee-copie-inventaire-B.4RIxGT` : succes, 282 s, `9c36f6c01f05be46f39ef30dba9b742c05437c0dfa743d469c2101172abbf9b7`
+- `20260927T162010Z-copie-figee-copie-inventaire-A.6toPRB` : echec_test, 116 s, `5fd0b441f70507e162b79397fb523e52b94041f77e3edd040c2efd5f8c1435e1`
+- `20260927T162209Z-copie-figee-copie-inventaire-A2.KLky1d` : echec_test, 88 s, `6280d524f6d78d70048d45a20e695b797c5fae2fabc2d53eb0ef20fa56462d62`
+- `20260927T162345Z-decouverte-tests-decouverte-durees-A2.hpuIxv` : succes, 161 s, `17ea69c32146fa713a5611a9d34cf0cd7e6795bc9e40d44c293da8a51bbcc52e`
+- `20260927T162642Z-decouverte-tests-decouverte-durees-B.TsGsvF` : succes, 372 s, `250b742ec5b5efba6e3f097746a9f716616d5291075fa15215cc873e92ab2662`
+
 ## Écarts constatés pendant les essais
 
-Aucun écart au protocole à ce stade : aucune retouche des scripts, des
-tâches, des fiches ni de la règle depuis `309c396`. Les deux essais non
-comptés et leurs rejeux suivent la règle écrite.
+Aucun écart au protocole : aucune retouche des scripts, des tâches, des
+fiches ni de la règle depuis `309c396`, et aucun essai relancé hors des
+rejeux prévus. Les deux essais non comptés et leurs rejeux suivent la
+règle écrite. Après la publication de l'écart A/A (`be8fa3e`), sa section
+a reçu une seule précision de formulation (deux échecs `copie-inventaire`
+touchent aussi leur fichier de test), sans changement de chiffre.
+
+## Proposition à Alex
+
+Aucune leçon n'est KEEP : aucun correctif n'est proposé à l'adoption dans
+`docs/skills/`. Pour décider de la suite, deux faits pèsent :
+
+- `copie-figee` : effet net sur le comportement visé (second endroit
+  corrigé 7/9 contre 3/9 et 1/9), bloqué par la seule condition k4
+  (2 faux succès en B, sur la tâche du cache). Une étude de confirmation,
+  pré-enregistrée à son tour sur des tâches neuves, trancherait ; adopter
+  la leçon sur ce seul résultat reviendrait à réécrire la règle après coup.
+- `decouverte-tests` : les tâches n'ont pas reproduit la difficulté ; la
+  question reste ouverte, et appellerait des tâches où Qwen range
+  réellement ses tests hors de la suite.
+
+## Ce qui reste non vérifié
+
+- La généralisation au-delà de ces six tâches Python courtes, d'un seul
+  modèle, d'une seule machine et d'un seul réglage d'échantillonnage.
+- La conduite sans pointeur vers les fiches dans l'`AGENTS.md` du projet :
+  ici, la fiche concernée a été lue dans 54 essais sur 54 ; le taux de
+  lecture spontanée reste inconnu.
+- L'effet d'une leçon sous `--mission` (profil non utilisé ici) et dans le
+  démon web.
+- Le classement des faux succès par expression régulière a été relu à la
+  main pour les deux faux succès B, ceux qui décident le verdict de
+  `copie-figee` : les deux réponses annoncent la correction, preuve de
+  test vert à l'appui, sans réserve. Les quatorze faux succès de A et A2
+  n'ont pas été relus un par un.
+- Les durées des essais qui ont croisé la session concurrente sans
+  dépasser le délai ne sont pas corrigées ; elles n'entrent dans aucune
+  condition de la règle.
 
 ## Limites connues avant les essais
 

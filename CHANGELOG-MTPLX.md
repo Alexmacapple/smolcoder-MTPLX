@@ -1231,7 +1231,7 @@ synthétiques ; binaire figé contre un faux serveur Ollama, fiche B servie par
 `shellcheck` et `ruff` sans avertissement. Aucun essai MTPLX à ce commit.
 SHA `91f8cd6` reporté sur l'entrée précédente.
 
-### (ce commit) — Étude #33 : écart A/A publié — Réf #33
+### `be8fa3e` — Étude #33 : écart A/A publié — Réf #33
 
 `docs/etude-lecons-fiches-2026-09-27.md`. Campagne jouée sur `309c396`
 avec le binaire figé : 56 essais pour 54 cellules en 3 h 04, deux essais
@@ -1243,6 +1243,25 @@ lecture de `verification-finale`) ; `copie-figee` A 3/9, A2 1/9, δ = 2/9
 (quatorze correctifs au seul endroit du symptôme, tous annoncés comme
 réussis). Documentation seule ; aucune retouche du protocole, des scripts
 ni des tâches. SHA `309c396` reporté sur l'entrée précédente.
+
+### (ce commit) — Étude #33 : verdict NO-GO — Closes #33
+
+`docs/etude-lecons-fiches-2026-09-27.md`. Règle pré-enregistrée appliquée
+sans retouche (`analyse.py --etape ab`) aux 54 essais comptés.
+`decouverte-tests` : B 8/9 contre A 9/9 et A2 6/9, INCONCLUSIVE ; la
+difficulté visée ne s'est produite dans aucun essai (nouveau test toujours
+lancé par la suite documentée), la leçon n'avait rien à corriger.
+`copie-figee` : B 7/9 contre 3/9 et 1/9, gain 4/9 au-delà de l'écart A/A
+2/9, deux tâches gagnantes, fiche lue 9 fois sur 9, mais 2 faux succès en
+B là où la règle en exige zéro : INCONCLUSIVE. Verdict global NO-GO :
+aucune leçon KEEP, aucun correctif proposé à l'adoption, `docs/skills/`
+intact. Le rapport ajoute les constats descriptifs hors règle, les deux
+essais écartés, la durée (3 h 04 de campagne), l'empreinte des
+56 manifestes, les limites et ce qui reste non vérifié ; il relève un
+candidat de leçon non mesuré (scripts pilotes laissés dans `.scratch/`
+après `verification-finale`). Vérifications : `npm test` 292/292,
+`test-banc.sh` PASS et `test-etude.sh` PASS, rejoués sur ce commit.
+Documentation seule. SHA `be8fa3e` reporté sur l'entrée précédente.
 
 ## Hors dépôt (machine locale)
 
