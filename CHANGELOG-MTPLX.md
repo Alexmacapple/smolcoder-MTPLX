@@ -901,7 +901,7 @@ un jeton dans une URL de remote devient lisible ; l'écoute accordée reste
 joignable du réseau local ; indication dans l'interface, campagne archivée
 et sondes de `check.ts` et `detect.ts` relèvent de #18.
 
-### (ce commit) — Sondes de l'hôte hors du workspace — Réf #18
+### `737106f` — Sondes de l'hôte hors du workspace — Réf #18
 
 `src/harness/host-probe.ts` (nouveau), `src/tools/check.ts`,
 `src/tools/index.ts`, `src/detect.ts`, `src/index.ts`,
@@ -933,6 +933,36 @@ puis, après le seul filtrage des entrées relatives, sur « wsabs-docker » (un
 entrée absolue dans le workspace, que la détection ne connaissait pas). Après
 : 2/2, les sondes tournent encore (erreur de syntaxe Python et JS détectée,
 `docker` légitime lancé) ; `npm test` 266/266 (264 existants et 2 nouveaux).
+
+### (ce commit) — Isolation visible toute la session — Réf #18
+
+`src/harness/sandbox-executor.ts`, `src/session.ts`, `src/web/client.ts`,
+`src/web/styles.ts`, `docs/profil-mission.md`,
+`test/isolation-status.test.js` (nouveau). Ticket #18 : l'indication de
+l'isolation au-delà de la ligne d'ouverture.
+
+Sous `--mission`, l'état de l'isolation reste visible toute la session et
+se relit à chaque rafraîchi (les écoutes suivent la politique) : la ligne
+d'état du terminal ajoute, après l'état de la mission, `isolated` (avec
+`· listens localhost:<port>` quand la politique en accorde) ou `isolation
+unavailable` en rouge ; l'état de session exposé par le hub porte
+`isolation` (`backend`, `state`, `reason`, `listen`, `label`, `line`) ; la
+page web en fait une pastille de la barre d'état, à côté du mode — verte
+quand l'isolation est prête, rouge avec son motif sinon, la ligne
+d'ouverture complète au survol. La fonction de la pastille
+(`isolationChip`) est pure, exportée et insérée telle quelle dans le script
+de la page. Hors profil, rien ne change : ni l'état, ni la ligne d'état, ni
+la barre de la page (l'absence de pastille distingue le mode historique).
+
+Vérifications. Rouge d'abord : les quatre tests de
+`test/isolation-status.test.js` échouent avant le code (`isolation` absent
+de l'état, ligne d'état sans isolation, `isolationChip is not a function`).
+Après : 4/4 — état de session prêt et indisponible, ligne d'état du
+terminal, hub (premier état, état ultérieur après changement de politique,
+état rejoué à une page qui se reconnecte, rien pour une session hors
+profil), pastille et styles ; le script de la page se compile
+(`new Function(CLIENT_JS)`). `npm test` 270/270 (266 et 4 nouveaux). SHA
+`737106f` reporté sur l'entrée précédente.
 
 ## Hors dépôt (machine locale)
 

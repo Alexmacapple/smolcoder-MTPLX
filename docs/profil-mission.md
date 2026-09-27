@@ -207,6 +207,17 @@ session l'annonce à l'ouverture (`· isolation: macOS Seatbelt …`, avec les
 ports d'écoute accordés et leur limite) ; le headless écrit aussi une ligne
 `[isolation] {…}` sur stderr.
 
+L'état reste ensuite visible toute la session (#18), relu à chaque rafraîchi
+(les écoutes suivent la politique) : dans la ligne d'état du terminal, après
+l'état de la mission (`mission approved 3/50 · isolated · listens
+localhost:5173`, ou `isolation unavailable` en rouge) ; dans la page web, une
+pastille de la barre d'état à côté du mode (verte, « isolated », avec les
+écoutes accordées ; rouge, « isolation unavailable — <motif> »), la ligne
+d'ouverture complète au survol. Le hub l'expose dans l'état de la session
+(`isolation` : `backend`, `state`, `reason`, `listen`, `label`, `line`).
+Hors profil, ni l'état, ni la ligne d'état, ni la barre de la page ne
+changent : l'absence de pastille distingue le mode historique.
+
 Backend absent ou inopérant (autre système que macOS, `sandbox-exec`
 introuvable, sonde en échec, workspace qui contient le dossier personnel) :
 la ligne d'ouverture dit `· isolation unavailable (…)` et chaque commande

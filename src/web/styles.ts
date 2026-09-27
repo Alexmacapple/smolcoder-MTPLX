@@ -300,6 +300,10 @@ export const STYLES = String.raw`
   meter::-webkit-meter-optimum-value { background: #7dabad; }
   meter::-moz-meter-bar { background: #7dabad; }
   .task-chip, .plan-chip { white-space: nowrap; }
+  /* Profil mission (#18) : l'état de l'isolation, visible toute la session. */
+  #status .iso-chip { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 42ch; font-weight: 700; }
+  #status .iso-chip.ready { color: var(--green); }
+  #status .iso-chip.off { color: var(--red); }
   #busywrap { padding-top: 8px; }
   #busy { font-size: 12px; }
   #panel { background: #101416; }

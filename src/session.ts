@@ -12,7 +12,7 @@ import { EventBus } from "./events";
 import { findModelsOnNetwork, FlowUI, manageHosts } from "./network";
 import { Mission, MissionPrefs } from "./harness/mission";
 import { BYPASS_UNDER_MISSION } from "./harness/policy";
-import { IsolatedExecutor, isolationLine, missionExecutor } from "./harness/sandbox-executor";
+import { IsolatedExecutor, isolationLine, isolationState, missionExecutor } from "./harness/sandbox-executor";
 import { Plan, PlanStep } from "./plan";
 import { buildSystemPrompt, loadAgentsMdDetails } from "./prompt";
 import { LmStudioProvider } from "./providers/lmstudio";
@@ -450,7 +450,11 @@ export class Session {
   private missionLabel(): string {
     const s = this.mission!.status();
     const label = `mission ${s.state} ${s.steps}/${s.maxSteps}`;
-    return s.state === "approved" ? c.green(label) : c.yellow(label);
+    const mission = s.state === "approved" ? c.green(label) : c.yellow(label);
+    // #18 : l'état de l'isolation reste dans la ligne d'état toute la session.
+    if (!this.executor) return mission;
+    const iso = isolationState(this.executor);
+    return `${mission} ${c.dim("·")} ${iso.state === "ready" ? c.green(iso.label) : c.red(iso.label)}`;
   }
 
   /** Structured status for the web page's status bar. */
@@ -474,6 +478,8 @@ export class Session {
       commands: this.commands,
       urls: this.taskManager.recentUrls(),
       ...(this.mission ? { mission: { ...this.mission.status(), id: this.mission.contract.id, fingerprint: this.mission.fingerprint } } : {}),
+      // #18 : la page garde l'état de l'isolation visible toute la session.
+      ...(this.executor ? { isolation: isolationState(this.executor) } : {}),
     };
   }
 
