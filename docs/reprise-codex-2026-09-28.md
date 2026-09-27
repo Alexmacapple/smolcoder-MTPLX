@@ -27,7 +27,7 @@ en cours (#52, #53) et un chapeau (#34) qui dépend de #53.
   - chaque commit y ajoute son entrée, juste avant `## Hors dépôt (machine locale)`, avec le titre `### (ce commit) — …` ;
   - le commit suivant remplace `(ce commit)` par le SHA réel ;
   - à la fusion de deux branches, le conflit du journal se résout en empilant les entrées dans l'ordre de fusion, avec les SHA réels, et en vérifiant qu'il ne reste aucun marqueur de conflit ni aucun `(ce commit)`.
-  - **À reporter maintenant :** `(ce commit) — Mise à jour du document de reprise` = SHA du commit qui porte ce titre (`git log --oneline -- docs/reprise-codex-2026-09-28.md`).
+  - **À reporter maintenant :** l'entrée `(ce commit)` la plus récente du journal reçoit le SHA du commit qui l'a ajoutée (`git log --oneline -- CHANGELOG-MTPLX.md`).
 - **Tests :** `npm test` (build puis suite ; 375 tests à la date du relais) et `npm run test:os` (macOS réel ; 29 tests). Rouge avant vert pour toute modification de comportement. Ne jamais éditer `dist/`.
 - **Nouveaux worktrees :** lancer `npm ci --ignore-scripts`. Le TypeScript global est en version 6 et refuse `tsconfig.json`.
 - **Vérification sur pièces :** toujours relancer soi-même les suites, recalculer un verdict depuis les manifestes bruts, lire le diff. Ne jamais se fier au seul compte rendu d'un agent.
@@ -80,7 +80,9 @@ en cours (#52, #53) et un chapeau (#34) qui dépend de #53.
   - Une première campagne (`20260927T220043Z-79046`) avait été lancée pendant #52 pour gagner du temps. C'était une erreur : chaque runner tient son propre verrou de campagne et attend celui des autres. Le verrou de #53, pris pendant son attente, a donc bloqué #52 à son tour, et #52 a perdu un essai (« destructif r5 mission », tentative 1).
   - Le processus 79046 a ensuite disparu, sans fin de journal. Il reste un premier essai (`copie-devise A` répétition 1) au statut provisoire, et un `.verrou-campagne` au PID mort, dans `bench/confirmation-copie-figee/resultats/`.
   - **Règle absolue : ne jamais faire tourner #53 en même temps que #52, même en attente.** Relancer seulement quand #52 est entièrement terminée : plus aucun processus `mesure-securite-mission`, verrou de #52 absent ou mort.
-  - Relancer depuis le worktree par `ETUDE_ATTENTE_ESSAIS=4320 bench/confirmation-copie-figee/campagne.sh`, sans commit. Traiter l'essai interrompu comme le prévoit le protocole (invalide, rejoué). Supprimer le verrou mort si le runner ne le fait pas.
+  - **Avant toute relance, vérifier qu'aucune campagne #53 ne tourne déjà.** Si la session Claude vivait encore, son agent de #53 a pu relancer lui-même la campagne après la fin de #52. Contrôles : un `.verrou-campagne` dont le PID est vivant (`kill -0 <PID>`), une ligne « relance par l'agent Claude » dans `resultats/lancement.log`, un processus `campagne.sh` de `confirmation-copie-figee`. Si l'un d'eux est présent, laisser tourner, ne jamais lancer une seconde campagne.
+  - Sinon, relancer depuis le worktree par `ETUDE_ATTENTE_ESSAIS=4320 bench/confirmation-copie-figee/campagne.sh`, sans commit. Traiter l'essai interrompu comme le prévoit le protocole (invalide, rejoué). Supprimer le verrou mort si le runner ne le fait pas.
+  - L'arrêt de la première campagne ressemble à un `SIGKILL` : ni trap exécuté, ni fin de journal. Le processus avait été lancé par `nohup … &` depuis un appel d'outil, ce qui ne protège que du signal HUP. Relancer par un moyen qui survit à la session (`nohup` et `setsid`, ou un terminal d'Alex).
   - Déclarer l'incident dans le rapport, avec le délai d'attente allongé (6 h au lieu de 10 min).
 - **Volume :** 27 essais, soit 3 tâches neuves × 3 répétitions × séries A, A2, B. Compter environ 1 h 15 de MTPLX.
 - **Règle :** identique à #33, points k1 à k5, dont zéro faux succès et le contrôle A/A.
