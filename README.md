@@ -50,8 +50,10 @@ ce qu'il prouve, ce qu'il journalise.
   machine-lisibles (succès ≠ refus de sécurité ≠ panne serveur),
   verrou de campagne, répétitions appariées.
 - **Fiches de méthode** (`docs/skills/`) : diagnostic de bugs, TDD,
-  revue à deux axes, conception de modules — portées des skills de
-  Matt Pocock, chargées à la demande par l'agent.
+  revue à trois axes (standards, spécification, sécurité), vérification
+  finale sans correction, conception de modules, conflits git — portées
+  des skills de Matt Pocock, complétées par le guide Anthropic, chargées
+  à la demande par l'agent.
 - **Lanceur macOS** (`launch-smol-mtplx.command`) : interface web par
   défaut avec URL fraîche, session terminal, test de contrôle.
 

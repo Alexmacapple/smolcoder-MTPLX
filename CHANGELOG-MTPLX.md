@@ -668,7 +668,7 @@ Restes : isolation réelle (#16), empreinte des outils (#17), intégration et
 campagne OS (#18) ; aucun appelant ne choisit encore d'exécuteur ; les sondes
 de `check.ts` et `detect.ts` restent hors de l'exécuteur, à trancher avec #16.
 
-### (ce commit) — Backend macOS isolé (Seatbelt) — Réf #16
+### `d8aecbb` — Backend macOS isolé (Seatbelt) — Réf #16
 
 `src/harness/sandbox-executor.ts` (nouveau), `src/harness/executor.ts`,
 `src/harness/store.ts`, `src/session.ts`, `src/index.ts`, `src/web/hub.ts`,
@@ -746,6 +746,84 @@ couvert que pour l'arbre du groupe ; filtrage des hôtes distants (proxy),
 écoute d'un serveur de développement, git et outils sous le dossier
 personnel (#17) ; indication dans l'interface et campagne archivée (#18) ;
 les sondes de `check.ts` et `detect.ts` restent hors de l'exécuteur.
+
+### `f568ddf` — Axe sécurité de la revue et vérification finale — Closes #31
+
+`docs/skills/revue-de-code.md`, `docs/skills/verification-finale.md`
+(nouveau), `docs/skills/implementer.md`, `docs/skills/index.md`,
+`AGENTS.md`. Ticket #31 : complément des fiches de #20 sur deux points du
+guide Anthropic (AI-native SDLC playbook) que le portage des skills de
+Matt Pocock ne couvrait pas.
+
+La revue passe à trois axes, rapportés dans trois sections distinctes
+(`## Standards`, `## Spécification`, `## Sécurité`) sans fusion ; la ligne
+finale donne le total de constats (et par axe) et le pire constat de chaque
+axe. L'axe sécurité passe cinq points un par un : secrets et noms protégés,
+commandes shell et injection, chemins et liens, dépendances ajoutées,
+données envoyées au réseau ; un secret trouvé n'est jamais recopié
+(`<REDACTED>`, comme dans la fiche de diagnostic). Sous `--mission`, l'axe
+spécification prend pour source le contrat, celui que `/mission` affiche et
+que le modèle reçoit à chaque tour (`src/agent.ts:317`), complété par le
+plan approuvé quand H08 (#29) existera ; un `REVIEW.md` du projet prime sur
+la grille comme tout standard documenté (niveaux d'importance, exclusions,
+limite des remarques mineures). Les deux cas de diff de #21 sont inchangés.
+
+Nouvelle fiche de vérification finale, mono-agent : lister les critères,
+lancer ce qui a changé par le chemin réel, exercer la demande puis deux
+parcours voisins, confronter chaque critère avec le vocabulaire de #9
+(`passed`, `failed`, `not_run`, `error`) et rapporter. Corriger pendant la
+vérification est interdit ; un critère non exercé est `not_run`, jamais
+`passed` ; zéro test ou test sauté donnent `not_run`, délai dépassé ou
+vérificateur en panne `error`. `implementer.md` insère l'étape entre la
+revue et le commit (six étapes : un `failed` ou un `error` renvoie à la
+revue après correction, un `not_run` est déclaré au journal). L'index
+ajoute la fiche et nomme l'origine des deux ajouts ; le pointeur
+d'`AGENTS.md` cite la vérification d'un changement (4 250 caractères,
+plafond 8 000).
+
+Vérifications : `npm test` 254/254, exit 0, aucun test sauté ; aucune
+modification sous `src/`, `test/`, `bench/` ni du lanceur. Contrôle réel
+MTPLX, sans verrou de campagne ni processus du banc actif : un run headless
+unique du binaire de la branche sur une fixture jetable (petit projet Node,
+ticket à six critères, commit déjà fait qui double le signe des montants
+négatifs, `AGENTS.md` pointant vers les fiches, prompt qui demande « la
+vérification finale » sans nommer la fiche). Qwen lit `index.md` puis
+`verification-finale.md`, joue `npm test` et la CLI, écrit l'attendu avant
+de lancer, et rend « Vérification : 6 critères — 2 passed, 3 failed,
+1 not_run, 0 error · voisins : 2/2 intacts » : exactement l'attendu, le
+critère du ticket de caisse imprimé déclaré `not_run`, faute de module à
+exercer dans le dépôt. Il conclut « je n'ai rien corrigé pendant la vérification »
+et renvoie le correctif après le rapport ; empreintes des fichiers
+identiques avant et après, `git status` vide, aucun commit (sortie 0,
+278 s, 20 appels d'outils). La copie des fiches du run précède deux
+retouches de formulation, non exercées ici : frontière `failed` / `error`
+et dossier de données `~/.smolcoder/`.
+
+Limites : ce contrôle est un run isolé, pas une campagne du banc (#13) —
+le banc n'a pas de scénario de vérification et `bench/` est hors de la
+zone du ticket ; l'effet sur la conduite reste à mesurer sur des
+répétitions appariées. L'axe sécurité de la revue n'a pas été exercé par
+Qwen. Hors zone et non modifié : `README.md` annonce encore une « revue à
+deux axes ». Constaté en relisant ce diff avec la fiche : le cas « travail
+non encore commité » (`git diff <point>`) ne montre pas un fichier nouveau
+non suivi, ici `verification-finale.md` ; le traitement de #21 est laissé
+intact, à trancher dans un ticket. SHA `d8aecbb` reporté sur l'entrée
+précédente.
+
+### (ce commit) — Revue : fichiers non suivis et README à jour
+
+`docs/skills/revue-de-code.md`, `README.md`. Suites du ticket #31, relevées
+par l'agent qui l'a implémenté et tranchées à la revue de sa livraison.
+
+Le cas « travail non encore commité » de la fiche de revue (#21) prescrit
+`git diff <point>`, qui inclut l'arbre de travail mais omet les fichiers
+nouveaux non suivis : constaté sur #31 même, où `verification-finale.md`
+n'apparaissait pas dans le diff relu. La fiche demande désormais de lire en
+entier chaque fichier marqué `??` par `git status --short`, sans toucher à
+l'index (pas de `git add -N` pendant une revue). Le README annonçait encore
+une « revue à deux axes » : il décrit les trois axes, la vérification finale
+et la liste complète des fiches. SHA `f568ddf` reporté sur l'entrée
+précédente. Documentation seule, `npm test` inchangé.
 
 ## Hors dépôt (machine locale)
 

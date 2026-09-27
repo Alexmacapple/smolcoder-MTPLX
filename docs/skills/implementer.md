@@ -13,9 +13,14 @@ par une spécification, un ticket ou une demande claire.
    (`npm test` = build + suite ; le binaire installé sert `dist/`, donc le
    build fait partie de la preuve).
 4. Une fois fini et avant de committer : relis ton propre diff avec
-   `docs/skills/revue-de-code.md` (les deux axes), en suivant son cas
+   `docs/skills/revue-de-code.md` (les trois axes), en suivant son cas
    « travail non encore commité » — le diff trois-points ne verrait rien à ce
    stade. Corrige ce que la revue trouve.
-5. Committe sur la branche courante : message en français à la forme
+5. Vérifie le comportement avec `docs/skills/verification-finale.md` : lance
+   ce qui a changé, exerce la demande et deux parcours voisins, un statut par
+   critère. Rien n'est corrigé pendant la vérification. Un `failed` ou un
+   `error` : corrige ensuite, rejoue la suite, puis reprends à l'étape 4. Un
+   `not_run` reste déclaré dans l'entrée du journal.
+6. Committe sur la branche courante : message en français à la forme
    nominale, entrée dans `CHANGELOG-MTPLX.md` dans le même commit, jamais de
    ligne d'attribution. Ne pousse pas sans demande explicite.
