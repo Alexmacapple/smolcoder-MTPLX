@@ -1173,6 +1173,28 @@ même binaire hors profil garde la barre d'état historique, sans pastille.
 Documentation seule dans ce commit, `npm test` et `npm run test:os`
 inchangés depuis `c74f005`. SHA `c74f005` reporté sur l'entrée précédente.
 
+### `83fc9be` — Banc : index des fiches neutralisé
+
+`bench/noyau-agents-md/banc.sh`, `bench/noyau-agents-md/test-banc.sh`.
+Suite de #30, relevée par l'agent qui l'a implémenté : le banc du noyau
+tourne avec le vrai dossier personnel, donc une fois les fiches installées
+(`smol --install-fiches`), l'index des fiches serait entré dans les deux
+bras (avec et sans noyau) et aurait changé le prompt comparé. Le banc pose
+`SMOL_NO_FICHES=1` dans les deux conditions : il mesure le noyau seul, comme
+avant #30. Rouge d'abord : le faux `smol` de `test-banc.sh` refuse désormais
+de tourner sans `SMOL_NO_FICHES=1`, et le test rendait `statut
+blocage_harnais au lieu de succes` (sortie 1) ; avec le correctif, PASS
+(sortie 0). Mesurer l'effet des fiches elles-mêmes relève de l'étude #33.
+
+### (ce commit) — README : chantiers restants à jour
+
+`README.md`. La liste « Chantiers restants » ne citait plus que #19 et #10
+depuis la fermeture du chapeau #12. Elle suit l'ordre acté : #9 (preuves
+d'acceptation protégées, socle déjà livré), #19, #29 (plan approuvé avec le
+contrat), puis #10 ; l'étude #33, porte d'entrée du chantier
+d'apprentissage #34, est mise à part, en attente de décision. SHA `83fc9be`
+reporté sur l'entrée précédente.
+
 ## Hors dépôt (machine locale)
 
 - Fork créé : `Alexmacapple/smolcoder-MTPLX`.

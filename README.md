@@ -70,9 +70,16 @@ ce qu'il prouve, ce qu'il journalise.
   défaut avec URL fraîche, session terminal, test de contrôle.
 
 **Chantiers restants**, dans l'ordre :
+[preuves d'acceptation protégées](https://github.com/Alexmacapple/smolcoder-MTPLX/issues/9)
+(#9, socle des verdicts typés déjà livré),
 [retours d'outils exploitables](https://github.com/Alexmacapple/smolcoder-MTPLX/issues/19)
-(#19), puis [reprise durable](https://github.com/Alexmacapple/smolcoder-MTPLX/issues/10)
-(#10). Chaque livraison passe par une pull request, des tests
+(#19), [plan d'implémentation approuvé avec le contrat](https://github.com/Alexmacapple/smolcoder-MTPLX/issues/29)
+(#29), puis [reprise durable](https://github.com/Alexmacapple/smolcoder-MTPLX/issues/10)
+(#10). À part, en attente de décision :
+[l'étude AH-00](https://github.com/Alexmacapple/smolcoder-MTPLX/issues/33)
+(une leçon de fiche améliore-t-elle Qwen ?), porte d'entrée du
+[chantier d'apprentissage](https://github.com/Alexmacapple/smolcoder-MTPLX/issues/34)
+(#34). Chaque livraison passe par une pull request, des tests
 rouge/vert et une entrée dans `CHANGELOG-MTPLX.md`.
 
 ## Installer et lancer

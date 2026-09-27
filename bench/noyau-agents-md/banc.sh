@@ -443,6 +443,9 @@ preparer_fixture || terminer "blocage_harnais" "Préparation de la fixture Git i
 [ -s "$HOME/.smolcoder/AGENTS.md" ] || terminer "blocage_harnais" "Noyau absent ou vide : \$HOME/.smolcoder/AGENTS.md" 4
 shasum "$HOME/.smolcoder/AGENTS.md" > "$OUT/noyau-empreinte.txt" || terminer "blocage_harnais" "Empreinte du noyau impossible" 4
 if [ "$COND" = "sans" ]; then export SMOL_NO_GLOBAL_AGENTS=1; else unset SMOL_NO_GLOBAL_AGENTS; fi
+# Le banc mesure le noyau seul : l'index des fiches installées (#30) irait aux
+# deux bras et changerait le prompt comparé, il est neutralisé dans les deux.
+export SMOL_NO_FICHES=1
 
 t0="$(date +%s)"
 SMOL_DEMARRE=1

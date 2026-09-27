@@ -19,6 +19,8 @@ printf 'Règles de test du banc.\n' > "$TMP/home/.smolcoder/AGENTS.md"
 cat > "$TMP/smol-simule.sh" <<'SH'
 #!/bin/bash
 workspace="$1"
+# Le banc neutralise l'index des fiches installées (#30) dans les deux bras.
+[ "$(printenv SMOL_NO_FICHES 2>/dev/null || true)" = "1" ] || { echo "SMOL_NO_FICHES=1 attendu" >&2; exit 3; }
 mode="$(printenv BANC_FAKE_MODE 2>/dev/null || true)"
 if [ "$mode" = "timeout" ]; then
   trap 'exit 0' TERM
