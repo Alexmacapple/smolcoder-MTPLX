@@ -38,7 +38,7 @@
     "dev": "tsc -w",
     "prepublishOnly": "npm test",
     "test": "npm run build && node scripts/test.cjs",
-    "test:os": "npm run build && node --test test/os/seatbelt.os.test.js"
+    "test:os": "npm run build && node scripts/test-os.cjs"
   },
   "engines": {
     "node": ">=18"

@@ -290,6 +290,7 @@ le reprend en tête, relu dans le stockage hôte au moment de la compaction
   produits (#9).
 - La suspension headless (sortie 4) est testée par ses briques (agent non
   interactif, rapport de décision), pas par le CLI réel contre un backend.
-- Le run headless approuvé est testé par ses briques (autorisation, agent
-  non interactif, fournisseur simulé), pas par le CLI réel contre un
-  backend.
+- Le run headless approuvé est testé par le CLI réel sur macOS (#18,
+  `test/os/e2e.os.test.js`, dans `npm run test:os`), contre un faux serveur
+  OpenAI-compatible local qui joue le modèle : `run_command`, `--verify`,
+  tâche de fond et écoute, dans le bac. Aucun test ne le lance contre MTPLX.

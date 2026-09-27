@@ -194,4 +194,6 @@ l'environnement de l'hôte (elles ne lancent pas de code du projet).
 
 Cette page est acceptée quand la pull request qui la porte est fusionnée
 par Alex. Les preuves sur macOS réel se rejouent par `npm run test:os`
-(`test/os/seatbelt.os.test.js`), hors de `npm test`.
+(`test/os/*.os.test.js` : le backend dans `seatbelt.os.test.js`, le vrai
+binaire en headless, web et terminal dans `e2e.os.test.js`, #18), hors de
+`npm test`.

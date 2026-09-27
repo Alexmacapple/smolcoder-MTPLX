@@ -934,7 +934,7 @@ entrée absolue dans le workspace, que la détection ne connaissait pas). Après
 : 2/2, les sondes tournent encore (erreur de syntaxe Python et JS détectée,
 `docker` légitime lancé) ; `npm test` 266/266 (264 existants et 2 nouveaux).
 
-### (ce commit) — Isolation visible toute la session — Réf #18
+### `79ef236` — Isolation visible toute la session — Réf #18
 
 `src/harness/sandbox-executor.ts`, `src/session.ts`, `src/web/client.ts`,
 `src/web/styles.ts`, `docs/profil-mission.md`,
@@ -963,6 +963,56 @@ terminal, hub (premier état, état ultérieur après changement de politique,
 profil), pastille et styles ; le script de la page se compile
 (`new Function(CLIENT_JS)`). `npm test` 270/270 (266 et 4 nouveaux). SHA
 `737106f` reporté sur l'entrée précédente.
+
+### (ce commit) — Bout en bout du vrai binaire sous --mission — Réf #18
+
+`test/os/e2e.os.test.js` (nouveau), `scripts/test-os.cjs` (nouveau),
+`package.json`, `docs/decision-backend-isole.md`, `docs/allowlist-outils.md`,
+`docs/profil-mission.md`. Ticket #18 : « même frontière pour terminal, web,
+headless et vérifications » n'était prouvé, pour le headless, que par la
+compilation (#16) ; le champ `listen` de la ligne `[isolation]` headless
+n'était couvert par aucun test (#17).
+
+Quatre tests OS lancent le vrai binaire (`dist/index.js`) sous `--mission`,
+piloté par un faux serveur OpenAI-compatible local qui joue le modèle
+(`OLLAMA_HOST` vers lui, faux dossier personnel : aucun MTPLX, ni vrai
+`~/.smolcoder`, ni `~/.npm`) :
+
+- headless : le `run_command` du modèle et la vérification `--verify` lisent
+  un témoin hors du workspace, le dossier personnel, la politique et `.env` :
+  refusés, workspace écrit ; le témoin est lisible par l'hôte, et le même run
+  sans `--mission` le lit (et échoue à la vérification) ; `bad.py` est
+  compilé par le python de l'hôte, aucun programme déposé dans le workspace
+  (entrée relative, vide ou interne du PATH) ne tourne ; `[isolation]` sans
+  écoute ;
+- headless, écoute : `npm run dev` en tâche de fond écoute sur le port que
+  nomme `listen` et répond à l'hôte pendant le run, un autre port rend
+  `EPERM`, `[isolation]` porte `listen` et la ligne d'état dit la limite du
+  réseau local ; la tâche meurt avec le run ;
+- web : `smol --web --mission` ; le terminal web de la session et le
+  `run_command` du modèle (message de la page) restent dans le bac ; l'état
+  de session exposé à la page porte l'isolation, encore après le tour ;
+- terminal : l'interface interactive sous un pseudo-terminal (`script`,
+  derrière un vrai tube) ; le `run_command` du modèle reste dans le bac, la
+  ligne d'état redessinée après le tour dit encore `isolated`.
+
+`npm run test:os` découvre désormais `test/os/*.os.test.js`
+(`scripts/test-os.cjs`, sur le modèle de `scripts/test.cjs`), fichiers joués
+l'un après l'autre, et transmet à `node --test` les arguments donnés après
+`--` (rapporteurs de la campagne).
+
+Vérifications. Le câblage existait (#16) : le rouge est montré par quatre
+mutations du code compilé, chacune rouge pour la bonne raison — headless
+sans exécuteur isolé (`read-witness=LEAK`, la commande non confinée écrit
+même dans `policy.json` ; « another port stays refused ») ; session sans
+exécuteur (état et ligne d'isolation absents) ; état affiché mais commandes
+et terminal web hors du bac (« web terminal: read-witness (LEAK) »,
+« terminal run_command: read-witness (LEAK) ») ; workspace non inscrit
+auprès des sondes (« no planted program ran on the host », `bin-docker`).
+`dist/` restauré (`cmp`). Après : `npm run test:os` 20/20 (16 existants et
+4 nouveaux), `npm test` 270/270 ; entrées de `~/.npm` et `~/.smolcoder`
+comptées avant et après : inchangées. SHA `79ef236` reporté sur l'entrée
+précédente.
 
 ## Hors dépôt (machine locale)
 

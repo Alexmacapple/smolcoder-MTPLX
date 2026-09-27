@@ -191,8 +191,11 @@ limite est dite ici et dans la ligne d'état de la session (« they may listen
 on localhost:5173, which the local network can reach when the server listens
 on every interface »), et le headless l'écrit dans `[isolation] {…, "listen":
 […]}`. Le bac qui veut joindre son propre serveur nomme aussi le port dans
-`network`. Ce qui reste à #18 : l'indication dans l'interface au-delà de la
-ligne d'ouverture et la campagne archivée.
+`network`. Livré par #18 : l'état reste visible toute la session (ligne
+d'état du terminal, pastille de la page web, avec les écoutes accordées), et
+un serveur de développement lancé en tâche de fond (`npm run dev`) par le
+vrai binaire headless sert l'hôte sur le port nommé, un autre port restant
+refusé (`test/os/e2e.os.test.js`).
 
 ### Registre npm
 
