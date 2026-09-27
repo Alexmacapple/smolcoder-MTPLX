@@ -2310,7 +2310,7 @@ avertissement. `src/`, `test/`, `docs/skills/` et le protocole inchangés.
 Aucun essai MTPLX à ce commit. SHA `77ad709` reporté sur l'entrée
 précédente.
 
-### (ce commit) — Mesure #19 : verdict NO-GO — Réf #19
+### `8f89ba1` — Mesure #19 : verdict NO-GO — Réf #19
 
 `docs/mesure-retours-outils-2026-09-27.md`. Campagne jouée sur `c64cc80`
 avec les binaires figés, sous le verrou du banc : 58 essais en 1 h 02 min
@@ -2331,6 +2331,77 @@ jamais lu, signal de péremption émis 5 fois sur 5), la relecture à la
 main, les limites et ce qui reste non vérifié. Documentation seule :
 runner, protocole, `src/`, `test/` et `docs/skills/` inchangés. SHA
 `c64cc80` reporté sur l'entrée précédente.
+
+### `cb507fa` — Mesure #29 : runner et écarts déclarés
+
+`bench/mesure-plan-approuve/` (nouveau : `plan.json`, `essai.sh`,
+`mesure.py`, `campagne.sh`, `analyse.py`, `test-mesure.sh`,
+`faux-mtplx.py`), `docs/mesure-plan-approuve-2026-09-27.md` (nouveau).
+Ticket #29, dernier critère : runner de la mesure appariée pré-enregistrée
+(`docs/protocole-mesure-plan-approuve.md`, `9502a2e`), commité avant le
+premier essai avec les écarts déclarés ; la règle de décision ne change
+pas. Binaire `ed4ba0b` construit hors du dépôt par `git archive` depuis
+`~/smolcoder`, empreinte de `dist/` `6c103f86…0348` identique à celle du
+protocole, recalculée avant chaque essai (différence : arrêt). Le runner
+appelle tel quel l'`essai.sh` figé du protocole et y ajoute verrou, pièces
+figées par empreinte, préconditions MTPLX, dossier personnel jetable par
+essai, sonde et attribution des requêtes reprises de #19, validité,
+manifeste. Écarts déclarés dans le rapport : emplacements des résultats,
+dossier personnel par essai, environnement de smol, verrous des autres
+campagnes attendus sans être pris, garde globale de l'essai, définitions
+opératoires de la validité (approbation refusée, erreur du serveur lue
+dans la trace, proposition sortie autrement que par 3), comptes de repli
+sans `[stats]`, cas limites de la règle tranchés avant les essais
+(faisabilité au prorata arrondi au-dessus, blocage total lu à la lettre,
+coût strict et tenu pour dépassé s'il manque un compte, extension
+mécanique dans la même campagne, préséance).
+
+Vérifications, sans modèle : `bench/mesure-plan-approuve/test-mesure.sh`
+PASS (28 contrôles, aucun sauté), joué sur le binaire figé contre un faux
+MTPLX qui scénarise Qwen : déroulé complet des deux bras sur les trois
+tâches, plan non proposé, fichier hors périmètre, `plan propose` refusé
+sous un contrat approuvé sans plan, `verified` démenti par un contrôle
+caché, délais du travail et de la proposition, erreur du serveur, autre
+client, MTPLX occupé ou absent, autre modèle, verrous, empreinte, smol qui
+ne démarre pas, pièce modifiée, interruption, dossier personnel réel
+inchangé, campagne (ordre, rejeu, extension, reprise), règle sur
+manifestes synthétiques. Deux mutations volontaires du runner font échouer
+exactement les deux contrôles visés. `shellcheck -S warning` et `ruff`
+sans avertissement. `npm test` 374/374 (un premier passage avait eu un
+échec temporel isolé dans `process-lifecycle.test.js`, repassé seul trois
+fois puis en suite complète). `src/`, `test/`, `docs/skills/` et le
+protocole inchangés. Aucun essai MTPLX à ce commit. SHA `8f89ba1` reporté
+sur l'entrée précédente.
+
+### (ce commit) — Mesure #29 : ni effet ni blocage — Réf #29
+
+`docs/mesure-plan-approuve-2026-09-27.md`, `bench/mesure-plan-approuve/`
+(`mesure.py`, `faux-mtplx.py`, `test-mesure.sh`). Campagne jouée sur
+`cb507fa` avec le binaire figé `ed4ba0b`, sous le verrou du banc :
+30 essais en 58 min 01 s, aucun invalide, aucun rejeu, même modèle,
+noyau et configuration partout, aucune requête d'un autre client. Règle
+appliquée sans retouche (`analyse.py --etape verdict`) : faisabilité
+tenue (plan proposé dans 15 runs sur 15), réussites 15 avec plan contre
+15 sans (5 contre 5 par tâche), aucun fichier hors périmètre dans aucun
+bras, aucun blocage, aucun effet démontré, coût 2,5 fois les appels au
+modèle (255 contre 102), aucune extension due. Issue : ni effet ni
+blocage, garder la décision de #29 (plan facultatif) ; la décision
+revient à Alex. Point de la revue : au travail sans plan, Qwen n'a jamais
+appelé `plan propose` (0 sur 15). Le rapport ajoute les résultats bruts
+par tâche et par bras, la faisabilité (deux propositions refusées pour
+des « \n » littéraux dans `files`, reproposées), les écarts `steps` sans
+motif, la relecture à la main, les limites (plafond de réussite, dérive
+nulle) et ce qui reste non vérifié.
+
+Correction déclarée, hors règle : le lecteur de trace de `mesure.py`
+attribuait à `plan done`, `set` ou `add` la ligne « ✓ » d'un appel
+suivant (champ descriptif `resultat`) ; le résultat se cherche désormais
+avant l'appel suivant. Rouge : `test-mesure.sh` avec l'ancien `mesure.py`,
+1 échec (le nouveau cas `plan done`) ; vert : PASS, 29 contrôles. Les
+manifestes de la campagne sont inchangés. `npm test` 374/374 ;
+`shellcheck -S warning` et `ruff` sans avertissement. `src/`, `test/`,
+`docs/skills/` et le protocole inchangés. SHA `cb507fa` reporté sur
+l'entrée précédente.
 
 ## Hors dépôt (machine locale)
 
