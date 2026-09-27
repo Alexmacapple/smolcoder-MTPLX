@@ -19,6 +19,7 @@ import * as fs from "fs";
 import * as os from "os";
 import * as path from "path";
 import { SavedHost } from "./config";
+import { hostProbeOptions } from "./harness/host-probe";
 import { hostLabel, hostUrls, LMSTUDIO_PORT, OLLAMA_PORT } from "./hosts";
 import { ReasoningInfo } from "./providers/lmstudio";
 import { probeJson, tryFetchJson } from "./util";
@@ -146,13 +147,16 @@ export function parseDockerBaseUrls(output: string, containerPorts: number[] = [
   return urls.filter((url, i) => urls.indexOf(url) === i);
 }
 
+/** Sonde de l'hôte (#18) : hors de l'exécuteur isolé, même sous --mission ;
+ * le programme est cherché dans les seules entrées absolues du PATH, depuis un
+ * dossier courant neutre (../harness/host-probe), jamais dans le workspace. */
 function containerPublishedUrls(containerPorts: number[]): Promise<string[]> {
   const ask = (cli: string) =>
     new Promise<string[] | null>((resolve) => {
       execFile(
         cli,
         ["ps", "--format", "{{.Ports}}"],
-        { encoding: "utf8", timeout: DOCKER_DISCOVERY_TIMEOUT_MS, windowsHide: true },
+        { encoding: "utf8", timeout: DOCKER_DISCOVERY_TIMEOUT_MS, windowsHide: true, ...hostProbeOptions() },
         (err, stdout) => resolve(err ? null : parseDockerBaseUrls(stdout, containerPorts))
       );
     });

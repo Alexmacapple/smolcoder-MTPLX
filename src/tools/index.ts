@@ -250,7 +250,7 @@ export async function executeTool(
 function afterWrite(workspace: string, relPath: string): string {
   try {
     const abs = resolveInWorkspace(workspace, relPath);
-    const warning = syntaxCheck(abs, relPath);
+    const warning = syntaxCheck(abs, relPath, workspace);
     return warning ? `
 Warning: ${warning} Fix this before moving on (use edit_file).` : "";
   } catch {

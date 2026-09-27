@@ -901,6 +901,39 @@ un jeton dans une URL de remote devient lisible ; l'écoute accordée reste
 joignable du réseau local ; indication dans l'interface, campagne archivée
 et sondes de `check.ts` et `detect.ts` relèvent de #18.
 
+### (ce commit) — Sondes de l'hôte hors du workspace — Réf #18
+
+`src/harness/host-probe.ts` (nouveau), `src/tools/check.ts`,
+`src/tools/index.ts`, `src/detect.ts`, `src/index.ts`,
+`docs/decision-backend-isole.md`, `test/host-probes.test.js` (nouveau).
+Ticket #18 (H03-4), quatrième sous-ticket du chapeau #12 : sort des sondes
+internes restées hors de l'exécuteur isolé.
+
+Décision : `node --check`, la compilation Python du contrôle syntaxique et
+`docker ps` / `podman ps` de la détection des modèles restent sur l'hôte,
+même sous `--mission` — arguments fixes, analyse sans exécution, rien du
+workspace lu par `docker ps`, qui perdrait sa socket dans le bac (section
+« Sondes internes de l'hôte » de `docs/decision-backend-isole.md`). Mesure
+qui a motivé le correctif : avec une entrée relative dans le PATH
+(`node_modules/.bin`) et le workspace pour dossier courant, un `python3` et un
+`docker` déposés dans le workspace tournaient sur l'hôte, hors du bac.
+Désormais le programme d'une sonde est cherché dans les seules entrées
+absolues du PATH, hors du workspace de la mission (inscrit par `main()` sous
+`--mission`, passé par le contrôle syntaxique), depuis le dossier temporaire
+du système.
+
+Écart déclaré : la règle vaut aussi hors profil (un python ou un docker que
+seule une entrée relative du PATH trouvait n'est plus trouvé par les sondes ;
+les commandes du projet, elles, gardent le PATH de l'utilisateur).
+`syntaxCheck` gagne un troisième argument facultatif, le workspace.
+
+Vérifications. Rouge d'abord : `test/host-probes.test.js` échoue sur la base
+(« workspace code ran on the host: nm-docker, nm-python3 », module absent),
+puis, après le seul filtrage des entrées relatives, sur « wsabs-docker » (une
+entrée absolue dans le workspace, que la détection ne connaissait pas). Après
+: 2/2, les sondes tournent encore (erreur de syntaxe Python et JS détectée,
+`docker` légitime lancé) ; `npm test` 266/266 (264 existants et 2 nouveaux).
+
 ## Hors dépôt (machine locale)
 
 - Fork créé : `Alexmacapple/smolcoder-MTPLX`.
