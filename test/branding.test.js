@@ -2,7 +2,7 @@
 // web UI. It was lost once in an unrelated refactor; this pins it down.
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { LOGO_ROWS, LOGO_TEXT, terminalLogo } = require('../dist/logo');
+const { LOGO_ROWS, LOGO_TEXT, WEB_LOGO_ROWS, WEB_LOGO_TEXT, terminalLogo } = require('../dist/logo');
 const { PAGE_HTML } = require('../dist/web/page');
 const { STYLES } = require('../dist/web/styles');
 
@@ -33,19 +33,27 @@ test('terminal banner falls back to the plain name on a narrow terminal', () => 
   for (const r of LOGO_ROWS) assert.ok(!lines[0].includes(r.trimEnd()));
 });
 
-test('web welcome screen and sidebar header carry the logo', () => {
+test('web logo rows spell ALEX in equal-width block letters, in the same font as SMOL', () => {
+  assert.equal(WEB_LOGO_ROWS.length, 6);
+  for (const r of WEB_LOGO_ROWS) assert.equal(r.length, WEB_LOGO_ROWS[0].length, 'row width differs: ' + r);
+  assert.ok(WEB_LOGO_ROWS[0].startsWith(' █████╗  ██╗      ███████╗ ██╗  ██╗'), 'first row is not the A L E X cap');
+});
+
+test('web welcome screen and sidebar header carry the ALEX logo, not SMOL', () => {
   assert.ok(PAGE_HTML.includes('<div id="logo"'), 'welcome logo element missing');
-  assert.ok(PAGE_HTML.includes(LOGO_TEXT), 'welcome logo text missing');
+  assert.ok(PAGE_HTML.includes(WEB_LOGO_TEXT), 'welcome logo text missing');
   assert.ok(PAGE_HTML.includes('coder — web'));
+  assert.ok(!PAGE_HTML.includes(LOGO_TEXT), 'the SMOL logo should no longer appear in the web page');
   const side = PAGE_HTML.slice(PAGE_HTML.indexOf('<aside id="side">'), PAGE_HTML.indexOf('</aside>'));
-  assert.ok(side.includes(LOGO_TEXT), 'sidebar header logo missing');
-  assert.ok(side.includes('role="img" aria-label="smolcoder"'), 'sidebar logo needs an accessible name');
+  assert.ok(side.includes(WEB_LOGO_TEXT), 'sidebar header logo missing');
+  assert.ok(side.includes('role="img" aria-label="Alex"'), 'sidebar logo needs an accessible name matching the visible word');
   assert.ok(!side.includes('smol<span'), 'the old text wordmark should be gone');
 });
 
-test('a fresh, empty web session opens on the logo', () => {
+test('a fresh, empty web session opens on the ALEX logo', () => {
   assert.ok(STYLES.includes('.log:empty::before'), 'empty-session rule missing');
   const rule = STYLES.slice(STYLES.indexOf('.log:empty::before'), STYLES.indexOf('.log:empty::after'));
-  for (const r of LOGO_ROWS) assert.ok(rule.includes(r.trimEnd()), 'empty-session logo missing row: ' + r);
+  for (const r of WEB_LOGO_ROWS) assert.ok(rule.includes(r.trimEnd()), 'empty-session logo missing row: ' + r);
+  assert.ok(!rule.includes(LOGO_ROWS[0].trimEnd()), 'the SMOL logo should no longer appear in an empty session');
   assert.ok(rule.includes(String.fromCharCode(92) + 'A '), 'rows must be separated by CSS newlines');
 });

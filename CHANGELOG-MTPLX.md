@@ -2403,7 +2403,7 @@ manifestes de la campagne sont inchangés. `npm test` 374/374 ;
 `docs/skills/` et le protocole inchangés. SHA `cb507fa` reporté sur
 l'entrée précédente.
 
-### (ce commit) — Clôture de #19 et #29 dans la doc
+### `dca4b4f` — Clôture de #19 et #29 dans la doc
 
 `README.md`, `docs/profil-mission.md`. #19 et #29 sont fermés sur décision
 d'Alex (2026-09-27), après leurs mesures au banc : aucun effet démontré
@@ -2414,6 +2414,18 @@ deux chantiers ouverts (#52, sécurité sous `--mission` ; #53, confirmation
 de `copie-figee`). Le profil mission gagne l'effet mesuré du plan dans ses
 limites. SHA `e2a33f9` reporté sur l'entrée précédente. Documentation
 seule.
+
+### (ce commit) — Logo ALEX dans l'interface web
+
+`src/logo.ts`, `src/web/page.ts`, `src/web/styles.ts`,
+`test/branding.test.js`. Demande d'Alex : s'approprier l'interface web.
+Le logo en lettres de blocs de la barre latérale, de l'écran d'accueil et
+d'une session vide passe de SMOL à ALEX, dans la même police
+(`WEB_LOGO_ROWS`, `WEB_LOGO_TEXT`). Le nom accessible suit le mot visible :
+`aria-label="Alex"` dans la barre latérale, « Alex coder, web » à
+l'accueil. La bannière du terminal garde SMOL. Rouge d'abord : trois tests
+du web échouaient (logo absent), les quatre du terminal restaient verts.
+Après : `npm test` 375/375. SHA `dca4b4f` reporté sur l'entrée précédente.
 
 ## Hors dépôt (machine locale)
 
