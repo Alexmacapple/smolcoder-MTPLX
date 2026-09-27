@@ -509,4 +509,6 @@ le reprend en tête, relu dans le stockage hôte au moment de la compaction
 - Le run headless approuvé est testé par le CLI réel sur macOS (#18,
   `test/os/e2e.os.test.js`, dans `npm run test:os`), contre un faux serveur
   OpenAI-compatible local qui joue le modèle : `run_command`, `--verify`,
-  tâche de fond et écoute, dans le bac. Aucun test ne le lance contre MTPLX.
+  tâche de fond et écoute, dans le bac ; et le plan (#29, « H08 OS ») en
+  deux runs, `--propose-plan` puis `--approve` avec `--approve-plan`, écart
+  journalisé compris. Aucun test ne le lance contre MTPLX.

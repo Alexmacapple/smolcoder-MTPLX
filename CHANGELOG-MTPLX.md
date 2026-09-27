@@ -1634,7 +1634,7 @@ toujours présente dans la ligne `[mission]`), `dist/` reconstruit ensuite.
 test sauté, sous un HOME et un cache npm temporaires. SHA `f85b7fe` reporté
 sur l'entrée précédente.
 
-### (ce commit) — Écarts au plan approuvé journalisés — Réf #29
+### `ec82098` — Écarts au plan approuvé journalisés — Réf #29
 
 `src/harness/store.ts`, `src/harness/mission.ts`, `src/harness/proofs.ts`,
 `src/plan.ts`, `src/tools/index.ts`, `src/agent.ts`,
@@ -1679,6 +1679,34 @@ Rouge constaté avant le code : aucune note d'écart, réécriture refusée
 (« already approved with its plan »). `npm test` 342/342 (339 et 3 nouveaux)
 et `npm run test:os` 22/22, aucun test sauté, sous un HOME et un cache npm
 temporaires. SHA `21e9cd6` reporté sur l'entrée précédente.
+
+### (ce commit) — Plan en headless sur le vrai binaire — Réf #29
+
+`test/os/e2e.os.test.js`, `docs/profil-mission.md`. Ticket #29 (H08),
+troisième commit : aucun code touché, la preuve de bout en bout du parcours
+headless, qui tient en deux runs du vrai binaire et que `npm test` ne
+couvrait que par ses briques (`authorizeHeadless`, CLI jusqu'à la décision).
+
+Test « H08 OS » (dans `npm run test:os`, macOS réel, faux serveur
+OpenAI-compatible local qui joue le modèle, faux dossier personnel ; aucun
+MTPLX). Premier run, `--propose-plan` : le modèle ne reçoit que les outils de
+lecture et `plan` (avec `propose`), la requête porte la consigne du run de
+proposition, rien n'est écrit dans le workspace ; sortie 3, vue du contrat et
+du plan sur la sortie standard, dernière ligne `[mission]` avec
+`plan.state` `proposed`, l'empreinte du plan et `missingProofs` vide (le seul
+critère est couvert par un contrôle de l'hôte) ; journal : proposition du
+contrat, proposition du plan, ni approbation ni verdict. Second run,
+`--approve <contrat> --approve-plan <plan>` : l'événement `approval` porte les
+deux empreintes, le bloc du contrat dit `Plan: approved`, l'écriture d'un
+fichier hors plan passe avec sa note et laisse un écart `file`, le contrôle
+de l'hôte passe dans le bac, sortie 0, `report.json` `verified` avec un écart
+qui ne change aucun statut, rien du plan ni du rapport dans le workspace.
+
+Rouge constaté sur le binaire de base `f149f90` (arbre extrait par
+`git archive`, construit à part, même fichier de test) : `Unknown option
+"--propose-plan"`, sortie 1 au lieu de 3. `npm test` 342/342 et `npm run
+test:os` 23/23 (22 et 1 nouveau), aucun test sauté, sous un HOME et un cache
+npm temporaires. SHA `ec82098` reporté sur l'entrée précédente.
 
 ## Hors dépôt (machine locale)
 

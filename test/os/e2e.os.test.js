@@ -8,7 +8,8 @@
 // jamais par `npm test` ; ailleurs que sur macOS, chaque test est sauté avec
 // son motif. Les noms « H03-4 OS ACn » renvoient aux critères du chapeau #12 ;
 // « H04 OS » (#9) prouve le contrôle décisif dans le bac et le verdict hors
-// de portée du modèle.
+// de portée du modèle ; « H08 OS » (#29), le plan proposé puis approuvé en
+// deux runs headless et l'écart journalisé sans refus.
 const test = require("node:test");
 const assert = require("node:assert/strict");
 const fs = require("fs");
@@ -334,6 +335,71 @@ test("H04 OS (headless): the real smol binary under --mission runs the decisive 
   // NODE_TEST_CONTEXT et sortirait 0.
   const unconfined = require("child_process").spawnSync(process.execPath, ["--test"], { cwd: b.ws, env: { PATH: process.env.PATH, HOME }, encoding: "utf8" });
   assert.notEqual(unconfined.status, 0, "outside the sandbox the confinement test fails");
+});
+
+// ---- H08 (#29) : plan proposé puis approuvé, en deux runs du vrai binaire --
+
+test("H08 OS (headless): the real smol binary proposes its plan in a read-only --propose-plan run (exit 3, plan shown, fingerprint in the [mission] line), then --approve with --approve-plan records both fingerprints, and a write outside the plan goes through as a journaled deviation while the check passes in the sandbox", { skip, timeout: 240000 }, async (t) => {
+  const f = fixture("h08-plan", { checks: [{ command: "grep -q bonjour hello.txt", covers: [1] }] });
+  const before = fs.readdirSync(f.ws).sort();
+  const lastTagged = (stderr, tag) => {
+    const lines = stderr.split("\n").filter((l) => l.startsWith(`[${tag}] `));
+    assert.ok(lines.length, `a [${tag}] line is printed\n${stderr}`);
+    return JSON.parse(lines.at(-1).slice(tag.length + 3));
+  };
+
+  // 1. Run de proposition : le modèle lit, propose, s'arrête ; rien n'est écrit.
+  const propose = await fakeModel([
+    call("l1", "list_files", {}),
+    call("p1", "plan", { action: "propose", steps: "write hello.txt with bonjour\nlet the host check it", files: "hello.txt", risks: "none beyond the contract" }),
+    { content: "Plan proposed; waiting for the host." },
+  ]);
+  t.after(() => propose.close());
+  const r1 = await smol([f.ws, "-p", "create hello.txt", "--mission", f.src, "--propose-plan", "--model", MODEL], smolEnv(propose));
+  assert.equal(r1.code, 3, r1.all);
+  const m1 = lastTagged(r1.stderr, "mission");
+  assert.equal(m1.state, "proposed");
+  assert.equal(m1.plan.state, "proposed");
+  assert.match(m1.plan.fingerprint, /^[0-9a-f]{64}$/);
+  assert.deepEqual(m1.plan.missingProofs, [], "the only criterion is covered by the host check");
+  assert.match(r1.stdout, /# Intention — Bout en bout/);
+  assert.match(r1.stdout, new RegExp(`## Plan d'implémentation — proposé[\\s\\S]*${m1.plan.fingerprint}`));
+  const first = propose.requests.find((q) => q.body?.tools);
+  const names = first.body.tools.map((x) => x.function.name);
+  assert.ok(!names.includes("write_file") && !names.includes("run_command"), `read-only tools only: ${names}`);
+  assert.ok(first.body.tools.find((x) => x.function.name === "plan").function.parameters.properties.action.enum.includes("propose"));
+  assert.match(first.body.messages.at(-1).content, /Plan proposal run/);
+  assert.deepEqual(fs.readdirSync(f.ws).sort(), before, "nothing is written in the workspace");
+  const ev1 = store.readProofs(f.m.dir).events;
+  assert.deepEqual(ev1.map((e) => [e.type, e.kind ?? e.status]), [["contract", "proposed"], ["plan", "proposed"]], "no approval, no verdict");
+
+  // 2. Approbation des deux empreintes, puis le travail : un fichier hors plan.
+  const work = await fakeModel([
+    call("w1", "write_file", { path: "hello.txt", content: "bonjour\n" }),
+    call("w2", "write_file", { path: "notes.md", content: "hors plan\n" }),
+    { content: "Terminé." },
+  ]);
+  t.after(() => work.close());
+  const r2 = await smol([f.ws, "-p", "create hello.txt", "--mission", f.src, "--approve", f.m.fingerprint, "--approve-plan", m1.plan.fingerprint, "--model", MODEL], smolEnv(work));
+  assert.equal(r2.code, 0, r2.all);
+  const m2 = tagged(r2.stderr, "mission");
+  assert.deepEqual([m2.state, m2.plan.state, m2.plan.fingerprint], ["approved", "approved", m1.plan.fingerprint]);
+  assert.match(r2.all, new RegExp(`with plan ${m1.plan.fingerprint.slice(0, 16)}`));
+  assert.equal(tagged(r2.stderr, "verdict").state, "verified", "the host check passed, in the sandbox");
+  assert.match(work.requests.find((q) => q.body?.tools).body.messages.at(-1).content, new RegExp(`Plan: approved ${m1.plan.fingerprint.slice(0, 16)}`));
+  const [planned, outside] = work.toolResults();
+  assert.doesNotMatch(planned, /\[Plan:/);
+  assert.match(outside, /\[Plan: "notes\.md" is not among the files of the approved plan — recorded as a deviation/);
+  assert.equal(fs.readFileSync(path.join(f.ws, "notes.md"), "utf8"), "hors plan\n", "never blocked");
+  const ev2 = store.readProofs(f.m.dir).events;
+  const approval = ev2.find((e) => e.type === "approval");
+  assert.deepEqual([approval.by, approval.fingerprint, approval.plan], ["headless-flag", f.m.fingerprint, m1.plan.fingerprint]);
+  const devs = ev2.filter((e) => e.type === "plan" && e.kind === "deviation");
+  assert.deepEqual(devs.map((d) => [d.change, d.before, d.after, d.reason, d.plan]), [["file", [], ["notes.md"], null, m1.plan.fingerprint]]);
+  const report = JSON.parse(fs.readFileSync(path.join(f.m.dir, "report.json"), "utf8"));
+  assert.deepEqual([report.task.state, report.plan.state, report.plan.deviations.length], ["verified", "approved", 1], "a deviation changes no status");
+  assert.match(fs.readFileSync(path.join(f.m.dir, "report.md"), "utf8"), /fichier hors plan : `notes\.md`/);
+  assert.ok(!fs.readdirSync(f.ws).some((n) => /plan|report/i.test(n)), "neither the plan nor the report lands in the workspace");
 });
 
 // ---- web ----------------------------------------------------------------------
