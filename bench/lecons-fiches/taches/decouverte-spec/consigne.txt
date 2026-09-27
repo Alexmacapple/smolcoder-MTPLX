@@ -1,0 +1,1 @@
+Ajoute un module intervals.py avec une fonction merge_intervals(intervalles) qui fusionne les couples (début, fin) qui se chevauchent ou se touchent, et renvoie la liste triée des couples fusionnés. Par exemple, merge_intervals([(1, 3), (2, 6), (8, 10), (10, 12)]) renvoie [(1, 6), (8, 12)]. Ajoute aussi ses tests.

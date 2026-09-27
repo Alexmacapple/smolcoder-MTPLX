@@ -2,3 +2,4 @@ out/
 resultats/
 ws-*/
 home-sans.*/
+__pycache__/

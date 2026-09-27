@@ -1,0 +1,1 @@
+Ajoute un module durations.py avec une fonction parse_duration(texte) qui convertit une durée écrite en heures et minutes en nombre de secondes : "2h" donne 7200, "45min" donne 2700, "1h05min" donne 3900 et "1h30" (une heure trente) donne 5400. Un texte qui n'a pas cette forme lève ValueError. Ajoute aussi ses tests.

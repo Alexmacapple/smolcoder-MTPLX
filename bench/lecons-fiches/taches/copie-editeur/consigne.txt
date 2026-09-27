@@ -1,0 +1,1 @@
+Dans cet éditeur, la vérification orthographique ne suit pas le document courant : le test tests/test_editor.py échoue. Corrige le bug.

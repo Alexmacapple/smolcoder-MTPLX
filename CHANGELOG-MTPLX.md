@@ -2101,7 +2101,7 @@ précédente.
 Non vérifié : aucun run contre MTPLX (occupé par l'étude #33) ; le lien de la
 politique par défaut, sans `policyRef`, reste une décision à prendre.
 
-### (ce commit) — Suppression du TMPDIR privé en fin de session — Closes #46
+### `e067772` — Suppression du TMPDIR privé en fin de session — Closes #46
 
 `src/harness/sandbox-executor.ts`, `src/session.ts`, `src/index.ts`,
 `src/web/hub.ts`, `test/sandbox-executor.test.js`, `test/os/e2e.os.test.js`,
@@ -2188,6 +2188,74 @@ détaché (`setsid`), qui survit déjà à la destruction du groupe, n'est pas
 mesurée. Non traité : une session web dont la restauration ou l'annonce lève
 après sa construction garde son bac ouvert, comme elle gardait déjà ses
 tâches et son verrou (comportement antérieur du hub).
+
+### `309c396` — Étude #33 : protocole pré-enregistré — Réf #33
+
+`bench/lecons-fiches/` (nouveau : `essai.sh`, `campagne.sh`, `etude.py`,
+`analyse.py`, `installer-fiches.cjs`, `figer-binaire.sh`, `test-etude.sh`,
+`protocole.json`, `lecons/`, `taches/`), `bench/.gitignore`,
+`docs/etude-lecons-fiches-2026-09-27.md` (nouveau). Ticket #33 (AH-00),
+porte d'entrée du chapeau #34 : pré-enregistrement du protocole avant tout
+essai sur Qwen, comme l'exige le ticket.
+
+Deux leçons écrites à la main (pas par Qwen), chacune correctif minimal d'une
+fiche, figé sous `bench/` avec son empreinte, jamais dans `docs/skills/` :
+`tdd` (vérifier que la commande de test documentée lance bien le nouveau
+test), tirée de `docs/unattended-2026-09-13.md` (suite annoncée en échec,
+invocation directe verte) ; `diagnostic-bugs` (copie figée d'un état qui ne
+suit pas l'état courant), tirée des essais `verified-v8` et `verified-v9` du
+même document. Trois tâches de transfert par leçon, en Python, avec tests
+cachés et critère lu dans l'état final (acceptation, commande documentée,
+mutations, périmètre, clé factice). Séries A, A2 et B, trois répétitions,
+54 essais dans un ordre entrelacé fixé ; règle KEEP / REJECT / INCONCLUSIVE
+chiffrée (gain supérieur à l'écart A/A et à 2/9, deux tâches gagnantes,
+aucun faux succès ni fuite, fiche corrigée lue dans au moins cinq essais B).
+Binaire figé (`dist/` de ce worktree, empreinte vérifiée à chaque essai) ;
+fiches servies par le chemin de production dans un dossier personnel de
+test jetable, index du prompt identique en A et en B ; le vrai
+`~/.smolcoder` n'est que lu.
+
+Vérifications, sans modèle : `bench/lecons-fiches/test-etude.sh` PASS
+(34 contrôles, dont : référence complète `succes` et référence naïve
+`echec_test` avec faux succès sur chacune des six tâches ; fuite, périmètre,
+commit, délai, MTPLX absent, autre modèle, verrous ; dossier personnel réel
+inchangé ; reprise de campagne ; règle de décision sur manifestes
+synthétiques ; binaire figé contre un faux serveur Ollama, fiche B servie par
+`fiche:diagnostic-bugs`) ; `npm test` 292/292 ; `test-banc.sh` PASS ;
+`shellcheck` et `ruff` sans avertissement. Aucun essai MTPLX à ce commit.
+SHA `91f8cd6` reporté sur l'entrée précédente.
+
+### `be8fa3e` — Étude #33 : écart A/A publié — Réf #33
+
+`docs/etude-lecons-fiches-2026-09-27.md`. Campagne jouée sur `309c396`
+avec le binaire figé : 56 essais pour 54 cellules en 3 h 04, deux essais
+non comptés (délai dépassé pendant une autre session Qwen sur MTPLX)
+rejoués et comptés. Écart A/A publié avant toute lecture de la série B
+(`analyse.py --etape aa`) : `decouverte-tests` A 9/9, A2 6/9, δ = 1/3 (les
+trois échecs A2 sont des scripts pilotes laissés dans `.scratch/` après
+lecture de `verification-finale`) ; `copie-figee` A 3/9, A2 1/9, δ = 2/9
+(quatorze correctifs au seul endroit du symptôme, tous annoncés comme
+réussis). Documentation seule ; aucune retouche du protocole, des scripts
+ni des tâches. SHA `309c396` reporté sur l'entrée précédente.
+
+### `05dc15b` — Étude #33 : verdict NO-GO — Closes #33
+
+`docs/etude-lecons-fiches-2026-09-27.md`. Règle pré-enregistrée appliquée
+sans retouche (`analyse.py --etape ab`) aux 54 essais comptés.
+`decouverte-tests` : B 8/9 contre A 9/9 et A2 6/9, INCONCLUSIVE ; la
+difficulté visée ne s'est produite dans aucun essai (nouveau test toujours
+lancé par la suite documentée), la leçon n'avait rien à corriger.
+`copie-figee` : B 7/9 contre 3/9 et 1/9, gain 4/9 au-delà de l'écart A/A
+2/9, deux tâches gagnantes, fiche lue 9 fois sur 9, mais 2 faux succès en
+B là où la règle en exige zéro : INCONCLUSIVE. Verdict global NO-GO :
+aucune leçon KEEP, aucun correctif proposé à l'adoption, `docs/skills/`
+intact. Le rapport ajoute les constats descriptifs hors règle, les deux
+essais écartés, la durée (3 h 04 de campagne), l'empreinte des
+56 manifestes, les limites et ce qui reste non vérifié ; il relève un
+candidat de leçon non mesuré (scripts pilotes laissés dans `.scratch/`
+après `verification-finale`). Vérifications : `npm test` 292/292,
+`test-banc.sh` PASS et `test-etude.sh` PASS, rejoués sur ce commit.
+Documentation seule. SHA `be8fa3e` reporté sur l'entrée précédente.
 
 ## Hors dépôt (machine locale)
 

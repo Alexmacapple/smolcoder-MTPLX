@@ -1,0 +1,8 @@
+{
+  "lecon": "copie-figee",
+  "classe": "bug d'état qui ne suit pas l'état courant : objet remplacé à deux endroits (editor.py, files.py) alors que le vérificateur garde l'ancien",
+  "commande_documentee": "python3 -m unittest discover -s tests",
+  "autorises": ["^[^/]+\\.py$", "^tests/.+$"],
+  "tests_visibles": ["tests/test_editor.py"],
+  "mutations": []
+}

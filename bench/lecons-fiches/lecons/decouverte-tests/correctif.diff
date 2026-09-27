@@ -1,0 +1,13 @@
+--- a/docs/skills/tdd.md
++++ b/docs/skills/tdd.md
+@@ -45,4 +45,9 @@
+ 
+ Une fois la tranche finie, joue la suite complète par la commande que
+ documente le projet (build compris quand ce qui est livré est construit) ;
+-si le projet tient un journal, son entrée va dans le même commit.
++vérifie dans sa sortie que ton nouveau test y a tourné (le nombre de tests
++annoncé a augmenté, ou son nom apparaît) : un test que cette commande ne
++lance pas ne protège rien, même s'il passe quand tu l'invoques directement.
++S'il manque, range-le selon la convention de la suite (dossier, motif de
++nom, liste explicite), puis rejoue-la. Si le projet tient un journal, son
++entrée va dans le même commit.

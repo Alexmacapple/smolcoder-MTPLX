@@ -1,0 +1,16 @@
+--- a/docs/skills/diagnostic-bugs.md
++++ b/docs/skills/diagnostic-bugs.md
+@@ -50,6 +50,13 @@
+ classée à l'utilisateur avant de tester (il re-classe souvent en une phrase),
+ sans te bloquer s'il est absent.
+ 
++Une valeur qui ne suit pas l'état courant (elle garde sa valeur de départ, ou
++un changement fait ici n'est pas vu là) : classe en tête la copie figée —
++valeur importée ou calculée une seule fois, objet remplacé alors qu'un autre
++module garde l'ancien. Avant de corriger, cherche tous les endroits qui lisent
++ou remplacent cet état (`search` sur son nom) ; le correctif fait lire l'état
++courant à la source, il ne recopie pas la valeur au seul endroit du symptôme.
++
+ ## Phase 4 : instrumente
+ 
+ Chaque sonde correspond à une prédiction précise. Une variable à la fois.

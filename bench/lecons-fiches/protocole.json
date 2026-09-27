@@ -1,0 +1,451 @@
+{
+  "format": "etude-lecons-fiches/protocole/v1",
+  "ticket": 33,
+  "question": "Une leçon ajoutée à une fiche de méthode améliore-t-elle la conduite de Qwen 3.8 27B servi par MTPLX sur des tâches distinctes de celle qui l'a fait naître ?",
+  "modele_attendu": "mtplx-qwen38-27b-optimized-speed-fp16",
+  "binaire": {
+    "empreinte_arbre": "0dfa9a1277f370bdd060be16f733641978d10ebd27bfb54c91198afa4999cdd3",
+    "index_js_sha256": "a803414833760d81c1e6f5ce7f65f7f00d5cb3c5efb9d46d2535e0c8c3571f6c",
+    "construit_depuis": "716bfb25bb33dc960fe0427fd4c701e197be535f",
+    "node": "v26.9.0"
+  },
+  "noyau_sha256": "00c9d2d2c40c0f011a9f172b073e3a75235d508d5b1d5671ee67c6c5e5965205",
+  "fiches_a": {
+    "conception-modules.md": "6c3be1aef2e9f1096f804cc14740dbb61b372e5df961389197ed5ae948ee187c",
+    "conflits-git.md": "1c0de292735c61de8516374617a448a93439d74139af6f151482777c3d7d213b",
+    "diagnostic-bugs.md": "56b0e3c6ee2f0bfbd0f3d99455bb7365de902a8a856997f677b2cdec405195be",
+    "implementer.md": "368551adf046038ca0aec32698fb503d082b9460a30c6085d32a3417e23b8265",
+    "index.md": "b198ebded292e5a74a5f8128809d5a9640157fff71f5c786f7dd6e5f6eaf0738",
+    "revue-de-code.md": "7396881d2787125df11cff8c015d8ecd2530e7934565e6654070f032619de9b1",
+    "tdd.md": "090a88a84b614b269fe643fa4fb2b113aa212c2fb7d9f96705d558a2ace4417e",
+    "verification-finale.md": "56b214d2f8a530d027d92c14ab8cf8f1aacf43ea2d0415ef37f91da285872564"
+  },
+  "index_prompt_sha256": "c3f7f7d77b535473c0d8dfdd368a75bc803902b8a68c4319964b37df930057a0",
+  "cle_factice": "sk-factice-etude-7c41d9e2a05b4f38",
+  "path_outils": "/opt/homebrew/opt/python@3.12/libexec/bin:/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin",
+  "verrous_externes": [
+    "/Users/alex/smolcoder/bench/noyau-agents-md/resultats/.verrou-campagne",
+    "/Users/alex/smolcoder/bench/campagne-os/resultats/.verrou-campagne"
+  ],
+  "delai_essai_s": 600,
+  "rejeux_max": 2,
+  "series": [
+    "A",
+    "A2",
+    "B"
+  ],
+  "repetitions": 3,
+  "ordre": [
+    [
+      "decouverte-tests",
+      "decouverte-slug",
+      "A",
+      1
+    ],
+    [
+      "decouverte-tests",
+      "decouverte-slug",
+      "A2",
+      1
+    ],
+    [
+      "decouverte-tests",
+      "decouverte-slug",
+      "B",
+      1
+    ],
+    [
+      "copie-figee",
+      "copie-editeur",
+      "A",
+      1
+    ],
+    [
+      "copie-figee",
+      "copie-editeur",
+      "A2",
+      1
+    ],
+    [
+      "copie-figee",
+      "copie-editeur",
+      "B",
+      1
+    ],
+    [
+      "decouverte-tests",
+      "decouverte-durees",
+      "A",
+      1
+    ],
+    [
+      "decouverte-tests",
+      "decouverte-durees",
+      "A2",
+      1
+    ],
+    [
+      "decouverte-tests",
+      "decouverte-durees",
+      "B",
+      1
+    ],
+    [
+      "copie-figee",
+      "copie-niveau",
+      "A",
+      1
+    ],
+    [
+      "copie-figee",
+      "copie-niveau",
+      "A2",
+      1
+    ],
+    [
+      "copie-figee",
+      "copie-niveau",
+      "B",
+      1
+    ],
+    [
+      "decouverte-tests",
+      "decouverte-spec",
+      "A",
+      1
+    ],
+    [
+      "decouverte-tests",
+      "decouverte-spec",
+      "A2",
+      1
+    ],
+    [
+      "decouverte-tests",
+      "decouverte-spec",
+      "B",
+      1
+    ],
+    [
+      "copie-figee",
+      "copie-inventaire",
+      "A",
+      1
+    ],
+    [
+      "copie-figee",
+      "copie-inventaire",
+      "A2",
+      1
+    ],
+    [
+      "copie-figee",
+      "copie-inventaire",
+      "B",
+      1
+    ],
+    [
+      "decouverte-tests",
+      "decouverte-slug",
+      "A2",
+      2
+    ],
+    [
+      "decouverte-tests",
+      "decouverte-slug",
+      "B",
+      2
+    ],
+    [
+      "decouverte-tests",
+      "decouverte-slug",
+      "A",
+      2
+    ],
+    [
+      "copie-figee",
+      "copie-editeur",
+      "A2",
+      2
+    ],
+    [
+      "copie-figee",
+      "copie-editeur",
+      "B",
+      2
+    ],
+    [
+      "copie-figee",
+      "copie-editeur",
+      "A",
+      2
+    ],
+    [
+      "decouverte-tests",
+      "decouverte-durees",
+      "A2",
+      2
+    ],
+    [
+      "decouverte-tests",
+      "decouverte-durees",
+      "B",
+      2
+    ],
+    [
+      "decouverte-tests",
+      "decouverte-durees",
+      "A",
+      2
+    ],
+    [
+      "copie-figee",
+      "copie-niveau",
+      "A2",
+      2
+    ],
+    [
+      "copie-figee",
+      "copie-niveau",
+      "B",
+      2
+    ],
+    [
+      "copie-figee",
+      "copie-niveau",
+      "A",
+      2
+    ],
+    [
+      "decouverte-tests",
+      "decouverte-spec",
+      "A2",
+      2
+    ],
+    [
+      "decouverte-tests",
+      "decouverte-spec",
+      "B",
+      2
+    ],
+    [
+      "decouverte-tests",
+      "decouverte-spec",
+      "A",
+      2
+    ],
+    [
+      "copie-figee",
+      "copie-inventaire",
+      "A2",
+      2
+    ],
+    [
+      "copie-figee",
+      "copie-inventaire",
+      "B",
+      2
+    ],
+    [
+      "copie-figee",
+      "copie-inventaire",
+      "A",
+      2
+    ],
+    [
+      "decouverte-tests",
+      "decouverte-slug",
+      "B",
+      3
+    ],
+    [
+      "decouverte-tests",
+      "decouverte-slug",
+      "A",
+      3
+    ],
+    [
+      "decouverte-tests",
+      "decouverte-slug",
+      "A2",
+      3
+    ],
+    [
+      "copie-figee",
+      "copie-editeur",
+      "B",
+      3
+    ],
+    [
+      "copie-figee",
+      "copie-editeur",
+      "A",
+      3
+    ],
+    [
+      "copie-figee",
+      "copie-editeur",
+      "A2",
+      3
+    ],
+    [
+      "decouverte-tests",
+      "decouverte-durees",
+      "B",
+      3
+    ],
+    [
+      "decouverte-tests",
+      "decouverte-durees",
+      "A",
+      3
+    ],
+    [
+      "decouverte-tests",
+      "decouverte-durees",
+      "A2",
+      3
+    ],
+    [
+      "copie-figee",
+      "copie-niveau",
+      "B",
+      3
+    ],
+    [
+      "copie-figee",
+      "copie-niveau",
+      "A",
+      3
+    ],
+    [
+      "copie-figee",
+      "copie-niveau",
+      "A2",
+      3
+    ],
+    [
+      "decouverte-tests",
+      "decouverte-spec",
+      "B",
+      3
+    ],
+    [
+      "decouverte-tests",
+      "decouverte-spec",
+      "A",
+      3
+    ],
+    [
+      "decouverte-tests",
+      "decouverte-spec",
+      "A2",
+      3
+    ],
+    [
+      "copie-figee",
+      "copie-inventaire",
+      "B",
+      3
+    ],
+    [
+      "copie-figee",
+      "copie-inventaire",
+      "A",
+      3
+    ],
+    [
+      "copie-figee",
+      "copie-inventaire",
+      "A2",
+      3
+    ]
+  ],
+  "lecons": {
+    "decouverte-tests": {
+      "fiche": "tdd",
+      "classe": "ajouter une fonctionnalité et son test : le nouveau test doit être lancé par la commande de test que documente le projet",
+      "texte": "vérifie dans sa sortie que ton nouveau test y a tourné (le nombre de tests annoncé a augmenté, ou son nom apparaît) : un test que cette commande ne lance pas ne protège rien, même s'il passe quand tu l'invoques directement. S'il manque, range-le selon la convention de la suite (dossier, motif de nom, liste explicite), puis rejoue-la.",
+      "origine": "écrite à la main par l'agent de l'étude (Claude), le 2026-09-27 ; non rédigée par Qwen",
+      "sources": [
+        "docs/unattended-2026-09-13.md, ligne 39 (essai Ollama, checkout antérieur, Qwen3.8 27B) : « Advertised npm test fails; invoking the test files directly passes 19 tests » — la suite documentée échoue alors que l'invocation directe des fichiers de test passe.",
+        "/Users/alex/smolcoder/bench/noyau-agents-md/resultats/bug-sans/erreurs.txt (26 septembre 2026, MTPLX) : Qwen lance python3 -m pytest, que le projet ne documente pas, avant de revenir à unittest."
+      ],
+      "taches": [
+        "decouverte-slug",
+        "decouverte-durees",
+        "decouverte-spec"
+      ],
+      "fichier_b": "lecons/decouverte-tests/tdd.md",
+      "sha256_a": "090a88a84b614b269fe643fa4fb2b113aa212c2fb7d9f96705d558a2ace4417e",
+      "sha256_b": "babf825b89bf4e3ee9e3f6407cfe0506bc04ddb4f9ef90bb722ef43ea1d92fae",
+      "correctif": "lecons/decouverte-tests/correctif.diff",
+      "sha256_correctif": "d1f30f2d834cc38aee0e78e8b445562698bc4c3b70cf4af6818a1c5184f79fb1"
+    },
+    "copie-figee": {
+      "fiche": "diagnostic-bugs",
+      "classe": "corriger un bug où une valeur ne suit pas l'état courant : copie figée (objet remplacé, valeur importée ou calculée une seule fois)",
+      "texte": "Une valeur qui ne suit pas l'état courant (elle garde sa valeur de départ, ou un changement fait ici n'est pas vu là) : classe en tête la copie figée — valeur importée ou calculée une seule fois, objet remplacé alors qu'un autre module garde l'ancien. Avant de corriger, cherche tous les endroits qui lisent ou remplacent cet état (`search` sur son nom) ; le correctif fait lire l'état courant à la source, il ne recopie pas la valeur au seul endroit du symptôme.",
+      "origine": "écrite à la main par l'agent de l'étude (Claude), le 2026-09-27 ; non rédigée par Qwen",
+      "sources": [
+        "docs/unattended-2026-09-13.md, ligne 104 (Ollama verified-v8, Qwen3.8 27B) : « The UI read a captured active: false value instead of live state » — jeu rendu comme fini, rejeté.",
+        "docs/unattended-2026-09-13.md, ligne 126 (LM Studio verified-v9, Qwen3.8 27B) : « Play created a new world for collision and editing while the renderer retained the menu's original world […] Mining modified live terrain but rebuilt geometry from the stale world » — rejeté malgré des assertions d'état vertes."
+      ],
+      "taches": [
+        "copie-editeur",
+        "copie-niveau",
+        "copie-inventaire"
+      ],
+      "fichier_b": "lecons/copie-figee/diagnostic-bugs.md",
+      "sha256_a": "56b0e3c6ee2f0bfbd0f3d99455bb7365de902a8a856997f677b2cdec405195be",
+      "sha256_b": "a379279040e9f33d85eb2061463b70031540a1c8927b7e85971f105747432244",
+      "correctif": "lecons/copie-figee/correctif.diff",
+      "sha256_correctif": "24e83dd2a26cf4b9a36678db22081b89e64127e4ea7efc247021f1396a4e52db"
+    }
+  },
+  "taches": {
+    "decouverte-slug": {
+      "lecon": "decouverte-tests",
+      "empreinte_arbre": "41b26a096bae6b045e528b05788323aaed94fdaf13fd2b4bd384c3e253a2e935",
+      "fichiers": 12,
+      "sha256_consigne": "a9561aa73e6d8227ce0e8f0918c358390059595f8f1aa9883c254795d4975bad"
+    },
+    "decouverte-durees": {
+      "lecon": "decouverte-tests",
+      "empreinte_arbre": "a9257cf3afe410be3c028cca029c39b2e5d475aa3ab3b3d7bf5dceefaf8f3f75",
+      "fichiers": 16,
+      "sha256_consigne": "1c78ebdd0c8dc00f406d46b5fa837c8399a42f89cdb72bd8cfff1ed1152ca3a2"
+    },
+    "decouverte-spec": {
+      "lecon": "decouverte-tests",
+      "empreinte_arbre": "5856fd3f9b78749af75350303801508f58cf73373358d846e260da225e39ac7b",
+      "fichiers": 11,
+      "sha256_consigne": "158311057d3368acbe48acb26c4c52ccddafbba42d4710a08ff65e5ad7a99a8e"
+    },
+    "copie-editeur": {
+      "lecon": "copie-figee",
+      "empreinte_arbre": "2a91253a352352b062bde9bb82a7784d0fb98206d3f0d33563b1e889e1c465a0",
+      "fichiers": 12,
+      "sha256_consigne": "9d3f24e8e8a54d37693a65863a9c99897d2e235fc160821c696f533427eb7fc0"
+    },
+    "copie-niveau": {
+      "lecon": "copie-figee",
+      "empreinte_arbre": "fe2e2186c57f05db88a2822f4edecd75f18120bfbc64b5b29da7bff992bb738e",
+      "fichiers": 12,
+      "sha256_consigne": "6bf9bef65e592c8153f6c6053a4a1f2f337e0891be07fdd7bcee01611bcd606a"
+    },
+    "copie-inventaire": {
+      "lecon": "copie-figee",
+      "empreinte_arbre": "45a740d96a3ec1f9533d9911e2a028d567f3ee33397412a30de849aec0b89afe",
+      "fichiers": 10,
+      "sha256_consigne": "0419b667a38dc20041617e291e89a0a8e234810ae72a8d59326fcd7848fb996c"
+    }
+  },
+  "regle": {
+    "gain_minimal": "2/9",
+    "exposition_minimale_b": 5,
+    "essais_comptes_minimaux_par_serie": 7,
+    "taches_gagnantes_minimales": 2,
+    "reserve_regex": "(?i)(ne passe(?:nt)? (?:toujours |plus |encore )?pas|échoue(?:nt)?\\b|reste(?:nt)? en échec|toujours en échec|n'ai pas (?:pu|réussi|trouvé|lancé|corrigé|terminé|vérifié)|pas pu |impossible|non vérifié|pas vérifié|pas été vérifié|not_run|\\bfailed\\b|bloqué|bloquée|confirmez|souhaitez-vous|voulez-vous|veux-tu|dois-je|préfères-tu|préférez-vous)"
+  }
+}

@@ -1,0 +1,19 @@
+{
+  "lecon": "decouverte-tests",
+  "classe": "ajouter une fonctionnalité et son test dans un projet dont la commande de test documentée ne lance que les tests qui suivent sa convention (dossier spec/, motif *_spec.py)",
+  "commande_documentee": "python3 -m unittest discover -s spec -p '*_spec.py'",
+  "autorises": ["^[^/]+\\.py$", "^spec/.+$", "^tests/.+$"],
+  "tests_visibles": ["spec/colors_spec.py"],
+  "mutations": [
+    {
+      "fichier": "intervals.py",
+      "ajout": "\n\ndef merge_intervals(*args, **kwargs):\n    raise AssertionError(\"mutant du banc\")\n",
+      "raison": "la suite documentée doit voir une régression de la nouvelle fonction"
+    },
+    {
+      "fichier": "colors.py",
+      "ajout": "\n\ndef hex_to_rgb(*args, **kwargs):\n    raise AssertionError(\"mutant du banc\")\n",
+      "raison": "la suite documentée doit toujours couvrir le code existant"
+    }
+  ]
+}
