@@ -282,6 +282,7 @@ export class WebHub {
         /* best effort */
       }
       live.session?.taskManager.killAll();
+      live.session?.releaseWriter?.();
       for (const t of live.terminals.values()) t.close();
     }
     clearHubRecord(process.pid, this.dataDir);
@@ -481,6 +482,7 @@ export class WebHub {
       const session = await this.factory(live.channel, live.workspace, prefs);
       if (live.channel.closed || this.live.get(live.id) !== live) {
         session.taskManager.killAll();
+        session.releaseWriter?.();
         return;
       }
       live.session = session;

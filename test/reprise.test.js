@@ -40,7 +40,8 @@ function scriptedProvider(replies) {
     setEffort() {}, effortLabel() { return null; },
     async chat(messages, tools) {
       seen.push({ messages: messages.map((m) => ({ ...m })), tools });
-      const r = replies[Math.min(i++, replies.length - 1)];
+      const r0 = replies[Math.min(i++, replies.length - 1)];
+      const r = typeof r0 === "function" ? r0() : r0; // une étape peut agir côté hôte avant de répondre
       return { content: "", toolCalls: [], generatedTokens: 10, genTokPerSec: 50, promptTokens: 500, completionTokens: 20, ...r };
     },
   };
@@ -511,6 +512,7 @@ test("H05 C3: a truncated last record is detected and never turned into a conclu
   assert.match(m2.denial("write_file", { path: "x.txt" }), /suspended by the host: the last record/);
   assert.throws(() => m2.resume.resolve([h.id], "terminal-human"), /truncated-tail: nothing can be resolved/);
   assert.ok(fs.readFileSync(journal, "utf8").endsWith('"obs'), "nothing was written behind the torn line");
+  m2.resume.release(); // la session se termine
   // Réparation à la main : la ligne incomplète est retirée.
   const text = fs.readFileSync(journal, "utf8");
   fs.writeFileSync(journal, text.slice(0, text.lastIndexOf("\n") + 1));
@@ -587,4 +589,198 @@ test("H05 C3 (headless): the real CLI stops before any model with exit 6 and a [
   assert.match(ok.stdout + ok.stderr, /No usable model found/, "the run went on to the model");
   const resolved = effects(f.prepare()).filter((e) => e.kind === "resolved");
   assert.deepEqual(resolved.map((e) => [e.id, e.by]), [[h.id, "headless-flag"]]);
+});
+
+// ---- C5 : un seul écrivain ; C4 : changements externes sous le profil -------
+
+/** Un processus vivant, le temps d'un test (témoin d'un verrou tenu ailleurs). */
+function liveProcess(t) {
+  const { spawn } = require("child_process");
+  const p = spawn(process.execPath, ["-e", "setTimeout(() => {}, 60000)"], { stdio: "ignore" });
+  t.after(() => { try { p.kill("SIGKILL"); } catch { /* déjà terminé */ } });
+  return p;
+}
+const lockOf = (m) => JSON.parse(fs.readFileSync(path.join(m.dir, "lock"), "utf8"));
+
+test("H05 C5: double resume of the same workspace — only one session gets the right to write; the other reads and plans, then takes the lock when the first ends", async () => {
+  const f = missionFixture("double");
+  fs.writeFileSync(path.join(f.ws, "readme.txt"), "shared workspace\n");
+  const uiA = terminalUi(["write a"]);
+  const a = missionSession(uiA, f.m, "web");
+  const b = missionSession(terminalUi(), f.prepare(), "web");
+  assert.equal(a.mission.resume.isWriter, true, "the first session holds the writer lock");
+  assert.equal(b.mission.resume.isWriter, false, "the second does not");
+  assert.equal(lockOf(f.m).session, a.mission.resume.session);
+  assert.equal(lockOf(f.m).pid, process.pid);
+  const lines = [];
+  b.ui.warn = (l) => lines.push(l);
+  b.announce();
+  assert.ok(lines.some((l) => /another smolcoder session holds the writer lock for this workspace \(web, process \d+/.test(l)), lines.join("\n"));
+
+  // Les deux essaient d'écrire le même fichier.
+  const provA = scriptedProvider([call("wa", "write_file", { path: "shared.txt", content: "from A" }), { content: "A done" }]);
+  a.agent.setProvider(provA);
+  const provB = scriptedProvider([call("wb", "write_file", { path: "shared.txt", content: "from B" }), call("rb", "read_file", { path: "readme.txt" }), { content: "B waits" }]);
+  b.agent.setProvider(provB);
+  await b.agent.runTurn("write b");
+  const [refused, read] = lastToolResults(provB, 2);
+  assert.match(refused, /^Error: writes and commands are refused: another smolcoder session holds the writer lock/, "B cannot write while A holds the lock");
+  assert.match(read, /^(?!Error)/, "B can still read");
+  await a.run(); // A écrit, puis se termine (/exit) et rend le verrou
+  assert.equal(fs.readFileSync(path.join(f.ws, "shared.txt"), "utf8"), "from A");
+  assert.equal(fs.existsSync(path.join(f.m.dir, "lock")), false, "the lock is released at the end of the session");
+  // B revérifie avant son écriture suivante : le verrou est libre, il le prend.
+  const provB2 = scriptedProvider([call("rb2", "read_file", { path: "shared.txt" }), call("wb2", "write_file", { path: "shared.txt", content: "from B" }), { content: "B done" }]);
+  b.agent.setProvider(provB2);
+  await b.agent.runTurn("now write");
+  assert.match(lastToolResults(provB2, 1)[0], /^Overwrote shared\.txt/);
+  assert.equal(b.mission.resume.isWriter, true);
+  assert.equal(lockOf(f.m).session, b.mission.resume.session);
+  const writers = effects(f.m).filter((e) => e.kind === "intent").map((e) => e.session);
+  assert.ok(writers.every((s) => s === a.mission.resume.session || s === b.mission.resume.session));
+  b.releaseWriter();
+});
+
+test("H05 C5: a lock held by another live process is respected — terminal session and headless run alike — and taken over once that process is gone", async (t) => {
+  const f = missionFixture("xproc");
+  const other = liveProcess(t);
+  fs.writeFileSync(path.join(f.m.dir, "lock"), JSON.stringify({ schema: "smolcoder/lock/v1", pid: other.pid, host: os.hostname(), session: "0123456789ab", surface: "terminal", since: new Date().toISOString() }) + "\n");
+  const CLI = path.join(__dirname, "..", "dist", "index.js");
+  const r = spawnSync(process.execPath, [CLI, f.ws, "-p", "go", "--mission", f.src, "--model", "smol-test-no-such-model"], {
+    env: { ...process.env, HOME, SMOLCODER_CONFIG: process.env.SMOLCODER_CONFIG, OLLAMA_HOST: "127.0.0.1:9" }, encoding: "utf8", timeout: 20000,
+  });
+  assert.equal(r.status, 6, r.stdout + r.stderr);
+  assert.match(r.stdout + r.stderr, new RegExp(`another smolcoder session holds the writer lock for this workspace \\(terminal, process ${other.pid}`));
+  assert.doesNotMatch(r.stdout + r.stderr, /No usable model found/, "a headless run that cannot write does not start");
+  assert.equal(lockOf(f.m).pid, other.pid, "the live lock is untouched");
+
+  const s = missionSession(terminalUi(), f.prepare(), "terminal");
+  assert.equal(s.mission.resume.isWriter, false);
+  other.kill("SIGKILL");
+  await until(() => { try { process.kill(other.pid, 0); return false; } catch { return true; } }, 4000, "the other process to be gone");
+  const provider = scriptedProvider([call("w1", "write_file", { path: "x.txt", content: "x" }), { content: "done" }]);
+  s.agent.setProvider(provider);
+  await s.agent.runTurn("write x");
+  assert.match(lastToolResults(provider, 1)[0], /^Created x\.txt/, "the dead holder's lock is taken over before the write");
+  assert.equal(lockOf(f.m).session, s.mission.resume.session);
+  s.releaseWriter();
+});
+
+/** Un dépôt Git et une mission approuvée dessus. */
+function gitMission(tag) {
+  const f = missionFixture(tag);
+  git(f.ws, "init", "-q", "-b", "main");
+  for (const [p, c] of [["a.txt", "a0\n"], ["b.txt", "b0\n"], ["c.txt", "c0\n"]]) fs.writeFileSync(path.join(f.ws, p), c);
+  git(f.ws, "add", ".");
+  git(f.ws, "commit", "-q", "-m", "base");
+  return f;
+}
+
+test("H05 C4: a human commit, an untracked file and a concurrent uncommitted change made between two sessions are neither overwritten nor attributed to the agent — they are listed apart from its own write, and each first write to them is refused", async () => {
+  const f = gitMission("ext");
+  const a = missionSession(terminalUi(["edit a"]), f.m, "terminal");
+  a.agent.setProvider(scriptedProvider([call("w1", "write_file", { path: "a.txt", content: "agent a\n" }), { content: "done" }]));
+  await a.run();
+  const headA = git(f.ws, "rev-parse", "HEAD");
+  // Entre deux sessions : un commit humain, un fichier non suivi, une modification non commitée.
+  fs.writeFileSync(path.join(f.ws, "b.txt"), "human commit\n");
+  git(f.ws, "commit", "-q", "-m", "human", "b.txt");
+  fs.writeFileSync(path.join(f.ws, "notes.md"), "human notes\n");
+  fs.writeFileSync(path.join(f.ws, "c.txt"), "human wip\n");
+  const headHuman = git(f.ws, "rev-parse", "HEAD");
+  assert.notEqual(headHuman, headA);
+
+  const m2 = f.prepare();
+  const ui = terminalUi(["continue"]);
+  const b = missionSession(ui, m2, "terminal");
+  const ext = m2.resume.state().external;
+  assert.deepEqual(ext.head, { before: headA, after: headHuman });
+  assert.deepEqual(ext.files, [{ path: "b.txt", change: "modified" }, { path: "c.txt", change: "modified" }, { path: "notes.md", change: "added" }], "the agent's own a.txt is not among them");
+  b.announce();
+  assert.ok(ui.lines.some((l) => /workspace changed since the last session \(HEAD moved .*files changed outside the agent: b\.txt \(modified\), c\.txt \(modified\), notes\.md \(added\)\)\. These changes are preserved and are not the agent's/.test(l)), ui.lines.join("\n"));
+  const provider = scriptedProvider([
+    call("p1", "plan", { action: "set", steps: "update notes\nfinish" }),
+    call("w2", "write_file", { path: "notes.md", content: "agent\n" }),
+    call("w3", "write_file", { path: "c.txt", content: "agent\n" }),
+    call("w4", "edit_file", { path: "b.txt", old_text: "human commit", new_text: "agent" }),
+    { content: "I must read them first" },
+  ]);
+  b.agent.setProvider(provider);
+  await b.run();
+  const [notes, c, bb] = lastToolResults(provider, 3);
+  assert.match(notes, /^Error: "notes\.md" was changed on disk after you last read it: it was created on disk after this session's known state, not by you/);
+  assert.match(c, /^Error: "c\.txt" was changed on disk .*changed since this session's known state and you have not read it since/);
+  assert.match(bb, /^Error: "b\.txt" was changed on disk/);
+  for (const [p, c0] of [["notes.md", "human notes\n"], ["c.txt", "human wip\n"], ["b.txt", "human commit\n"]]) assert.equal(fs.readFileSync(path.join(f.ws, p), "utf8"), c0, `${p} is not overwritten`);
+  assert.deepEqual([...b.toolCtx.filesTouched], [], "none of them is recorded as the agent's");
+  const results = effects(m2).filter((e) => e.kind === "result");
+  assert.ok(results.filter((e) => e.status === "ok").every((e) => ["Created a.txt", "Overwrote a.txt"].some((x) => e.observed.startsWith(x))), "the only applied effect in the journal is the agent's a.txt");
+  assert.equal(git(f.ws, "rev-parse", "HEAD"), headHuman, "no reset, no commit by the harness");
+  assert.match(git(f.ws, "status", "--porcelain"), /^ M c\.txt\n\?\? notes\.md$|^ M a\.txt\n M c\.txt\n\?\? notes\.md$/m, "no stash, no clean: the human's work is still there");
+});
+
+test("H05 C4: a commit made during a session is caught before the next write — refused once, preserved, never the agent's — and the plan is re-anchored before the write goes through", async () => {
+  const f = gitMission("head");
+  const s = missionSession(terminalUi(["work"]), f.m, "terminal");
+  const provider = scriptedProvider([
+    call("p1", "plan", { action: "set", steps: "edit a\ncheck" }),
+    call("r1", "read_file", { path: "a.txt" }),
+    () => {
+      // Pendant la session, entre deux appels du modèle : un commit humain.
+      fs.writeFileSync(path.join(f.ws, "b.txt"), "human\n");
+      git(f.ws, "commit", "-q", "-am", "human during the session");
+      return call("w1", "write_file", { path: "a.txt", content: "agent\n" });
+    },
+    call("w2", "write_file", { path: "a.txt", content: "agent\n" }),
+    call("p2", "plan", { action: "show" }),
+    call("w3", "write_file", { path: "a.txt", content: "agent\n" }),
+    { content: "done" },
+  ]);
+  s.agent.setProvider(provider);
+  await s.run();
+  const res = s.agent.messages.filter((x) => x.role === "tool").map((x) => x.content);
+  const [w1, w2, , w3] = res.slice(-4);
+  assert.match(w1, /^Error: writes and commands are refused|^Error: this write or command was not applied: HEAD moved/, w1);
+  assert.match(w1, /HEAD moved [0-9a-f]{12} → [0-9a-f]{12} during this session \(a commit or checkout made outside it; it is preserved and is not the agent's\)/);
+  assert.match(w2, /^Error: The workspace changed outside this session: HEAD moved.*Re-anchor your plan/s, "then the plan must be re-anchored");
+  assert.match(w3, /^Overwrote a\.txt/, "after the plan tool, the write goes through");
+  assert.equal(fs.readFileSync(path.join(f.ws, "b.txt"), "utf8"), "human\n");
+  s.releaseWriter();
+});
+
+test("H05 C6 (mission): AGENTS.md changed between two sessions under the same contract is signaled — at the opening and in the headless [resume] line — never silently", async () => {
+  const f = missionFixture("agents");
+  fs.writeFileSync(path.join(f.ws, "AGENTS.md"), "Rule A");
+  const a = missionSession(terminalUi(), f.m, "terminal");
+  await a.run();
+  fs.writeFileSync(path.join(f.ws, "AGENTS.md"), "Rule B");
+  const ui = terminalUi();
+  const b = missionSession(ui, f.prepare(), "terminal");
+  b.announce();
+  assert.ok(ui.lines.some((l) => /AGENTS\.md changed since the last session under this contract \(AGENTS\.md [0-9a-f]{12} → [0-9a-f]{12}\): this new session reads the files on disk/.test(l)), ui.lines.join("\n"));
+  await b.run();
+  fs.writeFileSync(path.join(f.ws, "AGENTS.md"), "Rule C");
+  const CLI = path.join(__dirname, "..", "dist", "index.js");
+  const r = spawnSync(process.execPath, [CLI, f.ws, "-p", "go", "--mission", f.src, "--model", "smol-test-no-such-model"], {
+    env: { ...process.env, HOME, SMOLCODER_CONFIG: process.env.SMOLCODER_CONFIG, OLLAMA_HOST: "127.0.0.1:9" }, encoding: "utf8", timeout: 20000,
+  });
+  const line = JSON.parse(r.stderr.split("\n").find((l) => l.startsWith("[resume] ")).slice(9));
+  assert.equal(line.instructionsDrift.length, 1);
+  assert.match(line.instructionsDrift[0], /^AGENTS\.md [0-9a-f]{12} → [0-9a-f]{12}$/);
+});
+
+test("H05 C1 (mission): the plan's progress survives a terminal session — the next session under the same approved plan starts with the ticked steps", async () => {
+  const f = missionFixture("progress", { approve: false });
+  const CONTENT = { steps: ["write hello.txt", "read it back"], files: ["hello.txt"], risks: [], proofs: [{ criterion: 1, proof: "read_file shows bonjour" }] };
+  const { fingerprint } = f.m.proposePlan(CONTENT);
+  f.m.approve("terminal-human", f.m.fingerprint, { plan: fingerprint });
+  const a = missionSession(terminalUi(["go"]), f.m, "terminal");
+  a.agent.setProvider(scriptedProvider([call("w1", "write_file", { path: "hello.txt", content: "bonjour" }), call("d1", "plan", { action: "done" }), { content: "step 1 done" }]));
+  await a.run();
+  assert.deepEqual(a.toolCtx.plan.steps.map((s) => s.done), [true, false]);
+  const ui = terminalUi();
+  const b = missionSession(ui, f.prepare(), "terminal");
+  assert.deepEqual(b.toolCtx.plan.steps.map((s) => s.done), [true, false], "the ticked step comes back");
+  assert.ok(ui.lines.some((l) => /plan progress restored from the last session: 1 step already done/.test(l)));
+  b.releaseWriter();
 });

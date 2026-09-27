@@ -1851,7 +1851,7 @@ tests de provenance verts. `npm test` 350/350 (345 et 5 nouveaux), aucun test
 sauté, sous un HOME et un cache npm temporaires. SHA `f507022` reporté sur
 l'entrée précédente.
 
-### (ce commit) — Journal d'effets et état incertain — Réf #10
+### `f7d3cd8` — Journal d'effets et état incertain — Réf #10
 
 `src/harness/resume.ts` (nouveau), `src/harness/store.ts`,
 `src/harness/mission.ts`, `src/agent.ts`, `src/session.ts`, `src/index.ts`,
@@ -1909,6 +1909,70 @@ compilé (budget remis à zéro à la préparation : 0 au lieu de 3), `dist/`
 reconstruit ensuite. `npm test` 358/358 (350 et 8 nouveaux), aucun test
 sauté, sous un HOME et un cache npm temporaires. SHA `ff56e7d` reporté sur
 l'entrée précédente.
+
+### (ce commit) — Un seul écrivain et changements externes — Réf #10
+
+`src/harness/resume.ts`, `src/harness/store.ts`, `src/harness/mission.ts`,
+`src/tools/read-tracker.ts`, `src/agent.ts`, `src/session.ts`,
+`src/index.ts`, `src/web/hub.ts`, `test/reprise.test.js`,
+`docs/decision-stockage-hote.md`, `docs/decision-reprise-durable.md`,
+`docs/profil-mission.md`. Ticket #10 (H05), quatrième commit, sous
+`--mission`. Hors profil, rien ne change.
+
+- C5 : verrou mono-écrivain `lock` dans le dossier hôte (PID, machine,
+  session, surface, date), créé exclusivement par la session qui ouvre le
+  profil — terminal, web, headless. Une autre session du même workspace, du
+  même processus (hub) ou d'un autre, lit et planifie sans écrire, le dit, et
+  prend le verrou quand la première se termine ou que son processus a
+  disparu, en refaisant alors la reprise. Un run headless qui ne peut pas
+  écrire ne part pas (sortie 6). Verrou rendu à la fin de session, à l'arrêt
+  du hub, en fin de run et sur signal ; un agent sans hôte de session (tests,
+  bibliothèque) respecte le verrou d'un autre sans le prendre.
+- C4 : enregistrement de reprise `resume.json` (révision Git, empreinte de
+  chaque fichier, consignes, plan, budget), écrit par l'écrivain à
+  l'ouverture, en fin de tour et à sa fin. À l'ouverture, le workspace est
+  comparé à cet état complété par les effets journalisés depuis : commit
+  humain, fichier non suivi et modification non commitée sont listés à part
+  des effets de l'agent, préservés, jamais attribués ; après une commande de
+  l'agent, un fichier changé n'est attribué à personne. Le suivi de lecture
+  de #19 consulte cet état connu pour un fichier que l'agent n'a jamais vu
+  (créé, modifié, supprimé par un autre) : première écriture refusée, comme
+  une lecture périmée. Avant chaque effet, la session revérifie le verrou et
+  la révision Git ; un `HEAD` déplacé pendant la session refuse l'effet une
+  fois, puis le plan doit être réancré. Jamais de `reset`, `stash` ou `clean`.
+- C6 : sous le profil, l'écart d'`AGENTS.md` avec la dernière session du même
+  contrat est signalé à l'ouverture et dans la ligne `[resume]`.
+- La checklist cochée revient avec la session suivante sous le même plan
+  (limite de #29 levée pour le terminal et le headless).
+
+Grammaire, amendée explicitement dans `docs/decision-stockage-hote.md`
+(section du 2026-09-27, ticket #10, verrou et enregistrement) : fichiers
+`lock` (`smolcoder/lock/v1`) et `resume.json` (`smolcoder/resume/v1`), le
+second en écart déclaré à « trois fichiers », motivé (état réécrit à chaque
+tour, seul le dernier compte).
+
+Vérifications. Six tests « H05 » de plus : double reprise dans le même
+processus (une seule session écrit, l'autre lit, puis prend le verrou à la
+fin de la première), verrou d'un autre processus vivant respecté par le vrai
+CLI headless (sortie 6, avant tout modèle) et par une session, repris après
+sa mort ; commit humain, fichier non suivi et modification non commitée
+entre deux sessions (listés à part de l'écriture de l'agent, premières
+écritures refusées, contenus intacts, aucun reset, stash ni commit) ; commit
+humain pendant la session (effet refusé une fois, réancrage, puis écriture) ;
+écart d'`AGENTS.md` sous le profil (ouverture et ligne `[resume]` du vrai
+CLI) ; progression du plan reprise. Rouge constaté sur l'arbre du commit
+précédent, construit à part avec le même fichier de test : sept échecs
+(verrou absent, run headless lancé malgré un écrivain vivant, changements
+externes non constatés, écriture passée après un commit humain, écart des
+consignes non dit, étapes non reprises, `release` absente). `npm test` en
+série (`-- --test-concurrency=1`) 364/364 (358 et 6 nouveaux), aucun test
+sauté ; en parallèle, 362/364 : deux tests préexistants sensibles au délai
+(« cancellation … typed outcomes », « H04 AC2 … killed by a signal »)
+échouent par intermittence sous la charge de la machine (charge moyenne
+supérieure à 60 : ImageOptim et MTPLX tournent à côté), échec reproduit à
+l'identique sur l'arbre de base `e36f0b6` sous la même charge, sans rapport
+avec ce commit. `npm run test:os` 23/23. SHA `f7d3cd8` reporté sur l'entrée
+précédente.
 
 ## Hors dépôt (machine locale)
 

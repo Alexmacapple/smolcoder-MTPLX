@@ -18,7 +18,8 @@ import { keepHostProbesOutOf } from "./harness/host-probe";
 import { BYPASS_UNDER_MISSION, decisionReport, POLICY_SUSPENDED_EXIT_CODE, PolicySuspension } from "./harness/policy";
 import { VERDICT_EXIT_CODE, verdictExitCode, verdictSummary } from "./harness/proofs";
 import { isolationLine, missionExecutor } from "./harness/sandbox-executor";
-import { RESUME_SUSPENDED_EXIT_CODE } from "./harness/resume";
+import { describeExternal, RESUME_SUSPENDED_EXIT_CODE } from "./harness/resume";
+import { sha256 } from "./session-state";
 import { ContextManager } from "./context";
 import { EventBus } from "./events";
 import { terminalLogo } from "./logo";
@@ -400,7 +401,9 @@ async function runHeadless(args: CliArgs, mission: Mission | null): Promise<void
     // #10 : la reprise durable, avant tout modèle — même contrat que le
     // terminal et le web. Une action incertaine suspend le run (sortie 6),
     // sauf résolution explicite de l'appelant (--resolve <id>).
-    const resume = mission.openResume("headless");
+    const loaded = loadAgentsMdDetails(args.workspace);
+    const resume = mission.openResume("headless", { global: loaded.globalText === null ? null : sha256(loaded.globalText), workspace: loaded.workspaceText === null ? null : sha256(loaded.workspaceText) });
+    process.on("exit", () => resume.release());
     if (args.resolve?.length) {
       try {
         const done = resume.resolve(args.resolve, "headless-flag");
@@ -417,6 +420,14 @@ async function runHeadless(args: CliArgs, mission: Mission | null): Promise<void
     for (const line of resume.lines()) ui.warn(line);
     if (resume.state().suspended && !args.proposePlan) {
       ui.error(`Nothing was run. ${resume.state().reason}.`);
+      resume.release();
+      ui.close();
+      process.exitCode = RESUME_SUSPENDED_EXIT_CODE;
+      return;
+    }
+    // Un seul écrivain par workspace : un run qui ne peut rien écrire ne part pas.
+    if (!resume.isWriter && !args.proposePlan) {
+      ui.error(`Nothing was run. ${resume.denial()}`);
       ui.close();
       process.exitCode = RESUME_SUSPENDED_EXIT_CODE;
       return;
@@ -480,9 +491,23 @@ async function runHeadless(args: CliArgs, mission: Mission | null): Promise<void
   const agent = new Agent(provider, mode, systemPrompt, toolCtx, ctxMgr, bus, ui, false, 1000,
     args.verify ? { command: args.verify, maxAttempts: args.verifyAttempts } : undefined, mission);
   agent.proposalOnly = !!args.proposePlan;
+  // #10 : même reprise qu'en terminal et en web — réancrage après un
+  // changement externe, fichiers jamais vus comparés à l'état connu, plan repris.
+  if (mission) {
+    const resume = mission.resume;
+    const report = resume.state();
+    resume.onExternal = (why) => agent.requireReanchor(why);
+    if (report.external) agent.requireReanchor(`The workspace changed since the last session under this contract (${describeExternal(report.external)}); those changes are someone else's and must be preserved.`);
+    toolCtx.reads?.setBaseline((abs) => resume.baselineHash(abs));
+    const ticked = resume.applyPlanProgress(toolCtx.plan);
+    if (ticked) ui.status(`· plan progress restored from the last session: ${ticked} step${ticked > 1 ? "s" : ""} already done`);
+  }
   reportCompactions(bus, ui);
   process.on("exit", () => taskManager.killAll());
-  installSignalCleanup(() => taskManager.killAll());
+  installSignalCleanup(() => {
+    taskManager.killAll();
+    mission?.resume.release();
+  });
 
   ui.println(sessionLine(chosen, mode));
   if (chosen.note) ui.warn(`  ${chosen.note}`);
@@ -560,6 +585,7 @@ async function runHeadless(args: CliArgs, mission: Mission | null): Promise<void
     );
   }
   taskManager.killAll();
+  mission?.resume.release(toolCtx.plan);
   ui.close();
 }
 
@@ -600,9 +626,13 @@ async function runInteractive(args: CliArgs, mission: Mission | null): Promise<v
 
   const session = new Session(tui, { workspace: args.workspace, chosen, prefs: prefsOf(args), cfg, help: HELP, mission, surface: "terminal" });
   session.onExit = () => process.exit(0);
-  process.on("exit", () => session.taskManager.killAll());
+  process.on("exit", () => {
+    session.taskManager.killAll();
+    session.releaseWriter();
+  });
   installSignalCleanup(() => {
     session.taskManager.killAll();
+    session.releaseWriter();
     try {
       tui.close(); // restore the raw-mode terminal on signal death
     } catch {

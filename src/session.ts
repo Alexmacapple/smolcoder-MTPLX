@@ -13,6 +13,7 @@ import { findModelsOnNetwork, FlowUI, manageHosts } from "./network";
 import { Mission, MissionPrefs } from "./harness/mission";
 import { BYPASS_UNDER_MISSION } from "./harness/policy";
 import { readPolicy } from "./harness/store";
+import { describeExternal, InstructionPrints } from "./harness/resume";
 import { IsolatedExecutor, isolationLine, isolationState, missionExecutor } from "./harness/sandbox-executor";
 import { Plan, PlanStep } from "./plan";
 import { buildSystemPrompt, loadAgentsMdDetails } from "./prompt";
@@ -402,8 +403,18 @@ export class Session {
     this.commands = this.mission ? [...SLASH_COMMANDS, ...MISSION_COMMANDS] : SLASH_COMMANDS;
     this.agent = new Agent(provider, mode0, this.sysPrompt(mode0), this.toolCtx, this.ctxMgr, this.bus, ui, true, 1000, undefined, this.mission);
     // #10 : sous le profil, la reprise durable s'ouvre avec la session — même
-    // contrat pour le terminal, le web et le headless (src/harness/resume.ts).
-    this.mission?.openResume(this.surface);
+    // contrat pour le terminal, le web et le headless (src/harness/resume.ts) :
+    // verrou d'écriture, état incertain, changements externes, consignes.
+    if (this.mission) {
+      const resume = this.mission.openResume(this.surface, this.instructionPrints());
+      const report = resume.state();
+      resume.onExternal = (why) => this.agent.requireReanchor(why);
+      if (report.external) this.agent.requireReanchor(`The workspace changed since the last session under this contract (${describeExternal(report.external)}); those changes are someone else's and must be preserved.`);
+      // #19 réutilisé : un fichier jamais vu est comparé à l'état connu de l'hôte.
+      this.toolCtx.reads?.setBaseline((abs) => resume.baselineHash(abs));
+      const ticked = resume.applyPlanProgress(this.toolCtx.plan);
+      if (ticked) ui.status(`· plan progress restored from the last session: ${ticked} step${ticked > 1 ? "s" : ""} already done`);
+    }
 
     ui.slashCommands = this.commands;
     ui.hintLeft = workspace.replace(os.homedir(), "~");
@@ -641,6 +652,12 @@ export class Session {
     }
   }
 
+  /** Les empreintes des consignes de la session, pour la reprise de l'hôte. */
+  private instructionPrints(): InstructionPrints {
+    const i = this.instructions();
+    return { global: i.global?.sha256 ?? null, workspace: i.workspace?.sha256 ?? null };
+  }
+
   /** Les consignes que cette session utilise (#10), texte et empreinte. */
   instructions(): SessionInstructions {
     return { global: instruction(this.globalAgentsMd), workspace: instruction(this.workspaceAgentsMd) };
@@ -745,6 +762,7 @@ export class Session {
     this.globalAgentsMd = kept.global?.text ?? null;
     this.workspaceAgentsMd = kept.workspace?.text ?? null;
     this.agent.setMode(this.agent.mode, this.sysPrompt(this.agent.mode));
+    this.mission?.resume.setInstructions(this.instructionPrints());
     this.ui.warn(
       `· AGENTS.md changed since this session was saved (${describeInstructionDrift(kept, disk).join("; ")}): this session keeps the version it was using — nothing is reloaded silently. /instructions shows the difference and switches only when you choose.`
     );
@@ -762,7 +780,7 @@ export class Session {
       this.toolCtx.reads?.noteHash(abs, hash);
       let now: string | null;
       try {
-        now = sha256(fs.readFileSync(abs));
+        now = sha256(fs.readFileSync(abs, "utf8")); // même empreinte que la vue de #19
       } catch {
         now = null;
       }
@@ -805,6 +823,7 @@ export class Session {
     this.globalAgentsMd = loaded.globalText;
     this.workspaceAgentsMd = loaded.workspaceText;
     this.agent.setMode(this.agent.mode, this.sysPrompt(this.agent.mode));
+    this.mission?.resume.setInstructions(this.instructionPrints());
     ui.status(`· instructions reloaded from disk (~/.smolcoder/AGENTS.md ${fp(disk.global)}, AGENTS.md ${fp(disk.workspace)})`);
   }
 
@@ -924,8 +943,19 @@ export class Session {
       /* best effort */
     }
     this.taskManager.killAll();
+    this.releaseWriter();
     this.ui.close();
     this.onExit?.();
+  }
+
+  /** #10 : rend le verrou d'écriture du workspace (fin de session, arrêt du
+   * hub, signal). Sans effet hors profil ou déjà rendu. */
+  releaseWriter(): void {
+    try {
+      this.mission?.resume.release(this.toolCtx.plan);
+    } catch {
+      /* au mieux : un verrou non rendu est repris quand son processus n'est plus */
+    }
   }
 
   private async switchModel(): Promise<void> {

@@ -62,8 +62,19 @@ function changedRegion(before: string, after: string) {
   return { from: p + 1, toNow: b.length - s, toBefore: a.length - s, now: b };
 }
 
+/** Marque d'un fichier dont l'agent sait qu'il n'existe pas (#10). */
+const ABSENT = "absent";
+
 export class ReadTracker {
   private files = new Map<string, Seen>();
+  /** Profil mission (#10) : l'empreinte des octets d'un fichier dans l'état
+   * connu de l'hôte (null : absent alors ; undefined : inconnu), consultée pour
+   * un fichier que l'agent n'a jamais vu. Fixé par l'hôte ; absent = rien. */
+  private baseline: ((abs: string) => string | null | undefined) | null = null;
+
+  setBaseline(fn: ((abs: string) => string | null | undefined) | null): void {
+    this.baseline = fn;
+  }
 
   /** L'agent vient de voir ce contenu (lecture, ou sa propre écriture). */
   note(abs: string, content: string): void {
@@ -82,7 +93,13 @@ export class ReadTracker {
   check(abs: string, shownPath: string): string | null {
     const key = keyOf(abs);
     const seen = this.files.get(key);
-    if (!seen) return null;
+    if (!seen) return this.checkBaseline(abs, key, shownPath);
+    if (seen.hash === ABSENT) {
+      // L'agent savait le fichier absent ; il ne l'est plus.
+      if (!fs.existsSync(abs)) return null;
+      this.files.delete(key);
+      return this.checkBaseline(abs, key, shownPath) ?? this.createdNotice(abs, shownPath);
+    }
     let now: string;
     try {
       now = fs.readFileSync(abs, "utf8");
@@ -117,6 +134,42 @@ export class ReadTracker {
     );
   }
 
+  /** #10 : un fichier jamais vu par l'agent, comparé à l'état connu de
+   * l'hôte ; s'il a changé depuis (modifié, créé, supprimé par quelqu'un
+   * d'autre, une commande ou une tâche), la première écriture est refusée, le
+   * nouvel état vaut ensuite comme vu — comme pour une lecture périmée. */
+  private checkBaseline(abs: string, key: string, shownPath: string): string | null {
+    const base = this.baseline?.(abs);
+    if (base === undefined) return null;
+    let bytes: Buffer | null;
+    try {
+      bytes = fs.readFileSync(abs);
+    } catch {
+      bytes = null;
+    }
+    const now = bytes === null ? null : createHash("sha256").update(bytes).digest("hex");
+    if (now === base) return null;
+    if (bytes === null) {
+      this.files.set(key, { hash: ABSENT, content: null });
+      return (
+        `Error: "${shownPath}" ${STALE_MARK}: it was deleted since this session's known state (by someone else, a command or a background task). ` +
+        `No file was changed. Check that it is still wanted before creating it again; the next write will be applied.`
+      );
+    }
+    this.note(abs, bytes.toString("utf8"));
+    return base === null ? this.createdNotice(abs, shownPath) : (
+      `Error: "${shownPath}" ${STALE_MARK}: it changed since this session's known state and you have not read it since (by someone else, a command or a background task). ` +
+      `This write was not applied: no file was changed, and nobody else's work was overwritten. Read it (read_file ${JSON.stringify({ path: shownPath })}), check that your change still fits, then retry: the next write to this file will be applied.`
+    );
+  }
+
+  private createdNotice(_abs: string, shownPath: string): string {
+    return (
+      `Error: "${shownPath}" ${STALE_MARK}: it was created on disk after this session's known state, not by you (someone else, a command or a background task). ` +
+      `This write was not applied: the file is not yours to overwrite blindly. Read it (read_file ${JSON.stringify({ path: shownPath })}) first; the next write to this file will be applied.`
+    );
+  }
+
   /** Nouvelle conversation : ce que l'ancienne a vu ne compte plus. */
   clear(): void {
     this.files.clear();
@@ -125,7 +178,7 @@ export class ReadTracker {
   /** La vue de l'agent, pour une sauvegarde de session (#10) : chemin réel du
    * fichier vers l'empreinte de ce qu'il a vu en dernier. */
   entries(): Array<[string, string]> {
-    return [...this.files].map(([abs, s]) => [abs, s.hash]);
+    return [...this.files].filter(([, s]) => s.hash !== ABSENT).map(([abs, s]) => [abs, s.hash]);
   }
 
   /** Reprise (#10) : l'agent avait vu ce contenu, dont seule l'empreinte est

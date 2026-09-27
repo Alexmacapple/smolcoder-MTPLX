@@ -452,6 +452,21 @@ rien n'est rejoué ni défait. Une session web reprise raconte chaque appel
 resté sans réponse d'après le journal : jamais lancé, terminé (« ne pas le
 relancer ») ou incertain.
 
+Un seul écrivain par workspace : la session qui ouvre le profil prend le
+verrou `lock` du dossier hôte ; une autre session du même workspace (autre
+onglet du hub, autre terminal) lit et planifie sans écrire, et prend le verrou
+quand la première se termine ou que son processus a disparu ; un run headless
+qui ne peut pas écrire ne part pas (sortie 6). Avant chaque effet, la session
+revérifie le verrou, la révision Git et, par le suivi de lecture de #19, le
+fichier visé : un verrou ne bloque pas un éditeur externe. À l'ouverture, ce
+qui a changé depuis la dernière session (`resume.json`) — commit humain,
+fichier non suivi, modification non commitée — est listé à part des effets de
+l'agent, préservé, jamais attribué ; la première écriture d'un tel fichier est
+refusée et le plan doit être réancré (outil `plan`) avant la prochaine
+écriture. Jamais de `reset`, `stash` ou `clean`. La checklist cochée revient
+avec la session suivante sous le même plan ; un écart d'`AGENTS.md` avec la
+dernière session du contrat est signalé.
+
 Une dernière ligne tronquée du journal suspend de même, sans être lue comme
 un résultat, jusqu'à la réparation à la main. Les preuves datées par
 d'autres fichiers que ceux de la reprise sont annoncées périmées (#9) ; le
@@ -516,8 +531,13 @@ le reprend en tête, relu dans le stockage hôte au moment de la compaction
 - `list_files` montre le nom des fichiers protégés, jamais leur contenu.
   L'`AGENTS.md` du workspace reste modifiable (une consigne, pas un droit) ;
   l'appelant peut l'ajouter à `paths.protect`.
-- Pas de verrou : deux sessions simultanées sous le même contrat peuvent
-  perdre un débit de pas (verrou mono-écrivain : #10).
+- Le verrou mono-écrivain (#10) tient par PID sur cette machine : un PID
+  réutilisé par un autre processus après une coupure fait croire le verrou
+  vivant (le retirer à la main) ; deux sessions qui reprennent le même verrou
+  mort au même instant se départagent à la relecture avant l'effet suivant.
+  Le budget de pas n'est pas sous le verrou : une session qui lit sans écrire
+  débite ses appels au modèle, et deux sessions simultanées peuvent encore
+  perdre un débit (lecture puis écriture de `contract.json`).
 - Les événements `verdict` sont produits par chaque contrôle décisif (#9) ;
   leurs limites (ensemble des entrées du vérificateur par convention, zéro
   test reconnu par les résumés des lanceurs courants…) sont dans
@@ -531,8 +551,9 @@ le reprend en tête, relu dans le stockage hôte au moment de la compaction
   ticket). Un run `--propose-plan` appelle le modèle sans débiter le budget
   de pas, le contrat n'étant pas approuvé ; il reste borné par le plafond de
   pas du headless et ne peut rien écrire. La progression du plan (étapes
-  cochées) ne survit pas à une session terminal ou headless : la reprise (#10)
-  ne persiste que le transcript des sessions web (snapshot v2).
+  cochées) revient avec la session suivante sous le même plan (#10,
+  `resume.json`), à la granularité du tour : une coupure au milieu d'un tour
+  perd les étapes cochées depuis son début.
 - Les écarts au plan ne voient que les outils de fichiers du modèle : un
   fichier créé ou modifié par une commande (`run_command`, tâche de fond,
   script de build) n'est pas comparé au plan. Une session web reprise

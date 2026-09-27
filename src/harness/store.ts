@@ -1057,3 +1057,170 @@ export function readProofs(dir: string): ProofsRead {
   }
   return tail ? { state: "truncated-tail", events, tail } : { state: "ok", events };
 }
+
+// ---- lock et resume.json : un seul écrivain, état connu (ticket #10) ----
+//
+// `lock` : le verrou mono-écrivain par workspace que la rubrique
+// « conséquences » réservait à #10 — PID, machine, session, surface et date.
+// Créé exclusivement (O_EXCL) ; un verrou dont le processus n'existe plus est
+// repris, jamais un verrou vivant. Il ne bloque pas un éditeur externe : la
+// session revérifie avant chaque effet. `resume.json` : l'enregistrement de
+// reprise, l'état que la dernière session a laissé (révision Git, empreinte
+// de chaque fichier, consignes chargées, progression du plan, budget
+// consommé), réécrit atomiquement par la session qui écrit. Une référence
+// pour constater ce qui a changé depuis, jamais une source de droit.
+
+export const LOCK_FILE = "lock";
+export const LOCK_SCHEMA = "smolcoder/lock/v1";
+export const RESUME_FILE = "resume.json";
+export const RESUME_SCHEMA = "smolcoder/resume/v1";
+export const MAX_RESUME_BYTES = 4 * 1024 * 1024;
+/** Au-delà, l'enregistrement ne garde que l'empreinte globale du workspace. */
+export const MAX_RESUME_FILES = 5000;
+
+export interface WriterLock {
+  schema: typeof LOCK_SCHEMA;
+  pid: number;
+  host: string;
+  session: string;
+  surface: string;
+  since: string;
+}
+
+export type LockRead = { state: "absent" } | { state: "unreadable"; reason: string } | { state: "ok"; lock: WriterLock };
+
+export interface ResumeRecord {
+  schema: typeof RESUME_SCHEMA;
+  at: string;
+  session: string;
+  surface: string;
+  /** Empreinte du contrat de la session qui a écrit. */
+  contract: string;
+  head: string | null;
+  /** Empreinte globale (celle de #9) et, sous la borne, celle de chaque fichier. */
+  files: { digest: string | null; entries: Record<string, string> | null };
+  instructions: { global: string | null; workspace: string | null };
+  plan: { fingerprint: string | null; steps: { text: string; done: boolean; note?: string }[] } | null;
+  steps: number;
+}
+
+export type ResumeRead = { state: "absent" } | ReadFailure | { state: "ok"; record: ResumeRecord };
+
+const SURFACE_RE = /^[a-z-]{1,20}$/;
+
+function parseLock(raw: unknown): WriterLock {
+  if (!isObject(raw)) throw new ContractError("the lock is not a JSON object");
+  onlyFields(raw, ["schema", "pid", "host", "session", "surface", "since"]);
+  if (raw.schema !== LOCK_SCHEMA) throw new ContractError(`unknown lock schema ${JSON.stringify(raw.schema)}`);
+  if (typeof raw.pid !== "number" || !Number.isSafeInteger(raw.pid) || raw.pid < 1) throw new ContractError('lock field "pid" is invalid');
+  if (typeof raw.host !== "string" || raw.host.length > 255 || /[\x00-\x1f\x7f]/.test(raw.host)) throw new ContractError('lock field "host" is invalid');
+  if (typeof raw.session !== "string" || !EFFECT_ID_RE.test(raw.session)) throw new ContractError('lock field "session" is invalid');
+  if (typeof raw.surface !== "string" || !SURFACE_RE.test(raw.surface)) throw new ContractError('lock field "surface" is invalid');
+  if (typeof raw.since !== "string" || Number.isNaN(Date.parse(raw.since))) throw new ContractError('lock field "since" must be a date');
+  return { schema: LOCK_SCHEMA, pid: raw.pid, host: raw.host, session: raw.session, surface: raw.surface, since: raw.since };
+}
+
+export function readLock(dir: string): LockRead {
+  const raw = readBounded(path.join(dir, LOCK_FILE), 4096);
+  if (raw.state !== "ok") return raw;
+  try {
+    return { state: "ok", lock: parseLock(JSON.parse(raw.text)) };
+  } catch (err: any) {
+    return { state: "unreadable", reason: `${LOCK_FILE}: ${err?.message ?? err}` };
+  }
+}
+
+/** Crée le verrou s'il n'existe pas (création exclusive). false : déjà pris. */
+export function createLock(dir: string, lock: WriterLock): boolean {
+  const checked = parseLock(JSON.parse(JSON.stringify(lock)));
+  fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
+  let fd: number;
+  try {
+    fd = fs.openSync(path.join(dir, LOCK_FILE), "wx", 0o600);
+  } catch (err: any) {
+    if (err?.code === "EEXIST") return false;
+    throw err;
+  }
+  try {
+    fs.writeSync(fd, JSON.stringify(checked) + "\n");
+    fs.fsyncSync(fd);
+  } finally {
+    fs.closeSync(fd);
+  }
+  return true;
+}
+
+/** Remplace atomiquement un verrou mort par le sien (l'appelant a constaté
+ * que son processus n'existe plus, puis relit pour confirmer). */
+export function replaceLock(dir: string, lock: WriterLock): void {
+  const checked = parseLock(JSON.parse(JSON.stringify(lock)));
+  writeAtomic(path.join(dir, LOCK_FILE), JSON.stringify(checked) + "\n");
+}
+
+/** Retire le verrou seulement s'il appartient encore à cette session. */
+export function removeLock(dir: string, session: string): boolean {
+  const read = readLock(dir);
+  if (read.state !== "ok" || read.lock.session !== session) return false;
+  try {
+    fs.unlinkSync(path.join(dir, LOCK_FILE));
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function parseResume(raw: Record<string, unknown>): ResumeRecord {
+  onlyFields(raw, ["schema", "at", "session", "surface", "contract", "head", "files", "instructions", "plan", "steps"]);
+  const bad = (f: string) => new ContractError(`resume field "${f}" is invalid`);
+  if (typeof raw.at !== "string" || Number.isNaN(Date.parse(raw.at))) throw bad("at");
+  if (typeof raw.session !== "string" || !EFFECT_ID_RE.test(raw.session)) throw bad("session");
+  if (typeof raw.surface !== "string" || !SURFACE_RE.test(raw.surface)) throw bad("surface");
+  if (typeof raw.contract !== "string" || !HEX64.test(raw.contract)) throw bad("contract");
+  if (raw.head !== null && (typeof raw.head !== "string" || raw.head.length > 200)) throw bad("head");
+  const files = raw.files;
+  if (!isObject(files)) throw bad("files");
+  onlyFields(files, ["digest", "entries"], "files.");
+  if (!hexOrNull(files.digest)) throw bad("files.digest");
+  if (files.entries !== null) {
+    if (!isObject(files.entries) || Object.keys(files.entries).length > MAX_RESUME_FILES) throw bad("files.entries");
+    for (const [p, h] of Object.entries(files.entries)) if (!isRelativeWorkspacePath(p) || typeof h !== "string" || !HEX64.test(h)) throw bad("files.entries");
+  }
+  const ins = raw.instructions;
+  if (!isObject(ins)) throw bad("instructions");
+  onlyFields(ins, ["global", "workspace"], "instructions.");
+  if (!hexOrNull(ins.global) || !hexOrNull(ins.workspace)) throw bad("instructions");
+  const plan = raw.plan;
+  if (plan !== null) {
+    if (!isObject(plan)) throw bad("plan");
+    onlyFields(plan, ["fingerprint", "steps"], "plan.");
+    if (!hexOrNull(plan.fingerprint)) throw bad("plan.fingerprint");
+    if (!Array.isArray(plan.steps) || plan.steps.length > 50 || !plan.steps.every((s) => isObject(s) && typeof s.text === "string" && s.text.length <= ITEM_MAX && typeof s.done === "boolean" && (s.note === undefined || (typeof s.note === "string" && s.note.length <= 1000)))) throw bad("plan.steps");
+  }
+  if (!Number.isSafeInteger(raw.steps) || (raw.steps as number) < 0) throw bad("steps");
+  return raw as unknown as ResumeRecord;
+}
+
+export function readResume(dir: string): ResumeRead {
+  const raw = readBounded(path.join(dir, RESUME_FILE), MAX_RESUME_BYTES);
+  if (raw.state !== "ok") return raw;
+  let data: unknown;
+  try {
+    data = JSON.parse(raw.text);
+  } catch (err: any) {
+    return { state: "unreadable", reason: `${RESUME_FILE} is not valid JSON (${err?.message ?? err})` };
+  }
+  if (!isObject(data)) return { state: "unreadable", reason: `${RESUME_FILE} is not a JSON object` };
+  if (data.schema !== RESUME_SCHEMA) return { state: "unknown-schema", schema: data.schema };
+  try {
+    return { state: "ok", record: parseResume(data) };
+  } catch (err: any) {
+    return { state: "unreadable", reason: `${RESUME_FILE}: ${err?.message ?? err}` };
+  }
+}
+
+/** Écriture atomique ; un enregistrement invalide n'est jamais écrit. */
+export function writeResume(dir: string, record: ResumeRecord): void {
+  const checked = parseResume(JSON.parse(JSON.stringify({ ...record, schema: RESUME_SCHEMA })));
+  fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
+  writeAtomic(path.join(dir, RESUME_FILE), JSON.stringify({ ...checked, schema: RESUME_SCHEMA }) + "\n");
+}

@@ -12,22 +12,36 @@
 
 import { createHash, randomBytes } from "crypto";
 import * as fs from "fs";
+import * as os from "os";
 import * as path from "path";
-import { resolveInWorkspace } from "../sandbox";
+import { PathRules, protectedSegment, resolveInWorkspace } from "../sandbox";
+import { readGitHead, shortRev } from "../session-state";
 import { latestVerdicts, WorkspaceScan } from "./proofs";
 import {
   appendProof,
   ApprovalAuthority,
   APPROVAL_AUTHORITIES,
+  createLock,
   EffectEvidence,
   EffectIntentInput,
   EffectTool,
   EFFECT_ID_RE,
   HarnessStoreError,
   isRelativeWorkspacePath,
+  LOCK_FILE,
+  LOCK_SCHEMA,
+  MAX_RESUME_FILES,
   observedLine,
   ProofEvent,
+  readLock,
   readProofs,
+  readResume,
+  removeLock,
+  replaceLock,
+  ResumeRecord,
+  RESUME_SCHEMA,
+  WriterLock,
+  writeResume,
 } from "./store";
 
 /** Code de sortie headless d'un run suspendu par la reprise : un effet
@@ -48,6 +62,38 @@ export interface ResumeMission {
   readonly dir: string;
   readonly fingerprint: string;
   scan(): WorkspaceScan;
+  pathRules(): PathRules;
+  status(): { steps: number };
+  planView(): { fingerprint: string | null };
+}
+
+/** Le verrou d'écriture vu par cette session. */
+export type LockState =
+  | { state: "held"; tookOver?: LockHolder }
+  | { state: "busy"; holder?: LockHolder }
+  | { state: "unreadable"; reason: string }
+  | { state: "released" }
+  /** Un agent sans hôte de session : il ne prend pas le verrou. */
+  | { state: "unmanaged" };
+
+export interface LockHolder {
+  pid: number;
+  surface: string;
+  since: string;
+  session: string;
+}
+
+/** Ce qui a changé depuis l'état laissé par la dernière session. */
+export interface ExternalChanges {
+  head: { before: string | null; after: string | null } | null;
+  /** Changements qui ne sont pas de l'agent : préservés, jamais attribués. */
+  files: { path: string; change: "added" | "modified" | "removed" }[];
+  /** Changés depuis alors qu'une commande de l'agent a tourné : attribuables à
+   * personne avec certitude. */
+  unattributed: string[];
+  more: number;
+  /** L'empreinte globale a changé, sans détail par fichier (au-delà des bornes). */
+  digestChanged: boolean;
 }
 
 type IntentEvent = Extract<ProofEvent, { type: "effect"; kind: "intent" }>;
@@ -90,8 +136,24 @@ export interface ResumeReport {
   /** Critères dont le dernier verdict `passed` ne vaut plus pour les
    * fichiers actuels (#9) : périmés, jamais validés. */
   staleProofs: string[];
+  lock: LockState;
+  external: ExternalChanges | null;
+  /** Consignes changées depuis la dernière session sous ce contrat. */
+  instructionsDrift: string[];
+  previous: { at: string; surface: string } | null;
+  resumeRecord: string;
   suspended: boolean;
   reason: string | null;
+}
+
+/** Les changements externes en une phrase. */
+export function describeExternal(x: ExternalChanges): string {
+  const parts: string[] = [];
+  if (x.head) parts.push(`HEAD moved ${shortRev(x.head.before)} → ${shortRev(x.head.after)}`);
+  if (x.files.length) parts.push(`files changed outside the agent: ${x.files.slice(0, 10).map((f) => `${f.path} (${f.change})`).join(", ")}${x.files.length > 10 || x.more ? ", …" : ""}`);
+  if (x.unattributed.length) parts.push(`files changed while an agent command ran, attributable to no one with certainty: ${x.unattributed.slice(0, 10).join(", ")}${x.unattributed.length > 10 || x.more ? ", …" : ""}`);
+  if (x.digestChanged) parts.push("files changed (too many to list one by one)");
+  return parts.join("; ");
 }
 
 /** Une coupure simulée (tests en processus) : elle traverse la boucle comme
@@ -151,54 +213,132 @@ function meaningOf(evidence: EffectEvidence, tool: EffectTool): string {
   }
 }
 
+/** Les sessions de ce processus qui tiennent le verrou d'un workspace : un
+ * verrou au PID de ce processus dont la session n'y figure plus est mort
+ * (session terminée sans le rendre). */
+const HELD = new Set<string>();
+
+/** Le processus d'un verrou existe-t-il encore ? Sur une autre machine (dossier
+ * personnel partagé), on ne le suppose jamais mort. */
+function lockAlive(lock: WriterLock): boolean {
+  if (lock.host !== os.hostname()) return true;
+  if (lock.pid === process.pid) return HELD.has(lock.session);
+  try {
+    process.kill(lock.pid, 0);
+    return true;
+  } catch (err: any) {
+    return err?.code === "EPERM";
+  }
+}
+
+/** Les empreintes des consignes chargées par une session (#10, C6). */
+export interface InstructionPrints {
+  global: string | null;
+  workspace: string | null;
+}
+
+/** Un chemin que l'empreinte du workspace ne parcourt pas (#9) : ni
+ * `node_modules`, ni `.git`, ni un nom protégé par la politique. */
+function unscanned(rel: string, rules: PathRules): boolean {
+  return rel.split("/").some((seg) => seg === "node_modules" || seg === ".git") || protectedSegment(rel, rules) !== null;
+}
+
 export class MissionResume {
-  /** L'identifiant de cette session dans le journal. */
+  /** L'identifiant de cette session dans le journal et le verrou. */
   readonly session = randomBytes(6).toString("hex");
   /** Coupure injectée (tests en processus) ; en production, la variable
    * d'environnement SMOLCODER_TEST_CRASH_AT tue le processus au point nommé. */
   crash: ((point: CrashPoint) => void) | null = null;
+  /** Un changement externe constaté en cours de session (HEAD déplacé) :
+   * l'hôte de la session demande alors le réancrage du plan. */
+  onExternal: ((summary: string) => void) | null = null;
   private effects = new Map<string, EffectRecord>();
   private report: ResumeReport | null = null;
   /** Un résultat n'a pas pu être écrit : plus aucun effet sans trace. */
   private broken: string | null = null;
+  private writer = false;
+  private released = false;
+  /** La révision Git connue de la session : celle de l'ouverture, puis celle
+   * d'un déplacement déjà signalé. */
+  private head: string | null = null;
+  /** L'état connu des fichiers (chemin relatif → empreinte des octets) : ce
+   * que l'agent est censé savoir du workspace. null : inconnu (au-delà des
+   * bornes, ou empreinte impossible). */
+  private known: Map<string, string> | null = null;
+  private instructions: InstructionPrints | null = null;
+  private previous: ResumeRecord | null = null;
+  /** La checklist du dernier point d'état, pour celui de la fin de session. */
+  private lastPlanSteps: { text: string; done: boolean; note?: string }[] | null = null;
 
-  constructor(readonly mission: ResumeMission, readonly surface: string) {}
+  /** `managed` : la session est portée par un hôte (terminal, web, headless),
+   * qui prend le verrou d'écriture et le rend à la fin. Un agent seul (usage
+   * en bibliothèque, tests) journalise ses effets et respecte le verrou d'un
+   * autre, sans le prendre ni réconcilier. */
+  constructor(readonly mission: ResumeMission, readonly surface: string, readonly managed = true) {}
 
-  /** Relit le journal et transforme toute intention sans résultat en état
-   * incertain, enregistré par l'hôte avec ce que les fichiers en disent. */
-  open(): ResumeReport {
+  /** Les consignes que la session utilise, pour l'enregistrement de reprise. */
+  setInstructions(prints: InstructionPrints): void {
+    this.instructions = prints;
+  }
+
+  /** Ouvre la reprise : prend le verrou d'écriture s'il est libre (ou mort),
+   * puis, seulement en écrivain, rend incertaine toute intention sans
+   * résultat, constate ce qui a changé depuis la dernière session, et
+   * enregistre l'état connu. Sans le verrou, la session lit et planifie. */
+  open(prints?: InstructionPrints): ResumeReport {
+    if (prints) this.instructions = prints;
+    const lock = this.acquire();
     const read = readProofs(this.mission.dir);
     const journal = read.state;
     const events = read.state === "ok" || read.state === "truncated-tail" ? read.events : [];
     const { effects, orphans } = foldEffects(events);
     this.effects = effects;
     const newly: string[] = [];
-    for (const rec of effects.values()) {
-      if (rec.result || rec.uncertain) continue;
-      const { evidence, current } = this.evidence(rec.intent);
-      const uncertain = { type: "effect" as const, fingerprint: this.mission.fingerprint, kind: "uncertain" as const, id: rec.intent.id, evidence, ...(current !== undefined ? { current } : {}) };
-      if (journal === "ok") {
-        try {
-          rec.uncertain = appendProof(this.mission.dir, uncertain) as UncertainEvent;
-        } catch (err: any) {
-          this.broken = `the host journal refused a record (${err?.message ?? err})`;
+    // Une intention sans résultat peut appartenir à l'écrivain vivant : seul
+    // l'écrivain la déclare incertaine.
+    if (this.writer) {
+      for (const rec of effects.values()) {
+        if (rec.result || rec.uncertain) continue;
+        const { evidence, current } = this.evidence(rec.intent);
+        const uncertain = { type: "effect" as const, fingerprint: this.mission.fingerprint, kind: "uncertain" as const, id: rec.intent.id, evidence, ...(current !== undefined ? { current } : {}) };
+        if (journal === "ok") {
+          try {
+            rec.uncertain = appendProof(this.mission.dir, uncertain) as UncertainEvent;
+          } catch (err: any) {
+            this.broken = `the host journal refused a record (${err?.message ?? err})`;
+            rec.uncertain = { ...uncertain, schema: "smolcoder/proof/v1", at: new Date().toISOString() } as UncertainEvent;
+          }
+        } else {
+          // Journal abîmé : l'incertitude est constatée en mémoire, rien n'est écrit.
           rec.uncertain = { ...uncertain, schema: "smolcoder/proof/v1", at: new Date().toISOString() } as UncertainEvent;
         }
-      } else {
-        // Journal abîmé : l'incertitude est constatée en mémoire, rien n'est écrit.
-        rec.uncertain = { ...uncertain, schema: "smolcoder/proof/v1", at: new Date().toISOString() } as UncertainEvent;
+        newly.push(rec.intent.id);
       }
-      newly.push(rec.intent.id);
     }
     const completed = [...effects.values()].filter((r) => r.result).length;
+    const scan = this.mission.scan();
     // #9 : une preuve datée par d'autres fichiers que ceux d'aujourd'hui est
     // périmée ; la reprise le dit au lieu de laisser croire au vert.
-    const scan = this.mission.scan();
     const staleProofs = [...latestVerdicts(events, this.mission.fingerprint)]
       .filter(([, v]) => v.status === "passed" && (!scan.ok || v.files !== scan.digest))
       .map(([id]) => id);
-    this.report = { journal, ...("reason" in read ? { journalReason: read.reason } : {}), newlyUncertain: newly, uncertain: [], completed, orphans, staleProofs, suspended: false, reason: null };
+    const prev = readResume(this.mission.dir);
+    this.previous = prev.state === "ok" ? prev.record : null;
+    this.head = readGitHead(this.mission.workspace);
+    const external = this.compare(scan);
+    const instructionsDrift = this.instructionDrift();
+    this.report = {
+      journal, ...("reason" in read ? { journalReason: read.reason } : {}),
+      lock, newlyUncertain: newly, uncertain: [], completed, orphans, staleProofs, external, instructionsDrift,
+      previous: this.previous ? { at: this.previous.at, surface: this.previous.surface } : null,
+      resumeRecord: prev.state,
+      suspended: false, reason: null,
+    };
     this.refresh();
+    if (this.writer) this.checkpoint({ scan });
+    // Reprise refaite en cours de session (verrou repris) : l'hôte de la
+    // session demande le réancrage du plan si le workspace a changé.
+    if (external && this.onExternal) this.onExternal(`The workspace changed since the last known state: ${describeExternal(external)}.`);
     return this.report;
   }
 
@@ -208,6 +348,238 @@ export class MissionResume {
     this.refresh();
     return this.report;
   }
+
+  /** Cette session tient-elle le verrou d'écriture ? */
+  get isWriter(): boolean {
+    return this.writer;
+  }
+
+  // ---- verrou -----------------------------------------------------------------
+
+  private acquire(): LockState {
+    if (this.released) return { state: "released" };
+    if (!this.managed) {
+      const cur = readLock(this.mission.dir);
+      if (cur.state === "ok" && lockAlive(cur.lock)) return { state: "busy", holder: { pid: cur.lock.pid, surface: cur.lock.surface, since: cur.lock.since, session: cur.lock.session } };
+      return cur.state === "unreadable" ? { state: "unreadable", reason: cur.reason } : { state: "unmanaged" };
+    }
+    const me: WriterLock = { schema: LOCK_SCHEMA, pid: process.pid, host: os.hostname(), session: this.session, surface: this.surfaceName(), since: new Date().toISOString() };
+    for (let attempt = 0; attempt < 3; attempt++) {
+      if (createLock(this.mission.dir, me)) {
+        HELD.add(this.session);
+        this.writer = true;
+        return { state: "held" };
+      }
+      const cur = readLock(this.mission.dir);
+      if (cur.state === "absent") continue; // rendu entre-temps : on réessaie
+      if (cur.state === "unreadable") {
+        this.writer = false;
+        return { state: "unreadable", reason: cur.reason };
+      }
+      if (cur.lock.session === this.session) {
+        HELD.add(this.session);
+        this.writer = true;
+        return { state: "held" };
+      }
+      if (lockAlive(cur.lock)) {
+        this.writer = false;
+        return { state: "busy", holder: { pid: cur.lock.pid, surface: cur.lock.surface, since: cur.lock.since, session: cur.lock.session } };
+      }
+      // Verrou mort (processus disparu) : repris, puis relu pour confirmer.
+      replaceLock(this.mission.dir, me);
+      const again = readLock(this.mission.dir);
+      if (again.state === "ok" && again.lock.session === this.session) {
+        HELD.add(this.session);
+        this.writer = true;
+        return { state: "held", tookOver: { pid: cur.lock.pid, surface: cur.lock.surface, since: cur.lock.since, session: cur.lock.session } };
+      }
+    }
+    this.writer = false;
+    return { state: "busy" };
+  }
+
+  /** Avant chaque effet : le verrou est-il toujours le nôtre ? Libre ou mort,
+   * il est pris (et la reprise refaite : ce que l'écrivain précédent a laissé
+   * incertain l'est aussi pour nous) ; tenu par une session vivante, non. */
+  private ensureWriter(): string | null {
+    if (this.released) return "this session has ended";
+    if (!this.managed) {
+      const lock = this.acquire();
+      if (this.report) this.report.lock = lock;
+      if (lock.state === "busy") return `another smolcoder session holds the writer lock for this workspace${lock.holder ? ` (${lock.holder.surface}, process ${lock.holder.pid}, since ${lock.holder.since})` : ""}: only one session writes at a time`;
+      if (lock.state === "unreadable") return `the writer lock of this workspace is unreadable (${lock.reason}): repair or remove ${path.join(this.mission.dir, LOCK_FILE)} by hand`;
+      return null;
+    }
+    if (this.writer) {
+      const cur = readLock(this.mission.dir);
+      if (cur.state === "ok" && cur.lock.session === this.session) return null;
+      this.writer = false;
+      HELD.delete(this.session);
+    }
+    const before = this.writer;
+    this.open();
+    if (this.writer && !before) return null;
+    const lock = this.report!.lock;
+    if (lock.state === "busy") {
+      const h = lock.holder;
+      return `another smolcoder session holds the writer lock for this workspace${h ? ` (${h.surface}, process ${h.pid}, since ${h.since})` : ""}: only one session writes at a time. This session can read and plan; it takes the lock when that session ends (checked again before each write)`;
+    }
+    if (lock.state === "unreadable") return `the writer lock of this workspace is unreadable (${lock.reason}): repair or remove ${path.join(this.mission.dir, LOCK_FILE)} by hand`;
+    return null;
+  }
+
+  /** Rend le verrou (fin de session) après avoir enregistré l'état laissé,
+   * plan compris quand l'hôte le donne. */
+  release(plan?: { steps: { text: string; done: boolean; note?: string }[] } | null): void {
+    if (this.released) return;
+    if (this.writer) {
+      try {
+        this.checkpoint({ plan: plan ?? null });
+      } catch {
+        /* au mieux */
+      }
+      removeLock(this.mission.dir, this.session);
+    }
+    HELD.delete(this.session);
+    this.writer = false;
+    this.released = true;
+  }
+
+  private surfaceName(): string {
+    return /^[a-z-]{1,20}$/.test(this.surface) ? this.surface : "agent";
+  }
+
+  // ---- changements externes -------------------------------------------------
+
+  /** Ce qui a changé depuis l'état que la dernière session a laissé :
+   * HEAD, fichiers ajoutés, modifiés, supprimés. Les effets enregistrés depuis
+   * sont ceux de l'agent ; un fichier visé par un effet incertain n'est
+   * attribué à personne ; après une commande de l'agent, rien n'est attribuable. */
+  private compare(scan: WorkspaceScan): ExternalChanges | null {
+    const prev = this.previous;
+    const current = scan.ok ? new Map([...scan.files].map(([p, f]) => [p, f.sha256])) : null;
+    if (!prev) {
+      this.known = current;
+      return null;
+    }
+    const expected = prev.files.entries ? new Map(Object.entries(prev.files.entries)) : null;
+    const uncertainPaths = new Set<string>();
+    let commandsSince = 0;
+    for (const rec of this.effects.values()) {
+      if (Date.parse(rec.intent.at) <= Date.parse(prev.at)) continue;
+      const p = rec.intent.path;
+      if (!p) {
+        commandsSince++;
+        continue;
+      }
+      if (rec.result && rec.result.after !== undefined) {
+        if (rec.result.after === null) expected?.delete(p);
+        else expected?.set(p, rec.result.after);
+      } else uncertainPaths.add(p);
+    }
+    const headMoved = prev.head !== this.head ? { before: prev.head, after: this.head } : null;
+    let files: { path: string; change: "added" | "modified" | "removed" }[] = [];
+    let detail = true;
+    if (expected && current) {
+      for (const [p, h] of current) {
+        if (uncertainPaths.has(p)) continue;
+        if (!expected.has(p)) files.push({ path: p, change: "added" });
+        else if (expected.get(p) !== h) files.push({ path: p, change: "modified" });
+      }
+      for (const p of expected.keys()) if (!current.has(p) && !uncertainPaths.has(p)) files.push({ path: p, change: "removed" });
+      // L'état connu de l'agent : celui que la dernière session a laissé, ses
+      // effets compris. Ce qui en diffère est à relire avant d'écrire.
+      this.known = expected;
+    } else {
+      detail = false;
+      this.known = current;
+    }
+    const digestChanged = !detail && !!prev.files.digest && (!scan.ok || prev.files.digest !== scan.digest);
+    const unattributed = commandsSince > 0;
+    if (!headMoved && !files.length && !digestChanged) return null;
+    files.sort((a, b) => a.path.localeCompare(b.path));
+    return {
+      head: headMoved,
+      files: unattributed ? [] : files.slice(0, 50),
+      unattributed: unattributed ? files.slice(0, 50).map((f) => f.path) : [],
+      more: Math.max(0, files.length - 50),
+      digestChanged,
+    };
+  }
+
+  /** Les consignes d'aujourd'hui comparées à celles de la dernière session
+   * sous ce contrat : un écart est signalé, jamais tu. */
+  private instructionDrift(): string[] {
+    const prev = this.previous;
+    const now = this.instructions;
+    if (!prev || !now || prev.contract !== this.mission.fingerprint) return [];
+    const fp = (x: string | null) => (x ? x.slice(0, 12) : "absent");
+    const out: string[] = [];
+    if (prev.instructions.global !== now.global) out.push(`~/.smolcoder/AGENTS.md ${fp(prev.instructions.global)} → ${fp(now.global)}`);
+    if (prev.instructions.workspace !== now.workspace) out.push(`AGENTS.md ${fp(prev.instructions.workspace)} → ${fp(now.workspace)}`);
+    return out;
+  }
+
+  /** L'empreinte d'un fichier dans l'état connu : null s'il n'y était pas,
+   * undefined si l'état n'en dit rien (hors empreinte, ou inconnu). Pour le
+   * suivi de lecture de #19 (fichiers jamais vus par l'agent). */
+  baselineHash(abs: string): string | null | undefined {
+    if (!this.known) return undefined;
+    let rel = path.relative(this.realWorkspace(), this.realOf(abs)).split(path.sep).join("/");
+    if (!isRelativeWorkspacePath(rel)) rel = path.relative(this.mission.workspace, abs).split(path.sep).join("/");
+    if (!isRelativeWorkspacePath(rel) || unscanned(rel, this.mission.pathRules())) return undefined;
+    return this.known.get(rel) ?? null;
+  }
+
+  /** La progression du plan que la dernière session a laissée, reposée sur
+   * la checklist quand le plan est le même (mêmes étapes, même empreinte). */
+  applyPlanProgress(plan: { steps: { text: string; done: boolean; note?: string }[] }): number {
+    const prev = this.previous?.plan;
+    if (!prev || this.previous!.contract !== this.mission.fingerprint) return 0;
+    const view = this.mission.planView();
+    if ((view.fingerprint ?? null) !== prev.fingerprint) return 0;
+    let n = 0;
+    plan.steps.forEach((s, i) => {
+      const saved = prev.steps[i];
+      if (!saved || saved.text !== s.text) return;
+      if (saved.done && !s.done) {
+        s.done = true;
+        n++;
+      }
+      if (saved.note && !s.note) s.note = saved.note;
+    });
+    return n;
+  }
+
+  /** Enregistre l'état que la session laisse (écrivain seulement) : révision
+   * Git, empreintes des fichiers, consignes, plan, budget consommé. */
+  checkpoint(input: { scan?: WorkspaceScan | null; plan?: { steps: { text: string; done: boolean; note?: string }[] } | null }): void {
+    if (!this.writer || this.released) return;
+    const scan = input.scan ?? this.mission.scan();
+    const entries = scan.ok && scan.files.size <= MAX_RESUME_FILES ? Object.fromEntries([...scan.files].map(([p, f]) => [p, f.sha256])) : null;
+    const view = this.mission.planView();
+    if (input.plan) this.lastPlanSteps = input.plan.steps.map((s) => ({ ...s }));
+    const steps = this.lastPlanSteps ?? this.previous?.plan?.steps ?? [];
+    const record: ResumeRecord = {
+      schema: RESUME_SCHEMA,
+      at: new Date().toISOString(),
+      session: this.session,
+      surface: this.surfaceName(),
+      contract: this.mission.fingerprint,
+      head: readGitHead(this.mission.workspace),
+      files: { digest: scan.ok ? scan.digest : null, entries },
+      instructions: this.instructions ?? this.previous?.instructions ?? { global: null, workspace: null },
+      plan: { fingerprint: view.fingerprint ?? null, steps: steps.slice(0, 50).map((s) => ({ text: s.text.slice(0, 500), done: !!s.done, ...(s.note ? { note: s.note.slice(0, 1000) } : {}) })) },
+      steps: this.mission.status().steps,
+    };
+    try {
+      writeResume(this.mission.dir, record);
+    } catch {
+      /* l'enregistrement de reprise est une aide ; le journal fait foi */
+    }
+  }
+
+  // ---- journal d'effets --------------------------------------------------------
 
   private refresh(): void {
     const r = this.report!;
@@ -254,11 +626,23 @@ export class MissionResume {
     }
   }
 
-  /** La suspension, à consulter avant tout effet : null autorise, sinon le
-   * motif (la porte de la mission le rend au modèle). */
+  /** La porte de la reprise, consultée avant tout effet : le verrou, la
+   * suspension, puis HEAD revérifié — un verrou ne bloque pas un éditeur
+   * externe. null autorise, sinon le motif (la porte de la mission le rend
+   * au modèle). */
   denial(): string | null {
+    const lock = this.ensureWriter();
+    if (lock) return `writes and commands are refused: ${lock}.`;
     const r = this.state();
-    return r.suspended ? `writes and commands are suspended by the host: ${r.reason}. Keep reading and inspecting; a message cannot lift this.` : null;
+    if (r.suspended) return `writes and commands are suspended by the host: ${r.reason}. Keep reading and inspecting; a message cannot lift this.`;
+    const head = readGitHead(this.mission.workspace);
+    if (head !== this.head) {
+      const summary = `HEAD moved ${shortRev(this.head)} → ${shortRev(head)} during this session (a commit or checkout made outside it; it is preserved and is not the agent's)`;
+      this.head = head;
+      this.onExternal?.(`The workspace changed outside this session: ${summary}.`);
+      return `this write or command was not applied: ${summary}. Re-read the files you rely on and re-anchor your plan, then retry.`;
+    }
+    return null;
   }
 
   /** Enregistre l'intention, sur le disque, avant l'effet. Lève si le
@@ -315,6 +699,12 @@ export class MissionResume {
       if (!rec?.uncertain) throw new Error(`effect ${id} is not an uncertain action of this workspace`);
       if (rec.resolved) continue;
       rec.resolved = appendProof(this.mission.dir, { type: "effect", fingerprint: this.mission.fingerprint, kind: "resolved", id, by }) as ResolvedEvent;
+      // L'état actuel du fichier visé devient l'état connu.
+      if (rec.intent.path && this.known) {
+        const h = this.hashOf(rec.intent.path);
+        if (h === null) this.known.delete(rec.intent.path);
+        else this.known.set(rec.intent.path, h);
+      }
       done.push(id);
     }
     this.refresh();
@@ -348,6 +738,10 @@ export class MissionResume {
       completed: r.completed,
       ...(r.orphans ? { orphans: r.orphans } : {}),
       ...(r.staleProofs.length ? { staleProofs: r.staleProofs } : {}),
+      writer: this.writer,
+      lock: r.lock,
+      ...(r.external ? { external: r.external } : {}),
+      ...(r.instructionsDrift.length ? { instructionsDrift: r.instructionsDrift } : {}),
     };
   }
 
@@ -355,6 +749,13 @@ export class MissionResume {
   lines(): string[] {
     const r = this.state();
     const out: string[] = [];
+    if (r.lock.state === "busy") {
+      const h = r.lock.holder;
+      out.push(`· resume: another smolcoder session holds the writer lock for this workspace${h ? ` (${h.surface}, process ${h.pid}, since ${h.since})` : ""} — this session reads and plans; it takes the lock when that session ends`);
+    } else if (r.lock.state === "unreadable") out.push(`· resume: the writer lock is unreadable (${r.lock.reason}) — writes are refused until it is repaired by hand`);
+    else if (r.lock.state === "held" && r.lock.tookOver) out.push(`· resume: the previous writer (${r.lock.tookOver.surface}, process ${r.lock.tookOver.pid}, since ${r.lock.tookOver.since}) is gone; this session took its writer lock`);
+    if (r.external) out.push(`· resume: the workspace changed since the last session (${describeExternal(r.external)}). These changes are preserved and are not the agent's; a file that changed is re-checked before any write, and the plan is re-anchored before the next one.`);
+    if (r.instructionsDrift.length) out.push(`· resume: AGENTS.md changed since the last session under this contract (${r.instructionsDrift.join("; ")}): this new session reads the files on disk — a resumed web session keeps its own version`);
     if (r.journal === "truncated-tail" || r.journal === "unreadable" || r.journal === "unknown-schema") out.push(`· resume: ${r.reason}`);
     for (const u of r.uncertain.filter((x) => !x.resolved)) {
       out.push(`· resume: effect ${u.id} (${u.tool} ${u.target}, ${u.at}) has no recorded result — uncertain. Evidence: ${u.meaning}.`);

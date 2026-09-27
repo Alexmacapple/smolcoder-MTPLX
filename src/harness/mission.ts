@@ -10,7 +10,7 @@ import * as path from "path";
 import type { Plan, PlanHooks } from "../plan";
 import { PathRules, resolveInWorkspace } from "../sandbox";
 import { describeDeviation, freezeVerifiers, PlanDeviation, PlanReport, PROJECT_COMMANDS, scanWorkspace, VerifierState, verifierChanges, WorkspaceScan } from "./proofs";
-import { MissionResume } from "./resume";
+import { InstructionPrints, MissionResume } from "./resume";
 import {
   Approval,
   ApprovalAuthority,
@@ -170,16 +170,22 @@ export class Mission {
 
   /** Ouvre la reprise pour la session qui porte ce contrat : relit le journal
    * d'effets et rend incertaine toute action sans résultat (#10). */
-  openResume(surface: string): MissionResume {
+  openResume(surface: string, prints?: InstructionPrints): MissionResume {
     if (this.resumeState) return this.resumeState;
     this.resumeState = new MissionResume(this, surface);
-    this.resumeState.open();
+    this.resumeState.open(prints);
     return this.resumeState;
   }
 
-  /** La reprise de cette session, ouverte au besoin. */
+  /** La reprise de cette session, ouverte au besoin : sans hôte de session
+   * (agent seul), elle journalise et respecte le verrou d'un autre, sans le
+   * prendre. */
   get resume(): MissionResume {
-    return this.resumeState ?? this.openResume("agent");
+    if (!this.resumeState) {
+      this.resumeState = new MissionResume(this, "agent", false);
+      this.resumeState.open();
+    }
+    return this.resumeState;
   }
 
   /** Lit le contrat de l'appelant (hors du workspace), le valide et

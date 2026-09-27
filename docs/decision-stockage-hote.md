@@ -26,7 +26,8 @@ sans collision pratique, lisible dans un `ls`.
 
 Trois fichiers par workspace, pas plus (le troisième ajouté par #11,
 conformément à la rubrique « conséquences » ci-dessous ; #9 y ajoute deux
-projections, `report.json` et `report.md`, voir « Amendements ») :
+projections, `report.json` et `report.md`, et #10 le verrou `lock` et
+l'enregistrement de reprise `resume.json`, voir « Amendements ») :
 
 - `contract.json` — le contrat de mission approuvé (motif A, plein).
   Schéma versionné (`smolcoder/contract/v1`), statuts fermés
@@ -313,5 +314,40 @@ mission ; la borne atteinte refuse l'intention, donc l'effet (fail-closed).
 Compatibilité : un binaire antérieur à #10 lit un journal qui contient un
 événement `effect` comme `unknown-schema`, refus explicite prévu par les
 règles de lecture.
+
+Cet amendement est accepté par la fusion de la pull request du ticket #10.
+
+### 2026-09-27 — ticket #10 : verrou `lock` et enregistrement `resume.json`
+
+Deux fichiers de plus dans le dossier du workspace, grammaire dans le module
+propriétaire `src/harness/store.ts`. Le premier est celui que la rubrique
+« conséquences » réservait à #10 ; le second est un écart déclaré à « trois
+fichiers ». Décision complète : `docs/decision-reprise-durable.md`.
+
+- `lock` (`smolcoder/lock/v1`) : `pid`, `host`, `session` (douze caractères
+  hexadécimaux), `surface` (`terminal`, `web`, `headless`), `since`. Créé
+  exclusivement (`O_EXCL`, mode 0600, synchronisé) par la session qui ouvre
+  le profil ; retiré par elle seule à sa fin (la session qui l'a posé,
+  vérifiée à la relecture). Un verrou dont le processus n'existe plus sur
+  cette machine est remplacé atomiquement puis relu ; un verrou vivant n'est
+  jamais pris ; un verrou illisible refuse toute écriture jusqu'à réparation
+  à la main. Il ne bloque pas un éditeur externe : la session revérifie avant
+  chaque effet.
+- `resume.json` (`smolcoder/resume/v1`) : l'état que la dernière session a
+  laissé — `at`, `session`, `surface`, `contract` (empreinte), `head` (révision
+  Git lue dans `.git`), `files` (`digest`, l'empreinte globale de #9, et
+  `entries`, l'empreinte de chaque fichier, null au-delà de 5 000 fichiers),
+  `instructions` (empreintes des deux `AGENTS.md`), `plan` (empreinte du plan
+  en vigueur et checklist cochée), `steps` (budget consommé). Écrit
+  atomiquement par la session qui tient le verrou, à l'ouverture, en fin de
+  tour et à sa fin ; borne de lecture 4 Mio. Une référence pour constater ce
+  qui a changé depuis, jamais une source de droit : le contrat, le budget,
+  les preuves et les effets restent dans `contract.json` et `proofs.jsonl`.
+
+Pourquoi un fichier plutôt qu'un événement du journal : cet état est réécrit
+à chaque tour, et seul le dernier compte ; en ajout seul, il gonflerait le
+journal de l'empreinte de tout le workspace à chaque tour et rapprocherait la
+borne de 8 Mio. Un fichier perdu ou illisible ne retire aucun droit : la
+session suivante le dit et repart de l'état constaté.
 
 Cet amendement est accepté par la fusion de la pull request du ticket #10.

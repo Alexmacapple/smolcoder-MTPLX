@@ -41,6 +41,7 @@ import {
   renderReportMarkdown,
   RunInfo,
   VerdictReport,
+  WorkspaceScan,
   verifierChanges,
   verifierStamps,
 } from "./harness/proofs";
@@ -99,6 +100,8 @@ export class Agent {
    * stockage hôte (null : non écrits). Le headless en tire sa sortie. */
   missionVerdict: { report: VerdictReport; files: { json: string; markdown: string } | null } | null = null;
   private suspended = false;
+  /** #10 : l'empreinte du workspace constatée par le dernier rapport. */
+  private lastScan: WorkspaceScan | null = null;
   /** Profil mission (#29) : un run `--propose-plan`, en lecture seule, où
    * l'agent propose son plan ; aucun contrôle d'acceptation n'y tourne. */
   proposalOnly = false;
@@ -393,6 +396,7 @@ export class Agent {
         // #29 : le plan d'implémentation et ses écarts, seulement s'il existe.
         implementationPlan: mission.planReport(),
       });
+      this.lastScan = scan;
       let files: { json: string; markdown: string } | null = null;
       try {
         files = writeReportFiles(mission.dir, JSON.stringify(report, null, 2) + "\n", renderReportMarkdown(report));
@@ -903,7 +907,11 @@ export class Agent {
       this.abort = null;
       stats.durationMs = Date.now() - t0;
       // #9 : le verdict du tour, constaté maintenant, quelle que soit l'issue.
-      if (this.mission) this.writeMissionReport(this.outcome === "running" ? "error" : this.outcome);
+      if (this.mission) {
+        this.writeMissionReport(this.outcome === "running" ? "error" : this.outcome);
+        // #10 : l'état que le tour laisse, pour la prochaine reprise.
+        this.mission.resume.checkpoint({ scan: this.lastScan, plan: this.toolCtx.plan });
+      }
       if (completed) {
         this.ui.turnEnd(
           `${fmtDuration(stats.durationMs)}${describeStats(stats)}`

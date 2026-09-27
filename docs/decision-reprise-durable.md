@@ -113,13 +113,80 @@ résultat : en processus par `MissionResume.crash`, et sur le vrai binaire
 par la variable `SMOLCODER_TEST_CRASH_AT` (`before-effect`, `after-effect`,
 `after-receipt`), qui tue le processus (`SIGKILL`) au point nommé.
 
+## Un seul écrivain par workspace
+
+Le verrou `lock` du dossier hôte (amendement dans
+`docs/decision-stockage-hote.md`) : la session qui ouvre le profil — terminal,
+page web, run headless — le crée exclusivement ; une autre session du même
+workspace, dans ce processus (deux sessions du hub web) ou dans un autre, lit
+et planifie mais n'écrit pas, et le dit à l'ouverture. Elle retente avant
+chaque effet et prend le verrou quand la première se termine, ou quand son
+processus a disparu (PID absent sur cette machine) ; elle refait alors la
+reprise, pour que ce que l'écrivain précédent a laissé incertain le reste. Un
+run headless qui ne peut pas écrire ne part pas (sortie 6). Le verrou est
+rendu à la fin de la session (`/exit`, fermeture dans le hub, arrêt du hub,
+fin du run, signal) ; un processus tué laisse un verrou mort, repris par la
+session suivante.
+
+Un verrou ne bloque pas un éditeur externe. Avant chaque effet, la session
+revérifie qu'elle tient toujours le verrou, relit la révision Git, et le
+suivi de lecture de #19 compare le fichier visé à ce que l'agent en a vu ou,
+s'il ne l'a jamais vu, à l'état connu de l'hôte. Jamais de `reset`, `stash`
+ou `clean` automatique : le harnais ne touche pas à Git.
+
+Un agent construit sans hôte de session (usage en bibliothèque, tests)
+journalise ses effets et respecte le verrou d'une session vivante, sans le
+prendre ni réconcilier : le verrou et la reprise appartiennent aux hôtes de
+session, qui les rendent.
+
+## Changements externes
+
+L'enregistrement `resume.json` garde l'état que la dernière session a laissé :
+révision Git, empreinte de chaque fichier (y compris non suivis et modifiés
+non commités, que l'empreinte de #9 parcourt tous, hors `node_modules`,
+`.git` et noms protégés), consignes, plan, budget. À l'ouverture, l'hôte
+compare le workspace à cet état, complété par les effets journalisés depuis :
+
+- un fichier ajouté, modifié ou supprimé hors de ces effets, et un `HEAD`
+  déplacé, sont listés comme changements externes — préservés, jamais
+  attribués à l'agent ;
+- un fichier visé par un effet incertain n'est attribué à personne ;
+- après une commande de l'agent, un fichier changé n'est attribuable avec
+  certitude à personne : il est listé à part ;
+- au-delà de 5 000 fichiers, seule l'empreinte globale est comparée.
+
+Conséquences, par réutilisation plutôt que duplication : la première écriture
+d'un fichier changé est refusée par le suivi de lecture de #19, qui consulte
+l'état connu de l'hôte pour un fichier que l'agent n'a jamais vu (créé,
+modifié ou supprimé par quelqu'un d'autre) ; les preuves datées par d'autres
+fichiers sont périmées par construction (#9) ; le plan doit être réancré
+(appel de l'outil `plan`) avant la prochaine écriture ou commande. Un `HEAD`
+déplacé pendant la session est constaté avant l'effet suivant, refusé une
+fois, et suit le même réancrage.
+
+## AGENTS.md sans rechargement silencieux
+
+Une session reprise (web) garde les consignes qu'elle utilisait, texte
+compris dans son snapshot ; un écart avec le disque est signalé, et
+`/instructions` ne bascule que sur choix explicite. Une nouvelle session lit
+le disque, comme avant — ouvrir une session est la transition explicite —,
+mais sous le profil l'écart avec la dernière session du même contrat est
+signalé à l'ouverture et dans la ligne `[resume]`. La phrase de précédence
+de sécurité de `src/prompt.ts` et l'opt-out `SMOL_NO_GLOBAL_AGENTS` ne
+changent pas.
+
 ## Terminal, headless et web : un seul contrat
 
 Sous `--mission`, la même reprise s'ouvre avec la session, quelle que soit la
 surface (`Mission.openResume`, `src/harness/resume.ts`) : terminal et web à
-la construction de la session, headless avant toute recherche de modèle. Un
-run headless suspendu sort avec le code 6, une ligne `[resume] {…}` sur
-stderr donne l'état, les identifiants incertains et l'indice de chacun.
+la construction de la session, headless avant toute recherche de modèle —
+verrou, état incertain, changements externes, consignes, progression du plan
+(la checklist cochée revient quand le plan en vigueur est le même). Un run
+headless suspendu sort avec le code 6, une ligne `[resume] {…}` sur stderr
+donne l'état, le verrou, les identifiants incertains et l'indice de chacun,
+les changements externes et l'écart des consignes. Seule différence de
+surface : le hub web sauvegarde aussi le transcript (snapshot v2), le
+terminal et le headless reprennent un contrat, pas une conversation.
 
 ## Migration prudente
 
