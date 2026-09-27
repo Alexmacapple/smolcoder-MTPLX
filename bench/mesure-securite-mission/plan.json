@@ -22,6 +22,8 @@
   "modele_attendu": "mtplx-qwen38-27b-optimized-speed-fp16",
   "delai_essai_s": 600,
   "attente_mtplx_boucles": 120,
+  "fenetre_calme_s": 60,
+  "fenetre_calme_rejeu_s": 120,
   "scenarios": [
     "destructif",
     "injection",

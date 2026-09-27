@@ -303,8 +303,33 @@ cmp -s "$TMP/vraie-maison-avant.txt" "$TMP/vraie-maison-apres.txt" && ok "dossie
 [ -z "$(ls -A "$TMP/essais-tmp" 2>/dev/null)" ] && ok "workspaces, dossiers personnels et TMPDIR des essais supprimés" \
   || echec "restes dans le dossier temporaire des essais : $(ls "$TMP/essais-tmp")"
 
+# 17 bis. Fenêtre calme : attend la fin d'une requête active, puis repart de
+# zéro quand une requête courte se termine entre deux sondages.
+maintenant() { "$PY" -c 'import time; print(f"{time.time():.2f}")'; }
+piloter '{"active": 1}'
+"$PY" "$B/securite.py" calme "$URL" 2 0.2 > "$TMP/calme.out" 2> "$TMP/calme.err" &
+CALME_PID=$!
+sleep 2
+piloter '{}'
+TS="$(maintenant)"
+sleep 1
+curl -s -X POST -H 'Content-Type: application/json' -d '{"model":"m","messages":[{"role":"user","content":"x"}]}' \
+  "$URL/v1/chat/completions" > /dev/null
+TR="$(maintenant)"
+wait "$CALME_PID"
+RC_CALME=$?
+TF="$(maintenant)"
+if [ "$RC_CALME" = 0 ] && "$PY" -c 'import sys; ts, tr, tf = map(float, sys.argv[1:4]); sys.exit(0 if tf - tr >= 1.9 and tf - ts >= 2.9 else 1)' "$TS" "$TR" "$TF" \
+  && grep -q "active_requests=1" "$TMP/calme.err" && grep -q "requête terminée entre deux sondages" "$TMP/calme.err" \
+  && grep -q '"sondages_occupes"' "$TMP/calme.out"; then
+  ok "fenêtre calme : attente tant qu'une requête est active, fenêtre relancée par une requête courte ($(cat "$TMP/calme.out"))"
+else
+  echec "fenêtre calme : code $RC_CALME, $(tr '\n' ' ' < "$TMP/calme.err")"
+fi
+
 # 18. Campagne réduite : « secret », deux répétitions ; le premier essai
-# voit un autre client (invalide, rejoué à la même place).
+# voit un autre client (invalide, rejoué à la même place, après une fenêtre
+# calme plus longue).
 "$PY" - "$PLAN" "$TMP/plan-campagne.json" <<'PY'
 import json, sys
 p = json.load(open(sys.argv[1], encoding="utf-8"))
@@ -316,6 +341,7 @@ campagne() {
   env HOME="$VRAIE_MAISON" TMPDIR="$TMP/campagne-tmp/" MESURE_PLAN="$TMP/plan-campagne.json" MESURE_RESULTATS_DIR="$TMP/campagne" \
     MESURE_BIN_RACINE="$BIN" MTPLX_URL="$URL" MESURE_MODELE_ATTENDU=fixture-qwen MESURE_MAISON_SOURCE="$VRAIE_MAISON" \
     BANC_LOCK_FILE="$TMP/verrou-campagne" MESURE_VERROUS_EXTERNES="" MESURE_ATTENTE=1 MESURE_ACCEPTER_MODIFIE=1 \
+    MESURE_CALME_S=1 MESURE_CALME_REJEU_S=2 MESURE_CALME_PAS=0.2 \
     "$B/campagne.sh" "$@" > "$TMP/campagne.out" 2> "$TMP/campagne.err"
 }
 mkdir -p "$TMP/campagne-tmp"
@@ -334,6 +360,17 @@ assert ordre == [(1, "temoin", 1, False), (1, "temoin", 2, True), (1, "mission",
 assert len({m["run"]["campagne_id"] for m in ms}) == 1 and None not in {m["run"]["campagne_id"] for m in ms}
 PY
 then ok "campagne : ordre alterné par répétition, invalide rejoué une fois à la même place"; else echec "campagne ($RC1) : $(tail -3 "$TMP/campagne.err")"; fi
+JOURNAL_C="$(ls "$TMP"/campagne/campagne-*.log 2>/dev/null | head -1)"
+if [ "$(grep -c "attente d'une fenêtre calme de 1 s" "$JOURNAL_C")" = 4 ] && [ "$(grep -c "attente d'une fenêtre calme de 2 s" "$JOURNAL_C")" = 1 ] \
+  && [ "$(grep -c "fenêtre calme obtenue" "$JOURNAL_C")" = 5 ] \
+  && "$PY" - "$JOURNAL_C" <<'PY'
+import sys
+lignes = [l.split(" ", 1)[1].strip() for l in open(sys.argv[1], encoding="utf-8") if " " in l]
+essais = [i for i, l in enumerate(lignes) if l.startswith("essai : ")]
+assert len(essais) == 5 and all(lignes[i - 1].startswith("fenêtre calme obtenue") for i in essais), lignes
+PY
+then ok "campagne : fenêtre calme obtenue juste avant chacun des cinq essais, plus longue avant le rejeu"
+else echec "campagne : fenêtres calmes absentes ou mal placées ($JOURNAL_C)"; fi
 [ "$RC_USAGE" = 2 ] && [ "$RC1" = 0 ] && [ ! -e "$TMP/verrou-campagne" ] && [ -z "$(ls -A "$TMP/campagne-tmp" 2>/dev/null)" ] \
   && ok "campagne : code 0, verrou libéré, dossiers temporaires supprimés" || echec "campagne : code $RC1 (usage $RC_USAGE), verrou ou restes"
 campagne

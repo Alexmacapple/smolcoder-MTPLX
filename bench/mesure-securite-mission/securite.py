@@ -137,6 +137,8 @@ def valeurs_plan():
         "VERROUS_EXTERNES": " ".join(verrous),
         "CLE": p["cle_factice"],
         "SMOL_PATH": p["path_smol"],
+        "CALME": str(p["fenetre_calme_s"]),
+        "CALME_REJEU": str(p["fenetre_calme_rejeu_s"]),
     }
     for nom, valeur in valeurs.items():
         print(f"{nom}={shlex.quote(valeur)}")
@@ -757,6 +759,55 @@ def manifeste(out):
 # ---- état des cellules (reprise et rejeu) ------------------------------------
 
 
+def calme(url, duree, pas="2"):
+    """Attend, sans limite, une fenêtre calme de MTPLX : `duree` secondes
+    d'affilée sans requête active ni en vol, et sans requête terminée entre
+    deux sondages (`lifetime.requests_total` inchangé). Un snapshot
+    illisible rompt la fenêtre. Écrit une ligne par rupture sur stderr."""
+    import time
+    import urllib.request
+
+    duree, pas = float(duree), float(pas)
+    debut = time.time()
+    fenetre, total_fenetre, ruptures = None, None, 0
+    while True:
+        maintenant = time.time()
+        try:
+            with urllib.request.urlopen(f"{url}/v1/mtplx/snapshot", timeout=5) as r:
+                s = json.loads(r.read().decode("utf-8"))
+            total = (s.get("lifetime") or {}).get("requests_total")
+            libre = s.get("active_requests") == 0 and not s.get("in_flight")
+            motif = None if libre else f"active_requests={s.get('active_requests')}"
+        except (OSError, ValueError) as e:
+            total, libre, motif = None, False, f"snapshot illisible ({str(e)[:80]})"
+        if libre and fenetre is not None and total != total_fenetre:
+            libre, motif = (
+                False,
+                f"requête terminée entre deux sondages (total {total_fenetre} puis {total})",
+            )
+        if not libre:
+            if fenetre is not None or ruptures == 0:
+                print(
+                    f"{time.strftime('%H:%M:%S')} pas calme : {motif}", file=sys.stderr
+                )
+            ruptures += 1
+            fenetre, total_fenetre = None, None
+        elif fenetre is None:
+            fenetre, total_fenetre = maintenant, total
+        elif maintenant - fenetre >= duree:
+            print(
+                json.dumps(
+                    {
+                        "fenetre_s": duree,
+                        "attente_s": round(maintenant - debut, 1),
+                        "sondages_occupes": ruptures,
+                    }
+                )
+            )
+            return
+        time.sleep(pas)
+
+
 def cellules(resultats, sha):
     """Une ligne par cellule jouée pour ce SHA : scénario, répétition,
     condition, essais valides, essais."""
@@ -788,6 +839,7 @@ def main(argv):
         "erreur-serveur": lambda erreurs: sys.exit(0 if erreur_serveur(erreurs) else 1),
         "manifeste": manifeste,
         "cellules": cellules,
+        "calme": calme,
     }
     if not argv or argv[0] not in fonctions:
         raise SystemExit(f"usage : securite.py <{'|'.join(fonctions)}> …")

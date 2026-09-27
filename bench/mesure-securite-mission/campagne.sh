@@ -24,10 +24,13 @@ MAISON_REELLE="${MESURE_MAISON_SOURCE:-$HOME}"
 [ $# -eq 0 ] || { echo "Usage : campagne.sh" >&2; exit 2; }
 
 # Remplies par le plan (eval ci-dessous).
-BIN_RACINE=""; EMPREINTE_ATTENDUE=""; SCENARIOS=""; REPETITIONS=""
+BIN_RACINE=""; EMPREINTE_ATTENDUE=""; SCENARIOS=""; REPETITIONS=""; CALME=""; CALME_REJEU=""
 VALEURS="$("$PY" "$B/securite.py" plan)" || exit 2
 eval "$VALEURS"
 [ -n "${MESURE_BIN_RACINE:-}" ] && BIN_RACINE="$MESURE_BIN_RACINE"
+case "${MESURE_CALME_S:-}" in ''|*[!0-9]*) ;; *) CALME="$MESURE_CALME_S" ;; esac
+case "${MESURE_CALME_REJEU_S:-}" in ''|*[!0-9]*) ;; *) CALME_REJEU="$MESURE_CALME_REJEU_S" ;; esac
+PAS_CALME="${MESURE_CALME_PAS:-2}"
 
 SHA="$(git -C "$REPO" rev-parse HEAD)"
 if [ -n "$(git -C "$REPO" status --porcelain --untracked-files=normal)" ] \
@@ -89,6 +92,24 @@ etat_cellule() {
 }
 ordre_conditions() { if [ $(( $1 % 2 )) -eq 1 ]; then echo "temoin mission"; else echo "mission temoin"; fi; }
 
+# Fenêtre calme (écart opérationnel déclaré dans le rapport, sans effet sur
+# la règle) : avant chaque essai, et plus longuement avant un rejeu, MTPLX
+# sans requête active, en vol ni terminée pendant la fenêtre ; attente sans
+# limite, jamais comptée comme une tentative. Alex utilise MTPLX par
+# intermittence ; une requête étrangère pendant un essai reste une invalidité.
+attendre_calme() {
+  local fenetre="$1" rc
+  journal "attente d'une fenêtre calme de $fenetre s"
+  "$PY" "$B/securite.py" calme "$MTPLX_URL" "$fenetre" "$PAS_CALME" \
+    > "$RESULTATS_DIR/.calme.out" 2>> "$JOURNAL" < /dev/null &
+  ENFANT_PID=$!
+  wait "$ENFANT_PID"
+  rc=$?
+  ENFANT_PID=""
+  [ "$rc" -eq 0 ] || { journal "attente de la fenêtre calme en échec (code $rc)"; return 1; }
+  journal "fenêtre calme obtenue : $(cat "$RESULTATS_DIR/.calme.out")"
+}
+
 jouer_cellule() {
   local scenario="$1" repetition="$2" condition="$3" valides essais rc
   while true; do
@@ -101,6 +122,7 @@ jouer_cellule() {
       journal "invalide deux fois : $scenario r$repetition $condition (cellule déclarée manquante)"
       return 0
     fi
+    attendre_calme "$([ "$essais" -ge 1 ] && echo "$CALME_REJEU" || echo "$CALME")" || return 1
     journal "essai : $scenario r$repetition $condition, tentative $((essais + 1))"
     BANC_LOCK_OWNER_PID="$$" BANC_LOCK_FILE="$LOCK_FILE" BANC_CAMPAIGN_ID="$CAMPAGNE_ID" \
       "$B/essai.sh" "$condition" "$scenario" "$repetition" "$((essais + 1))" < /dev/null &

@@ -2332,7 +2332,7 @@ main, les limites et ce qui reste non vérifié. Documentation seule :
 runner, protocole, `src/`, `test/` et `docs/skills/` inchangés. SHA
 `c64cc80` reporté sur l'entrée précédente.
 
-### (ce commit) — Mesure #52 : protocole et runner pré-enregistrés — Réf #52
+### `01e9bd3` — Mesure #52 : protocole et runner pré-enregistrés — Réf #52
 
 `docs/protocole-mesure-securite-mission.md` (nouveau),
 `bench/mesure-securite-mission/` (nouveau : `plan.json`, `contrats/`,
@@ -2369,6 +2369,27 @@ muté (clé et destruction neutralisées), 7 contrôles rouges. `npm test`
 374/374 ; `shellcheck -S warning` et `ruff` sans avertissement. `src/`,
 `test/` et `docs/skills/` inchangés. Aucun essai MTPLX à ce commit. SHA
 `8f89ba1` reporté sur l'entrée précédente.
+
+### (ce commit) — Mesure #52 : fenêtre calme avant chaque essai — Réf #52
+
+`bench/mesure-securite-mission/campagne.sh`, `securite.py` (commande
+`calme`), `plan.json` (`fenetre_calme_s` 60, `fenetre_calme_rejeu_s` 120),
+`test-securite.sh`. Règle opérationnelle demandée avant le premier essai,
+parce qu'Alex utilise MTPLX par intermittence : avant chaque essai, la
+campagne attend que MTPLX n'ait eu aucune requête active ni en vol, et
+qu'aucune requête ne se soit terminée entre deux sondages, pendant
+60 secondes d'affilée ; 120 secondes avant un rejeu, pour ne pas laisser
+une cellule vide faute de fenêtre calme. L'attente n'a pas de limite et ne
+compte jamais comme une tentative. Une requête étrangère pendant un essai
+reste une invalidité, rejouée une fois ; ni le nombre de rejeux, ni les
+mesures, ni la règle de décision ne changent, et le protocole et ses pièces
+figées sont intacts. Écart déclaré dans le rapport. Vérifications, sans
+modèle : `test-securite.sh` PASS (38 contrôles, dont l'attente tant qu'une
+requête est active, la fenêtre relancée par une requête courte, et une
+fenêtre juste avant chacun des cinq essais de la campagne réduite, plus
+longue avant le rejeu) ; `shellcheck -S warning` et `ruff` sans
+avertissement. Aucun essai MTPLX à ce commit. SHA `01e9bd3` reporté sur
+l'entrée précédente.
 
 ## Hors dépôt (machine locale)
 
