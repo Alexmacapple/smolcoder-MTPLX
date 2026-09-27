@@ -1307,7 +1307,7 @@ verdict (une première version de cette mutation cassait la syntaxe ; elle a
 `--mission`. `npm test` 313/313 (296 et 17 nouveaux) et `npm run test:os`
 21/21, aucun test sauté. SHA `8d5108a` reporté sur l'entrée précédente.
 
-### (ce commit) — Preuve sur le vrai binaire, README — Closes #9
+### `2d74f9b` — Preuve sur le vrai binaire, README — Closes #9
 
 `test/os/e2e.os.test.js`, `README.md`. Ticket #9 (H04), dernier commit :
 les six critères d'acceptation sont prouvés par des tests nommés, sur le
@@ -1349,6 +1349,243 @@ de npm des commandes lancées à la main et du test existant
 antérieure à #9, non corrigée ici) ; aucun des nouveaux tests. Non vérifié :
 aucun run contre MTPLX ni Qwen réel ; une seule machine. SHA `e71311e`
 reporté sur l'entrée précédente.
+
+### `700a4e7` — Retours d'échec d'édition exploitables — Réf #19
+
+`src/tools/fs-tools.ts`, `test/edit-feedback.test.js`. Ticket #19 (H07),
+premier commit : les retours d'échec d'`edit_file`. Constat préalable :
+`renderRead` donne déjà le chemin, la portion lue et l'appel exact pour
+continuer (volet « après une lecture » du ticket déjà tenu, inchangé) ; un
+old_text introuvable rendait déjà un extrait voisin quand une ligne lui
+ressemblait. Manquaient la localisation d'un old_text ambigu (ni ligne ni
+extrait), la cause précise d'un introuvable, et l'erreur nue quand rien ne
+ressemble.
+
+Ajouts. old_text ambigu, exact ou aux espaces près : chaque occurrence
+localisée par sa ligne, avec le texte actuel qui l'entoure (trois
+occurrences, 1 500 caractères au plus). old_text introuvable : d'abord la
+ligne où il décroche du fichier (« lines 1-2 match lines 31-32 […], then
+line 3 of old_text differs »), avec les deux textes et l'extrait ; sinon
+l'extrait voisin existant ; sinon, un fichier court (40 lignes et 1 500
+caractères au plus) rendu en entier, ou une recherche ciblée proposée avec
+un mot réel de old_text. Fichier absent : les fichiers voisins, comme
+read_file. Chaque échec dit « No file was changed ». Les extraits restent du
+texte brut entre deux lignes « --- », sans numéros collés aux lignes, qu'un
+petit modèle recopierait dans old_text.
+
+Vérifications. Quatre tests « H07 AC1 » : old_text ambigu et fichier court,
+joués par la boucle de l'agent avec un fournisseur simulé qui ne connaît du
+fichier que ce que les outils lui rendent et relit le fichier faute
+d'extrait — il corrige au tour suivant sans `read_file` ; cause du
+décrochage ; fichier absent. Rouge constaté sur le code d'avant, chacun pour
+sa raison : retour ambigu sans ligne ni extrait, fournisseur simulé réduit
+à relire (`['edit_file', 'read_file']`), cause absente, voisins absents. Le
+test existant de l'extrait voisin passe inchangé. `npm test` 317/317 (313
+et 4 nouveaux) et `npm run test:os` 22/22, aucun test sauté, sous un HOME
+temporaire. SHA `2d74f9b` reporté sur l'entrée précédente.
+
+### `35ed672` — Journal de commande : la cause reste visible — Réf #19
+
+`src/harness/executor.ts`, `src/tools/command-log.ts` (nouveau),
+`src/tools/shell.ts`, `src/tools/index.ts`, `src/agent.ts`,
+`test/command-log.test.js` (nouveau). Ticket #19 (H07), deuxième commit :
+le retour d'une commande ou d'un test. Constat préalable : le code de
+sortie réel était déjà rendu (`[exit code N]`, résultat typé de #15 et #9),
+mais un long journal était coupé trois fois au milieu — capture plafonnée à
+32 000 caractères, rendu à 8 000, plafond des résultats d'outils du contexte
+(600 caractères au moins) —, si bien qu'une erreur au milieu disparaissait,
+sans moyen de relire le journal.
+
+Ajouts. L'exécuteur garde, à côté de `output` inchangé (qui nourrit
+toujours `classify` de #9), le journal complet quand il dépasse la capture :
+champ facultatif `log` de `CommandResult`, 1 000 000 de caractères au plus,
+capture en temps linéaire. Extension additive du résultat typé, déclarée,
+pas un doublon. `renderCommandResult` rend une sortie qui tient au format
+historique inchangé ; une sortie trop longue garde son début et sa fin,
+coupés sur des fins de ligne (et non plus au caractère près, marque
+`[N lines (M characters) omitted …]`), et, après un échec, remonte en tête
+les lignes décisives de la partie omise — test en échec, exception, erreur
+de compilation, assertion ; douze au plus, numérotées. En tête, parce
+qu'une coupe ultérieure au milieu (plafond du contexte, note de compaction)
+garde le début d'un texte. Le journal complet est gardé en mémoire par la
+session (les six derniers) et lu par `read_file` sous `log:<n>`, avec
+l'appel exact qui montre l'échec en contexte ; jamais écrit dans le
+workspace (les empreintes du profil mission n'en voient rien), en lecture
+seule ; sans stock fourni par l'hôte, `log:<n>` reste un chemin ordinaire.
+run_command et les vérifications (progression, acceptation, contrôles du
+profil mission) sont rendus à la taille des résultats d'outils du contexte,
+si bien qu'aucune coupe au milieu ne les suit plus.
+
+Sous `--mission`, la politique décide de `read_file log:<n>` comme d'un
+chemin du workspace (non protégé, donc autorisé) ; l'outil refuse toute
+écriture sur `log:<n>`. Politique, bac Seatbelt et verdicts inchangés : le
+journal ne contient que ce que la commande autorisée a imprimé.
+
+Vérifications. Quatre tests « H07 AC2 », sur un journal de près de 500 000
+caractères dont la seule cause décisive est à la ligne 3 001 sur 6 004 :
+run_command sous le plafond par défaut ; boucle de l'agent sous une petite
+fenêtre (plafond d'environ 2 300 caractères), où le fournisseur simulé voit
+le cas défaillant et sa cause, puis lit le journal complet par l'appel
+proposé ; échec d'acceptation dont le cas défaillant parvient au modèle ;
+stock en lecture seule, borné, rien dans le workspace. Rouge constaté sur
+le code d'avant pour les trois premiers (cas défaillant absent du retour).
+Le quatrième, écrit après le code, est montré rouge par deux mutations du
+code compilé (écriture sur `log:<n>` acceptée ; stock non borné), `dist/`
+restauré (SHA-256). `npm test` 321/321 (317 et 4 nouveaux) et `npm run
+test:os` 22/22, aucun test sauté. SHA `700a4e7` reporté sur l'entrée
+précédente.
+
+### `88aa128` — Péremption de lecture avant édition — Réf #19
+
+`src/tools/read-tracker.ts` (nouveau), `src/tools/fs-tools.ts`,
+`src/tools/index.ts`, `src/agent.ts`, `test/stale-read.test.js` (nouveau).
+Ticket #19 (H07), troisième commit : un fichier modifié depuis la dernière
+lecture de l'agent est signalé avant une nouvelle édition. Rien de tel
+n'existait : seule la réécriture par l'agent lui-même évinçait ses lectures
+antérieures du contexte (`evictStaleReads`) ; une modification par une
+personne, un autre processus, une tâche de fond ou une commande passait
+inaperçue, et `write_file` pouvait l'écraser en silence.
+
+Le suivi retient, fichier par fichier, le contenu que l'agent a vu en
+dernier — lu par `read_file`, ou écrit par lui-même (empreinte SHA-256,
+contenu gardé jusqu'à 256 Kio, 500 fichiers au plus, clé résolue par
+`realpath`, y compris pour un fichier supprimé depuis). Juste avant une
+écriture de `write_file` ou d'`edit_file`, il compare au disque : si le
+contenu diffère, la première écriture est refusée — « was changed on disk
+after you last read it », « No file was changed » — avec la région changée
+(préfixe et suffixe communs, quinze lignes au plus), ou le constat d'une
+suppression ; puis le nouvel état vaut comme vu, et l'écriture suivante,
+faite en connaissance de cause, passe. Au même moment, les lectures
+antérieures encore en contexte sont évincées comme après une réécriture. Un
+signal, pas un verrou ni un journal d'effets (#10) : le suivi vit dans le
+contexte d'outils de la session, en mémoire, vidé par `/clear` et à la
+reprise d'une session ; il ne dit rien d'un fichier que l'agent n'a jamais
+vu, ni d'un simple changement de date. Sous `--mission`, la décision
+d'accès reste prise avant (un refus de la politique précède tout contrôle
+de péremption) ; aucun fichier n'est écrit par le suivi.
+
+Vérifications. Cinq tests « H07 AC3 », modification externe injectée par
+le test entre la lecture et l'écriture : édition (signal, région changée
+localisée, édition non appliquée, nouvel essai appliqué, modification
+externe conservée, lecture périmée évincée dès le signal) ; écrasement par
+`write_file` (la ligne de l'autre processus survit) ; suppression ; fichier
+réécrit par une commande de l'agent ; aucune fausse alerte (écritures de
+l'agent lui-même, chemin `./a.js`, simple `touch`, fichier jamais lu,
+fichier créé par l'agent). Rouge constaté sur le code d'avant pour les
+trois premiers écrits (« Edited app.js: replaced 1 occurrence. »,
+« Overwrote notes.md (was 4 lines, now 4 lines). »). Le cas de la
+suppression a d'abord échoué sur ce code même : la clé `realpath` d'un
+fichier supprimé retombait sur le chemin non résolu (`/var` au lieu de
+`/private/var` sous macOS) ; test ajouté rouge, puis clé résolue par le
+dossier. Le test sans fausse alerte, vert avant comme après, et l'éviction
+au signal sont montrés rouges par mutation du code compilé (mise à jour
+après écriture de l'agent retirée ; éviction retirée — première version
+du test restée verte, l'édition réussie suivante évinçant aussi la lecture ;
+test resserré sur l'instant du signal, puis rouge), `dist/` restauré
+(SHA-256). `npm test` 326/326 (321 et 5 nouveaux) et `npm run test:os`
+22/22, aucun test sauté. SHA `35ed672` reporté sur l'entrée précédente.
+
+### `f93de98` — Protocole de mesure appariée de #19 — Réf #19
+
+`docs/protocole-mesure-retours-outils.md` (nouveau),
+`docs/protocole-mesure-retours-outils/` (nouveau : fixtures des trois
+tâches, consignes, `injecter.sh`, `mesures.py`), `README.md`. Ticket #19
+(H07), dernier commit : le critère 4 du ticket (effet mesuré au banc sur
+tâches appariées, refus de sécurité intacts) n'est pas joué — MTPLX est
+occupé par l'étude #33 sous le verrou de campagne. Le protocole est écrit
+à la place, règle de décision figée avant tout essai.
+
+Binaires figés par leur SHA : avant `cdd6e4c` (sans #19), après `88aa128`
+(dernier commit de code), construits hors du dépôt par `git archive`, avec
+les empreintes attendues de `dist/` (construction vérifiée reproductible).
+Trois tâches appariées, cinq répétitions, ordre alterné : deux-produits
+(old_text ambigu probable), journal-long (3 006 lignes, cause à la ligne
+1 602), modif-humaine (ajout d'une personne injecté après la lecture de
+`config.py`) ; plus les scénarios de sécurité `destructif`, `secret` et
+`injection` du banc existant, trois fois par binaire. Mesures lues dans les
+fichiers de l'essai : réussite réelle par vérification indépendante,
+appels d'outils, durée, relectures, échecs d'édition, modification externe
+conservée, statuts de sécurité. Règle : NO-GO sur toute violation de
+sécurité, toute modification externe perdue par le binaire après, ou deux
+réussites de moins sur une tâche ; effet démontré seulement sur des écarts
+d'au moins deux essais ; sinon « sans effet mesuré », décision à Alex.
+Fixtures, consignes, observateur d'injection et script de mesures sont des
+fichiers figés à côté du protocole, hors de `bench/` (zone de l'étude #33),
+à y porter ensuite. Éprouvés sans modèle : sur les deux binaires, le
+binaire avant rend l'ambiguïté de T1 sans ligne ni extrait et perd le cas
+défaillant du journal de T2 (rendu de 8 108 caractères), le binaire après
+localise les occurrences et remonte les deux cas défaillants en tête (8 007
+caractères), avec l'appel de lecture ciblée ; les tests de T3 échouent
+avant la tâche et passent après une solution minimale ; l'observateur
+n'injecte qu'à la lecture de `config.py` et rien si smol finit sans la
+lire ; `mesures.py` rend les compteurs attendus d'un échantillon écrit au
+format headless. Le déroulé complet d'un essai n'a pas été joué. Le README
+range #19 dans les fonctionnalités et laisse sa mesure dans les chantiers
+restants.
+
+Correspondance des critères du ticket. Après une lecture (chemin, portion
+lue, moyen de poursuivre) : déjà tenu par `renderRead`, inchangé,
+`test/read-budget.test.js` vert. Après un échec de modification : les
+quatre « H07 AC1 » (`700a4e7`), dont le critère d'acceptation 1 —
+fournisseur simulé qui corrige au tour suivant sans relire le fichier.
+Après un test ou une commande, et critère 2 (erreur au milieu d'un long
+journal) : les quatre « H07 AC2 » (`35ed672`). Péremption et critère 3
+(modification externe injectée entre lecture et écriture) : les cinq « H07
+AC3 » (`88aa128`). Critère 4 : protocole seul, non joué. Refus de sécurité
+: politique, isolation et verdicts de #9 inchangés, les suites existantes
+passent sans modification.
+
+Vérifications. `npm test` 326/326 et `npm run test:os` 22/22 (313 et 22 au
+départ), aucun test sauté, sous un HOME et un cache npm temporaires ; le
+vrai `~/.smolcoder` n'a reçu aucune écriture depuis le début du chantier.
+Dans le vrai `~/.npm/_logs`, seul le journal de `npm ci` du worktree vient
+de ce chantier ; onze journaux de `test/verification.test.js` datés de
+13:27Z y figurent aussi, écrits par une suite lancée par un autre processus
+(la dernière suite de ce chantier s'est achevée à 13:24:57Z ; les journaux
+de ses suites sont dans le HOME temporaire). Non vérifié : aucun essai
+contre MTPLX ni Qwen réel, donc aucun effet mesuré sur la conduite du
+modèle ; une seule machine. SHA `88aa128` reporté sur l'entrée précédente.
+
+### (ce commit) — Exception log:<n> dans la décision d'accès — Réf #19
+
+`src/harness/policy.ts`, `src/agent.ts`, `test/command-log.test.js`,
+`docs/profil-mission.md`. Correction demandée à la revue de #19, avant la
+PR. Sous `--mission`, `read_file {"path": "log:3"}` passait par `decide()`
+comme un fichier ordinaire du workspace nommé « log:3 » : autorisé avec un
+chemin fictif (`<workspace>/log:3`) dans `paths` et le motif « inside the
+workspace, not protected », puis servi par `executeTool`. Le journal était
+servi par accident, un journal inconnu autorisé, et l'écriture sur
+`log:<n>` autorisée par la décision puis arrêtée par l'outil seul. Aucun
+test ne couvrait `log:` sous `--mission`.
+
+Correction, sur le modèle de l'exception `fiche:<nom>` (#30) placée juste
+au-dessus dans `decide()` : une exception nommée et étroite, reconnue
+seulement quand l'hôte fournit les journaux de la session
+(`AccessRequest.logs`, posé par l'agent, jamais par un argument du modèle ;
+sans eux, `log:<n>` reste un chemin ordinaire, comme `fiche:` sans dossier
+de fiches). Lecture d'un journal gardé : `allow`, `paths` vide, motif « a
+command log ("log:<n>") kept in memory by this session, read-only, never a
+file ». Journal inconnu : `deny`, « is not a command log kept by this
+session ». `write_file` et `edit_file` : `deny`, « names a command log kept
+by the harness, which is read-only ». Le refus de l'outil reste en
+seconde ligne. `docs/profil-mission.md` nomme les deux exceptions de
+`read_file`.
+
+Vérifications. Deux tests « H07 mission » : la décision (lecture permise
+sans chemin, journal inconnu refusé, écriture et édition refusées ; sans
+régression de `fiche:tdd`, lu et non écrit, d'un chemin ordinaire lu et
+écrit, ni de `.env` protégé ; sans journaux fournis, chemin ordinaire) et
+la boucle de l'agent sous `--mission` (`run_command` raccourci, journal lu
+par l'appel proposé, `log:99` et l'écriture refusés avec le préfixe « denied
+by the access policy »). Rouge constaté avant la correction : `paths`
+valait `["<workspace>/log:1"]` au lieu de `[]` ; `log:99` n'était refusé
+que par l'outil (« Error: "log:99" is not a command log kept by this
+session… », sans décision) ; relevé direct de la décision : les quatre
+requêtes — lecture de `log:1`, de `log:99`, écriture et édition de `log:1`
+— donnaient `allow`, « inside the workspace, not protected ». `npm test`
+328/328 (326 et 2 nouveaux) et `npm run test:os` 22/22, aucun test sauté,
+sous un HOME et un cache npm temporaires neufs. SHA `f93de98` reporté sur
+l'entrée précédente.
 
 ## Hors dépôt (machine locale)
 

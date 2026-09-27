@@ -1,0 +1,1 @@
+Dans produit_absolu() seulement, la garde if total < 0 est inutile : retire-la. produit() ne doit pas changer. Vérifie avec python3 -m unittest -q test_stats.

@@ -23,6 +23,8 @@ import { truncateMiddle } from "./util";
 import { createHash } from "crypto";
 import * as os from "os";
 import { commandPassed, CommandResult, ExecOptions, renderCommandResult, runCommandResult } from "./tools/shell";
+import { CommandLogs } from "./tools/command-log";
+import { isStaleNotice, ReadTracker } from "./tools/read-tracker";
 import { failureSignature, projectVerification } from "./verification";
 import type { Mission } from "./harness/mission";
 import { AccessRequest, decide, Decision, PolicySuspension } from "./harness/policy";
@@ -116,6 +118,18 @@ export class Agent {
     this.messages = [{ role: "system", content: systemPrompt }];
     this.tools = buildToolSpecs(mode);
     this.ctxMgr.setReplayThinking(provider.replaysThinking !== false);
+    // #19 : les journaux complets des sorties raccourcies, lus par read_file
+    // sous `log:<n>`. Posés sur le contexte d'outils lui-même, pour que ses
+    // copies par appel (profil mission) partagent le même stock.
+    this.toolCtx.logs ??= new CommandLogs();
+    // #19 : péremption de lecture, au niveau de la boucle de l'agent.
+    this.toolCtx.reads ??= new ReadTracker();
+  }
+
+  /** #19 : rendu d'une vérification à la taille des résultats d'outils, son
+   * journal complet gardé comme celui de run_command. */
+  private renderCheck(result: CommandResult): string {
+    return renderCommandResult(result, { maxChars: this.ctxMgr.toolResultCharLimit() - 256, logs: this.toolCtx.logs });
   }
 
   setMode(mode: Mode, systemPrompt: string): void {
@@ -148,6 +162,8 @@ export class Agent {
     // cleared conversation would assert work the new task never did.
     this.toolCtx.filesTouched.clear();
     this.toolCtx.commandsRun.length = 0;
+    this.toolCtx.logs?.clear();
+    this.toolCtx.reads?.clear();
     this.ctxMgr.resetAnchor();
   }
 
@@ -159,6 +175,8 @@ export class Agent {
     this.originalRequest = originalRequest;
     this.currentRequest = currentRequest;
     this.planNudged = false;
+    // #19 : ce que la session a vu ne décrit pas la conversation reprise.
+    this.toolCtx.reads?.clear();
     this.ctxMgr.resetAnchor();
     this.repairTranscript("[Tool execution was interrupted by a restart. Its outcome is unknown. Inspect files or command state before retrying; do not assume it failed or rerun it blindly.]");
   }
@@ -201,7 +219,7 @@ export class Agent {
     }
     const result = await runCommandResult(command, this.toolCtx.workspace, signal, undefined, exec, this.toolCtx.executor, "check");
     if (signal.aborted) throw abortError();
-    return { passed: commandPassed(result), output: renderCommandResult(result) };
+    return { passed: commandPassed(result), output: this.renderCheck(result) };
   }
 
   /** Profil mission (#9) : les contrôles décisifs, un par commande, dans
@@ -318,7 +336,7 @@ export class Agent {
           v = { status: "error", cause: "verifier-changed-during-check", tests: v.tests };
         }
       }
-      const body = renderCommandResult(result) + (changes ? `\n[the verifier inputs were written during the check: ${changes.join(", ")}]` : "");
+      const body = this.renderCheck(result) + (changes ? `\n[the verifier inputs were written during the check: ${changes.join(", ")}]` : "");
       if (v.status !== "passed") return stop(check, v, body, { exit: result, changes });
       pending.push({ check, v, exit: result });
       this.ui.toolResult(body);
@@ -720,6 +738,10 @@ export class Agent {
               this.ctxMgr.evictStaleReads(this.messages, call.args.path);
               repeatedReads.clear();
               readsSinceAction = 0;
+            } else if ((call.name === "write_file" || call.name === "edit_file") && typeof call.args?.path === "string" && isStaleNotice(output)) {
+              // #19 : le fichier a changé depuis sa lecture ; les lectures
+              // antérieures encore en contexte sont périmées, elles aussi.
+              this.ctxMgr.evictStaleReads(this.messages, call.args.path);
             }
             // Keep the plan honest: small models forget to mark steps done
             // mid-flow, leaving the checklist stale for minutes. A periodic
@@ -926,7 +948,8 @@ export class Agent {
     if (this.mission) {
       const mission = this.mission;
       const fichesDir = this.toolCtx.fichesDir;
-      const auth = await this.authorize({ surface: "tool", tool: name, args, ...(fichesDir ? { fichesDir } : {}) });
+      const logs = this.toolCtx.logs;
+      const auth = await this.authorize({ surface: "tool", tool: name, args, ...(fichesDir ? { fichesDir } : {}), ...(logs ? { logs } : {}) });
       if (!auth.ok) return auth.message;
       if (signal?.aborted) throw signal.reason;
       if (!this.tools.some((t) => t.name === name)) return `Error: ${name} is no longer available in ${MODE_LABELS[this.mode]} mode.`;

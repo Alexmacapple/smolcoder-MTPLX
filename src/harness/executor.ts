@@ -115,6 +115,10 @@ export interface CommandResult {
   durationMs: number;
   /** stdout et stderr mêlés, plafonnés en gardant le début et la fin. */
   output: string;
+  /** Le journal complet (#19), présent seulement quand `output` a été
+   * plafonné : de quoi retrouver une erreur au milieu d'un long journal.
+   * Borné lui aussi (LOG_CAP), début et fin gardés. */
+  log?: string;
   /** Délai appliqué, renseigné quand status vaut "timeout". */
   timeoutMs?: number;
   /** Message du système quand status vaut "spawn_error". */
@@ -167,6 +171,52 @@ export interface Executor {
 
 /** Plafond de la capture "buffer" : quatre fois le rendu de run_command. */
 const CAPTURE_CAP = 32_000;
+/** Plafond du journal complet (#19), en caractères. */
+export const LOG_CAP = 1_000_000;
+
+/** Journal complet d'une commande en temps linéaire : le début jusqu'à la
+ * moitié du plafond, puis une fin glissante ; au-delà, le milieu est
+ * remplacé par une marque qui dit combien de caractères manquent. */
+class LogCapture {
+  private head = "";
+  private tail: string[] = [];
+  private tailLength = 0;
+  private dropped = 0;
+  length = 0;
+
+  constructor(private readonly cap: number) {}
+
+  push(text: string): void {
+    this.length += text.length;
+    const half = Math.floor(this.cap / 2);
+    if (this.head.length < half) {
+      const take = half - this.head.length;
+      this.head += text.slice(0, take);
+      text = text.slice(take);
+    }
+    if (!text) return;
+    this.tail.push(text);
+    this.tailLength += text.length;
+    // Ne garder que les morceaux nécessaires à la fin glissante.
+    while (this.tail.length > 1 && this.tailLength - this.tail[0].length >= this.cap - half) {
+      this.tailLength -= this.tail[0].length;
+      this.dropped += this.tail.shift()!.length;
+    }
+  }
+
+  text(): string {
+    const room = this.cap - Math.floor(this.cap / 2);
+    let tail = this.tail.join("");
+    let dropped = this.dropped;
+    if (tail.length > room) {
+      dropped += tail.length - room;
+      tail = tail.slice(tail.length - room);
+    }
+    return dropped
+      ? `${this.head}\n... [${dropped} characters omitted: the log exceeded ${this.cap} characters] ...\n${tail}`
+      : this.head + tail;
+  }
+}
 
 /** Arguments du shell pour une requête : la ligne gérée par managedCommand,
  * ou le shell persistant du terminal web (command null). */
@@ -198,6 +248,7 @@ export function launch(req: ExecRequest, spec: () => LaunchSpec): Execution {
   }
   const { exe, args, env } = spec();
   let output = "";
+  const log = new LogCapture(LOG_CAP);
   let finished = false;
   const started = Date.now();
 
@@ -211,14 +262,17 @@ export function launch(req: ExecRequest, spec: () => LaunchSpec): Execution {
   // Node ne fournit pas de pid quand le lancement échoue.
   const spawned = proc.pid !== undefined;
   const finish = (fields: Pick<CommandResult, "status"> & Partial<CommandResult>) =>
-    resolve({ ...base, started: spawned, durationMs: Date.now() - started, output, ...fields });
+    resolve({ ...base, started: spawned, durationMs: Date.now() - started, output, ...(log.length > CAPTURE_CAP ? { log: log.text() } : {}), ...fields });
 
   const append = req.capture === "buffer"
     ? (chunk: Buffer) => {
         // Keep the end of a long build/test log: failures usually appear there.
         // Dropping all output after 32k hid the actual failure from the model.
-        output += chunk.toString("utf8");
+        const text = chunk.toString("utf8");
+        output += text;
         if (output.length > CAPTURE_CAP) output = truncateMiddle(output, CAPTURE_CAP);
+        // Le journal complet (#19) : une erreur au milieu reste retrouvable.
+        log.push(text);
       }
     : (chunk: Buffer) => req.onOutput?.(chunk.toString("utf8"));
   proc.stdout?.on("data", append);

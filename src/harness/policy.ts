@@ -22,6 +22,7 @@ import {
   SandboxError,
 } from "../sandbox";
 import { isFicheRef, readInstalledFiche } from "../fiches";
+import { CommandLogs, isLogRef } from "../tools/command-log";
 import type { ExecOptions } from "../tools/shell";
 import { AccessPolicy, POLICY_FILE, PolicyRule, readPolicy } from "./store";
 import type { Mission } from "./mission";
@@ -43,6 +44,9 @@ export interface AccessRequest {
   /** Fiches de méthode installées (#30) : le dossier que l'hôte sert pour
    * `fiche:<nom>`, fixé par l'hôte, jamais par un argument du modèle. */
   fichesDir?: string;
+  /** Journaux de commande de la session (#19) : ce que read_file sert pour
+   * `log:<n>`, fixé par l'hôte, jamais par un argument du modèle. */
+  logs?: Pick<CommandLogs, "get" | "kept">;
 }
 
 export interface Decision {
@@ -167,6 +171,17 @@ export function decide(mission: Mission, req: AccessRequest): Decision {
         const fiche = readInstalledFiche(req.fichesDir, given);
         if (!fiche.ok) return deny(fiche.error);
         return { ...base, verdict: "allow", paths: [fiche.file], reason: `an installed method sheet ("${fiche.name}"), read-only, served by the host outside the workspace` };
+      }
+      // L'exception nommée des journaux de commande (#19) : la sortie complète
+      // d'une commande déjà décidée, gardée en mémoire par la session, en
+      // lecture seule ; jamais un fichier, donc aucun chemin.
+      if (req.logs && isLogRef(given) && (action === "read" || action === "write")) {
+        const ref = given.trim();
+        if (action === "write") return deny(`"${ref}" names a command log kept by the harness, which is read-only`);
+        if (req.logs.get(ref) === undefined) {
+          return deny(`"${ref}" is not a command log kept by this session (only the last ${req.logs.kept} shortened outputs are kept); run the command again if you need its output`);
+        }
+        return { ...base, verdict: "allow", paths: [], reason: `a command log ("${ref}") kept in memory by this session, read-only, never a file` };
       }
       let abs: string;
       try {

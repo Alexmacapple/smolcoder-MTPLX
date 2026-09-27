@@ -1,0 +1,1 @@
+Ajoute dans config.py un réglage TIMEOUT = 30, et dans app.py une fonction delai() qui le renvoie. Vérifie avec python3 -m unittest -q test_app.

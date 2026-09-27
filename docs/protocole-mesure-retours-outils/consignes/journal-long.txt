@@ -1,0 +1,1 @@
+La vérification python3 verifier.py échoue. Trouve la cause et corrige calc.py, sans modifier verifier.py. Termine quand python3 verifier.py sort 0.
