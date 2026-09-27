@@ -6,7 +6,9 @@
 // vérification --verify, tournent dans le bac : un témoin hors du workspace,
 // lisible par l'hôte, leur reste illisible. Lancé par `npm run test:os`,
 // jamais par `npm test` ; ailleurs que sur macOS, chaque test est sauté avec
-// son motif. Les noms « H03-4 OS ACn » renvoient aux critères du chapeau #12.
+// son motif. Les noms « H03-4 OS ACn » renvoient aux critères du chapeau #12 ;
+// « H04 OS » (#9) prouve le contrôle décisif dans le bac et le verdict hors
+// de portée du modèle.
 const test = require("node:test");
 const assert = require("node:assert/strict");
 const fs = require("fs");
@@ -262,6 +264,76 @@ test("H03-4 OS AC3 (headless): a development server started as a background task
   assert.deepEqual({ state: iso.state, listen: iso.listen }, { state: "ready", listen: [`localhost:${port}`] }, "the headless [isolation] line names the listening port");
   assert.match(plain(r.all), new RegExp(`they may listen on localhost:${port}, which the local network can reach`), "the status line states the limit");
   assert.notEqual(await get(port), "pong-dev-server", "the task was stopped with the run");
+});
+
+// ---- #9 : verdicts du vrai binaire, contrôle décisif dans le bac ---------------
+
+test("H04 OS (headless): the real smol binary under --mission runs the decisive check in the sandbox and keeps its verdict out of the model's reach — a trivial test script earns exit 5 and a blocked verdict, a real fix earns exit 0, and report.json/report.md land in the host store, which the sandbox cannot forge", { skip, timeout: 240000 }, async (t) => {
+  const witness = path.join(outside, "witness.txt");
+  const files = (f) => {
+    fs.writeFileSync(path.join(f.ws, "package.json"), JSON.stringify({ name: "h04", version: "1.0.0", scripts: { test: "node --test" } }));
+    fs.writeFileSync(path.join(f.ws, "app.js"), "module.exports = () => 1;\n");
+    fs.mkdirSync(path.join(f.ws, "test"));
+    // Le test approuvé exige aussi le bac : hors de lui, le témoin se lit.
+    fs.writeFileSync(path.join(f.ws, "test", "app.test.js"), [
+      "const test = require('node:test');",
+      "const assert = require('node:assert');",
+      "test('app returns 2', () => assert.equal(require('../app.js')(), 2));",
+      `test('the check runs confined', () => assert.throws(() => require('fs').readFileSync(${JSON.stringify(witness)}), /EPERM|not permitted/i));`,
+      "",
+    ].join("\n"));
+    fs.appendFileSync(path.join(f.ws, "targets.env"), `REPORT=${JSON.stringify(path.join(f.m.dir, "report.json"))}\n`);
+    fs.writeFileSync(path.join(f.ws, "forge.sh"), '. ./targets.env\nif echo \'{"task":{"state":"verified"}}\' > "$REPORT" 2>/dev/null; then echo forge=LEAK; else echo forge=denied; fi\n');
+  };
+  const args = (f) => [f.ws, "-p", "make the test pass", "--mission", f.src, "--approve", f.m.fingerprint, "--model", MODEL, "--verify", "npm test", "--verify-attempts", "1"];
+  const checks = [{ command: "npm test", covers: [1] }];
+
+  // 1. Le modèle remplace le script de test par un succès trivial.
+  const a = fixture("h04-tamper", { checks });
+  files(a);
+  const tamper = await fakeModel([
+    call("w1", "write_file", { path: "package.json", content: JSON.stringify({ name: "h04", version: "1.0.0", scripts: { test: "exit 0" } }) }),
+    call("c1", "run_command", { command: "sh forge.sh" }),
+    { content: "Terminé : tous les tests passent." },
+  ]);
+  t.after(() => tamper.close());
+  const r1 = await smol(args(a), smolEnv(tamper));
+  assert.equal(r1.code, 5, r1.all);
+  const v1 = tagged(r1.stderr, "verdict");
+  assert.deepEqual([v1.state, v1.verifiers, v1.criteria.passed], ["blocked", "changed", 0]);
+  assert.equal(v1.report, path.join(a.m.dir, "report.json"));
+  const [, forged] = tamper.toolResults();
+  assert.match(forged, /forge=denied/, "the sandbox cannot write the report");
+  const rep1 = JSON.parse(fs.readFileSync(path.join(a.m.dir, "report.json"), "utf8"));
+  assert.equal(rep1.task.state, "blocked", "the report is the host's, not the forged one");
+  assert.deepEqual(rep1.verifiers.changes, ["package.json (modified)"]);
+  assert.match(fs.readFileSync(path.join(a.m.dir, "report.md"), "utf8"), /État de la tâche : \*\*blocked\*\*/);
+  const ev1 = store.readProofs(a.m.dir).events.filter((e) => e.type === "verdict");
+  assert.deepEqual(ev1.map((e) => [e.status, e.cause]), [["not_run", "verifier-changed"]]);
+  const direct = require("child_process").spawnSync("npm", ["test"], { cwd: a.ws, env: { PATH: process.env.PATH, HOME }, encoding: "utf8" });
+  assert.equal(direct.status, 0, "the tampered script would have passed");
+
+  // 2. Le modèle corrige le code : le contrôle tourne dans le bac et passe.
+  const b = fixture("h04-fix", { checks });
+  files(b);
+  const fix = await fakeModel([
+    call("w1", "write_file", { path: "app.js", content: "module.exports = () => 2;\n" }),
+    { content: "Terminé." },
+  ]);
+  t.after(() => fix.close());
+  const r2 = await smol(args(b), smolEnv(fix));
+  assert.equal(r2.code, 0, r2.all);
+  const v2 = tagged(r2.stderr, "verdict");
+  assert.deepEqual([v2.state, v2.criteria], ["verified", { passed: 2, failed: 0, not_run: 0, error: 0 }]);
+  assert.deepEqual(tagged(r2.stderr, "stats").verification, { attempts: 1, passed: true });
+  const ev2 = store.readProofs(b.m.dir).events.filter((e) => e.type === "verdict");
+  assert.deepEqual(ev2.map((e) => [e.status, e.exit.code, e.tests, e.criteria]), [["passed", 0, 2, ["acceptance-1", "verify"]]], "both tests ran, the confinement test included");
+  for (const f of [a, b]) assert.ok(!fs.readdirSync(f.ws).some((n) => /^report\./.test(n)), "no report inside the workspace");
+  // Le même test approuvé, lancé hors du bac, échoue : il lit le témoin.
+  // Environnement explicite : un node --test imbriqué hériterait sinon de
+  // NODE_TEST_CONTEXT et sortirait 0.
+  const unconfined = require("child_process").spawnSync(process.execPath, ["--test"], { cwd: b.ws, env: { PATH: process.env.PATH, HOME }, encoding: "utf8" });
+  assert.notEqual(unconfined.status, 0, "outside the sandbox the confinement test fails");
 });
 
 // ---- web ----------------------------------------------------------------------

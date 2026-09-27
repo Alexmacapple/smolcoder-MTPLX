@@ -1242,7 +1242,7 @@ ajouté, puis rouge. `dist/` restauré (empreintes SHA-256 comparées).
 `npm test` 296/296 (292 et 4 nouveaux) et `npm run test:os` 21/21, aucun
 test sauté. SHA `91f8cd6` reporté sur l'entrée précédente.
 
-### (ce commit) — Verdicts par critère dans la boucle mission — Réf #9
+### `e71311e` — Verdicts par critère dans la boucle mission — Réf #9
 
 `src/agent.ts`, `src/harness/mission.ts`, `src/index.ts`, `src/session.ts`,
 `test/proofs.test.js`, `test/os/e2e.os.test.js`,
@@ -1306,6 +1306,49 @@ verdict (une première version de cette mutation cassait la syntaxe ; elle a
 été refaite), contrôles du projet sans verdict propre, profil appliqué hors
 `--mission`. `npm test` 313/313 (296 et 17 nouveaux) et `npm run test:os`
 21/21, aucun test sauté. SHA `8d5108a` reporté sur l'entrée précédente.
+
+### (ce commit) — Preuve sur le vrai binaire, README — Closes #9
+
+`test/os/e2e.os.test.js`, `README.md`. Ticket #9 (H04), dernier commit :
+les six critères d'acceptation sont prouvés par des tests nommés, sur le
+socle de `3b3febb` et les commits `8d5108a` et `e71311e`.
+
+Nouveau test « H04 OS (headless) » dans `npm run test:os` : le vrai binaire
+`dist/index.js` sous `--mission`, piloté par le faux serveur
+OpenAI-compatible local (faux dossier personnel, aucun MTPLX). Premier run :
+le modèle remplace le script de test par `exit 0` puis tente d'écrire
+`report.json` du stockage hôte par un chemin lu dans un fichier — sortie 5,
+`[verdict]` `blocked`, zéro `passed`, un seul verdict `not_run
+(verifier-changed)`, écriture refusée par le bac (`forge=denied`), rapport de
+l'hôte intact ; `npm test` lancé directement sur ce workspace sort pourtant 0.
+Second run : le modèle corrige le code — le contrôle `npm test` tourne dans
+le bac (le test approuvé exige lui-même d'y être : il échoue hors du bac, où
+le témoin se lit), sortie 0, `[verdict]` `verified`, deux critères
+`passed`, verdict `exit 0, 2 tests` au journal ; aucun rapport dans le
+workspace. Le README passe #9 des chantiers restants aux fonctionnalités.
+
+Correspondance des critères du ticket : AC1 (Qwen annonce « terminé », un
+critère requis échoue) « H04 AC1 » et « H04 OS » ; AC2 (zéro test, contrôle
+sauté, délai, plantage) les quatre « H04 AC2 » ; AC3 (« exit code 0 »
+imprimé) « H04 AC3 » ; AC4 (test, configuration ou script altérés) les six
+« H04 AC4 » et « H04 OS » ; AC5 (preuve périmée, aucun vert affiché) « H04
+AC5 » ; AC6 (budget, annulation, contrôles progressifs) les quatre « H04
+AC6 » et `test/verification.test.js` inchangé et vert.
+
+Vérifications. Rouge montré par mutation du binaire compilé : la
+comparaison initiale du vérificateur retirée, le test rougit sur le motif
+(`error (verifier-changed-during-check)` au lieu de `not_run
+(verifier-changed)`, la garde pendant le contrôle rattrapant l'altération) ;
+les deux gardes retirées, il rougit sur deux `passed` indus (le rapport,
+troisième garde, restait `blocked`) ; `dist/` restauré (SHA-256). `npm
+test` 313/313 et `npm run test:os` 22/22 (21 et 1 nouveau), aucun test
+sauté. Le vrai `~/.smolcoder` n'a reçu aucune écriture depuis la création
+du worktree ; dans le vrai `~/.npm/_logs`, seuls les journaux de débogage
+de npm des commandes lancées à la main et du test existant
+`test/verification.test.js` (hors mission, dossier personnel réel, fuite
+antérieure à #9, non corrigée ici) ; aucun des nouveaux tests. Non vérifié :
+aucun run contre MTPLX ni Qwen réel ; une seule machine. SHA `e71311e`
+reporté sur l'entrée précédente.
 
 ## Hors dépôt (machine locale)
 
