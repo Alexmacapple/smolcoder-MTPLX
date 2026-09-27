@@ -23,6 +23,7 @@ import { truncateMiddle } from "./util";
 import { createHash } from "crypto";
 import * as os from "os";
 import { commandPassed, CommandResult, ExecOptions, renderCommandResult, runCommandResult } from "./tools/shell";
+import { CommandLogs } from "./tools/command-log";
 import { failureSignature, projectVerification } from "./verification";
 import type { Mission } from "./harness/mission";
 import { AccessRequest, decide, Decision, PolicySuspension } from "./harness/policy";
@@ -116,6 +117,16 @@ export class Agent {
     this.messages = [{ role: "system", content: systemPrompt }];
     this.tools = buildToolSpecs(mode);
     this.ctxMgr.setReplayThinking(provider.replaysThinking !== false);
+    // #19 : les journaux complets des sorties raccourcies, lus par read_file
+    // sous `log:<n>`. Posés sur le contexte d'outils lui-même, pour que ses
+    // copies par appel (profil mission) partagent le même stock.
+    this.toolCtx.logs ??= new CommandLogs();
+  }
+
+  /** #19 : rendu d'une vérification à la taille des résultats d'outils, son
+   * journal complet gardé comme celui de run_command. */
+  private renderCheck(result: CommandResult): string {
+    return renderCommandResult(result, { maxChars: this.ctxMgr.toolResultCharLimit() - 256, logs: this.toolCtx.logs });
   }
 
   setMode(mode: Mode, systemPrompt: string): void {
@@ -148,6 +159,7 @@ export class Agent {
     // cleared conversation would assert work the new task never did.
     this.toolCtx.filesTouched.clear();
     this.toolCtx.commandsRun.length = 0;
+    this.toolCtx.logs?.clear();
     this.ctxMgr.resetAnchor();
   }
 
@@ -201,7 +213,7 @@ export class Agent {
     }
     const result = await runCommandResult(command, this.toolCtx.workspace, signal, undefined, exec, this.toolCtx.executor, "check");
     if (signal.aborted) throw abortError();
-    return { passed: commandPassed(result), output: renderCommandResult(result) };
+    return { passed: commandPassed(result), output: this.renderCheck(result) };
   }
 
   /** Profil mission (#9) : les contrôles décisifs, un par commande, dans
@@ -318,7 +330,7 @@ export class Agent {
           v = { status: "error", cause: "verifier-changed-during-check", tests: v.tests };
         }
       }
-      const body = renderCommandResult(result) + (changes ? `\n[the verifier inputs were written during the check: ${changes.join(", ")}]` : "");
+      const body = this.renderCheck(result) + (changes ? `\n[the verifier inputs were written during the check: ${changes.join(", ")}]` : "");
       if (v.status !== "passed") return stop(check, v, body, { exit: result, changes });
       pending.push({ check, v, exit: result });
       this.ui.toolResult(body);

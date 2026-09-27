@@ -1350,7 +1350,7 @@ antérieure à #9, non corrigée ici) ; aucun des nouveaux tests. Non vérifié 
 aucun run contre MTPLX ni Qwen réel ; une seule machine. SHA `e71311e`
 reporté sur l'entrée précédente.
 
-### (ce commit) — Retours d'échec d'édition exploitables — Réf #19
+### `700a4e7` — Retours d'échec d'édition exploitables — Réf #19
 
 `src/tools/fs-tools.ts`, `test/edit-feedback.test.js`. Ticket #19 (H07),
 premier commit : les retours d'échec d'`edit_file`. Constat préalable :
@@ -1383,6 +1383,57 @@ sa raison : retour ambigu sans ligne ni extrait, fournisseur simulé réduit
 test existant de l'extrait voisin passe inchangé. `npm test` 317/317 (313
 et 4 nouveaux) et `npm run test:os` 22/22, aucun test sauté, sous un HOME
 temporaire. SHA `2d74f9b` reporté sur l'entrée précédente.
+
+### (ce commit) — Journal de commande : la cause reste visible — Réf #19
+
+`src/harness/executor.ts`, `src/tools/command-log.ts` (nouveau),
+`src/tools/shell.ts`, `src/tools/index.ts`, `src/agent.ts`,
+`test/command-log.test.js` (nouveau). Ticket #19 (H07), deuxième commit :
+le retour d'une commande ou d'un test. Constat préalable : le code de
+sortie réel était déjà rendu (`[exit code N]`, résultat typé de #15 et #9),
+mais un long journal était coupé trois fois au milieu — capture plafonnée à
+32 000 caractères, rendu à 8 000, plafond des résultats d'outils du contexte
+(600 caractères au moins) —, si bien qu'une erreur au milieu disparaissait,
+sans moyen de relire le journal.
+
+Ajouts. L'exécuteur garde, à côté de `output` inchangé (qui nourrit
+toujours `classify` de #9), le journal complet quand il dépasse la capture :
+champ facultatif `log` de `CommandResult`, 1 000 000 de caractères au plus,
+capture en temps linéaire. Extension additive du résultat typé, déclarée,
+pas un doublon. `renderCommandResult` rend une sortie qui tient au format
+historique inchangé ; une sortie trop longue garde son début et sa fin,
+coupés sur des fins de ligne (et non plus au caractère près, marque
+`[N lines (M characters) omitted …]`), et, après un échec, remonte en tête
+les lignes décisives de la partie omise — test en échec, exception, erreur
+de compilation, assertion ; douze au plus, numérotées. En tête, parce
+qu'une coupe ultérieure au milieu (plafond du contexte, note de compaction)
+garde le début d'un texte. Le journal complet est gardé en mémoire par la
+session (les six derniers) et lu par `read_file` sous `log:<n>`, avec
+l'appel exact qui montre l'échec en contexte ; jamais écrit dans le
+workspace (les empreintes du profil mission n'en voient rien), en lecture
+seule ; sans stock fourni par l'hôte, `log:<n>` reste un chemin ordinaire.
+run_command et les vérifications (progression, acceptation, contrôles du
+profil mission) sont rendus à la taille des résultats d'outils du contexte,
+si bien qu'aucune coupe au milieu ne les suit plus.
+
+Sous `--mission`, la politique décide de `read_file log:<n>` comme d'un
+chemin du workspace (non protégé, donc autorisé) ; l'outil refuse toute
+écriture sur `log:<n>`. Politique, bac Seatbelt et verdicts inchangés : le
+journal ne contient que ce que la commande autorisée a imprimé.
+
+Vérifications. Quatre tests « H07 AC2 », sur un journal de près de 500 000
+caractères dont la seule cause décisive est à la ligne 3 001 sur 6 004 :
+run_command sous le plafond par défaut ; boucle de l'agent sous une petite
+fenêtre (plafond d'environ 2 300 caractères), où le fournisseur simulé voit
+le cas défaillant et sa cause, puis lit le journal complet par l'appel
+proposé ; échec d'acceptation dont le cas défaillant parvient au modèle ;
+stock en lecture seule, borné, rien dans le workspace. Rouge constaté sur
+le code d'avant pour les trois premiers (cas défaillant absent du retour).
+Le quatrième, écrit après le code, est montré rouge par deux mutations du
+code compilé (écriture sur `log:<n>` acceptée ; stock non borné), `dist/`
+restauré (SHA-256). `npm test` 321/321 (317 et 4 nouveaux) et `npm run
+test:os` 22/22, aucun test sauté. SHA `700a4e7` reporté sur l'entrée
+précédente.
 
 ## Hors dépôt (machine locale)
 

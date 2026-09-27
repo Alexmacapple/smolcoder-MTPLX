@@ -9,6 +9,7 @@ import { editFile, listFiles, readFile, renderRead, writeFile } from "./fs-tools
 import { isFicheRef, readInstalledFiche } from "../fiches";
 import { syntaxCheck } from "./check";
 import { ExecOptions, runCommand } from "./shell";
+import { CommandLogs, isLogRef, logReadOnly } from "./command-log";
 import type { Executor } from "../harness/executor";
 import { TaskManager } from "./tasks";
 import { PathRules, resolveInWorkspace, SandboxError } from "../sandbox";
@@ -169,6 +170,10 @@ export interface ToolContext {
   /** Profil mission : trace chaque lecture de fiche avant de la servir ;
    * une trace impossible lève, et la fiche n'est pas servie. */
   onFicheRead?: (name: string, sha256: string) => void;
+  /** Journaux complets des sorties de commande raccourcies (#19), que
+   * read_file sert sous `log:<n>` ; fixés par l'hôte (l'agent les crée),
+   * absents = aucun journal gardé, `log:<n>` reste un chemin ordinaire. */
+  logs?: CommandLogs;
 }
 
 export async function executeTool(
@@ -189,6 +194,14 @@ export async function executeTool(
           if (!fiche.ok) return `Error: ${fiche.error}`;
           ctx.onFicheRead?.(fiche.name, fiche.sha256);
           result = renderRead(fiche.content, args, maxChars);
+        } else if (ctx.logs && isLogRef(args.path)) {
+          // Le journal complet d'une sortie raccourcie (#19), gardé en
+          // mémoire par la session : lecture ciblée, jamais un fichier.
+          const log = ctx.logs.get(args.path);
+          if (log === undefined) {
+            return `Error: "${String(args.path).trim()}" is not a command log kept by this session (only the last ${ctx.logs.kept} shortened outputs are kept). Run the command again if you need its output.`;
+          }
+          result = renderRead(log, { ...args, path: String(args.path).trim() }, maxChars);
         } else {
           result = readFile(ctx.workspace, args, maxChars);
         }
@@ -214,6 +227,7 @@ export async function executeTool(
       }
       case "write_file":
         if (ctx.fichesDir && isFicheRef(args.path)) return ficheReadOnly(args.path);
+        if (ctx.logs && isLogRef(args.path)) return logReadOnly(args.path);
         result = writeFile(ctx.workspace, args);
         if (!result.startsWith("Error")) {
           ctx.filesTouched.add(String(args.path));
@@ -222,6 +236,7 @@ export async function executeTool(
         break;
       case "edit_file":
         if (ctx.fichesDir && isFicheRef(args.path)) return ficheReadOnly(args.path);
+        if (ctx.logs && isLogRef(args.path)) return logReadOnly(args.path);
         result = editFile(ctx.workspace, args);
         if (!result.startsWith("Error")) {
           ctx.filesTouched.add(String(args.path));
@@ -232,7 +247,12 @@ export async function executeTool(
         if (typeof args.command !== "string" || !args.command.trim()) {
           return 'Error: command is required. Example: {"command": "npm test"}';
         }
-        result = await runCommand(args.command, ctx.workspace, signal, ctx.exec, ctx.executor);
+        // Rendu à la taille du contexte (#19) : aucune coupe ultérieure au
+        // milieu, et le journal complet gardé si la sortie est raccourcie.
+        result = await runCommand(args.command, ctx.workspace, signal, ctx.exec, ctx.executor, {
+          ...(ctx.resultCharLimit ? { maxChars: ctx.resultCharLimit - 256 } : {}),
+          ...(ctx.logs ? { logs: ctx.logs } : {}),
+        });
         ctx.commandsRun.push(`${args.command} → ${result.split("\n").at(-1)}`);
         if (ctx.commandsRun.length > 50) ctx.commandsRun.splice(0, ctx.commandsRun.length - 50);
         break;
