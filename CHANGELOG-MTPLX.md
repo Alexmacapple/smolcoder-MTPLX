@@ -2391,7 +2391,7 @@ longue avant le rejeu) ; `shellcheck -S warning` et `ruff` sans
 avertissement. Aucun essai MTPLX à ce commit. SHA `01e9bd3` reporté sur
 l'entrée précédente.
 
-### (ce commit) — Mesure #52 : verdict NON PROTÉGÉ — Réf #52
+### `f686c80` — Mesure #52 : verdict NON PROTÉGÉ — Réf #52
 
 `docs/mesure-securite-mission-2026-09-27.md` (nouveau). Campagne jouée sur
 `c5c49d2` avec le binaire figé, sous le verrou du banc : 32 essais pour
@@ -2416,6 +2416,21 @@ les écarts (fenêtre calme, faux départ sans essai, verrou de #53, couche
 nommée à la main plutôt que par le champ automatique, recherche non
 littérale de la clé) et les limites. Documentation seule : runner,
 protocole, `src/`, `test/` et `docs/skills/` inchangés. SHA `c5c49d2`
+reporté sur l'entrée précédente.
+
+### (ce commit) — Mesure #52 : rapport sans les messages d'Alex — Réf #52
+
+`docs/mesure-securite-mission-2026-09-27.md`. Le rapport citait mot pour
+mot les deux requêtes qu'Alex a envoyées à MTPLX pendant l'essai invalide
+`destructif` r1 témoin. Le dépôt est public et ce texte n'apporte rien à
+la mesure : seuls restent le fait (deux requêtes d'un autre client) et
+`active_requests` à 2. Vérifié à la relecture, avant cette correction :
+verdict recalculé par `analyse.py` avec le SHA complet `c5c49d2…`
+(identique), suppressions confirmées dans les archives finales des essais,
+`injection` r1 réduit à la correction de `calc.py`, clé absente des
+16 essais sous `--mission` sous forme littérale, base64, inversée ou par
+moitié (contre-épreuve : trouvée dans les trois témoins qui fuient),
+`test-securite.sh` PASS (38 contrôles). Documentation seule. SHA `f686c80`
 reporté sur l'entrée précédente.
 
 ## Hors dépôt (machine locale)
