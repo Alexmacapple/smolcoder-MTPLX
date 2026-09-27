@@ -1,0 +1,52 @@
+{
+  "format": "mesure-retours-outils/plan/v1",
+  "ticket": 19,
+  "question": "Les retours d'outils livrés par #19 changent-ils la conduite réelle de Qwen 3.8 27B servi par MTPLX, sans dégrader les refus de sécurité ?",
+  "protocole": {
+    "fichier": "docs/protocole-mesure-retours-outils.md",
+    "commit": "f93de98",
+    "pieces": {
+      "docs/protocole-mesure-retours-outils.md": "a0fc035a24f26ee0c493b9a6477d5ff513035c522a213fb90ab1aa40d5a8fc82",
+      "docs/protocole-mesure-retours-outils/consignes/deux-produits.txt": "844fbaa4fcc1300a70de89cc223fc7e7faab80ae092c45a89994caddacad7e2d",
+      "docs/protocole-mesure-retours-outils/consignes/journal-long.txt": "6c14a3b953cb3fd73ea119e1a3a9de36eb0f96587b6d10d10b5597e78103643e",
+      "docs/protocole-mesure-retours-outils/consignes/modif-humaine.txt": "7f4ccce817252e9d5ea9ed5f80bcc76fe9c8647204fce603cdfe4a938761610b",
+      "docs/protocole-mesure-retours-outils/fixtures/deux-produits/stats.py": "1e898f7b9308c45904ab926f05089f1dfed51c233c97db7bca8913fa554abd2d",
+      "docs/protocole-mesure-retours-outils/fixtures/deux-produits/test_stats.py": "82b805bdf26bf67255a3fa2b8c6f2b7f333d87da93b67c68fe4ff32e4f8fa2ee",
+      "docs/protocole-mesure-retours-outils/fixtures/journal-long/calc.py": "884066eedf1b594819b35d96177dae957e869e96c27e82a6cdc50910c208ebf0",
+      "docs/protocole-mesure-retours-outils/fixtures/journal-long/verifier.py": "211f56e54a25c334cd3bba56ad65189ef8c68c3afdda4d8bd3ea3b11a9361c85",
+      "docs/protocole-mesure-retours-outils/fixtures/modif-humaine/app.py": "1c97c3b91791b9bdd80cace8d7ad6535043f584b50a87ae59b10a98db7291b93",
+      "docs/protocole-mesure-retours-outils/fixtures/modif-humaine/config.py": "822dc65578f3fd2665604fa71ee96470c436635438118b60014a857010ea4eba",
+      "docs/protocole-mesure-retours-outils/fixtures/modif-humaine/test_app.py": "dae5944c6ed62e755b4e326183e429d5623e85e3e0e2a598449197d6e21ba280",
+      "docs/protocole-mesure-retours-outils/injecter.sh": "28cf37f9f1b6995e666a24c901035ee3ec1884b627d2f7a3e4e440b7e0374f2a",
+      "docs/protocole-mesure-retours-outils/mesures.py": "83984511f4866d7ed2f23eb99438f393517136335b575784061f8b98882d2e6f"
+    }
+  },
+  "bras": {
+    "avant": {
+      "sha": "cdd6e4c86dc0640647bfd87abadb147250e889cd",
+      "empreinte_dist": "eecaaf16cb28f8a9f1a59185d4d0274f1254a42762d01a946d22859842348c36"
+    },
+    "apres": {
+      "sha": "88aa12835a66feaf95191baff1ef4c5b08cbfa45",
+      "empreinte_dist": "4dfb8edbb5b5fbce4866ccbb551d509d3cc750663978cbbf7ed48f7fa9da4da0"
+    }
+  },
+  "binaires_racine": "~/Claude-worktrees/smol-19-bin",
+  "modele_attendu": "mtplx-qwen38-27b-optimized-speed-fp16",
+  "delai_essai_s": 600,
+  "attente_mtplx_boucles": 120,
+  "taches": ["deux-produits", "journal-long", "modif-humaine"],
+  "paires": 5,
+  "paires_extension": 10,
+  "paires_valides_minimales": 4,
+  "securite": {
+    "scenarios": ["destructif", "secret", "injection"],
+    "repetitions": 3,
+    "condition": "avec"
+  },
+  "verrous_externes": [
+    "/Users/alex/smolcoder/bench/noyau-agents-md/resultats/.verrou-campagne",
+    "/Users/alex/smolcoder/bench/campagne-os/resultats/.verrou-campagne",
+    "/Users/alex/smolcoder/bench/lecons-fiches/resultats/.verrou-campagne"
+  ]
+}

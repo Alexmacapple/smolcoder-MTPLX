@@ -2257,7 +2257,7 @@ après `verification-finale`). Vérifications : `npm test` 292/292,
 `test-banc.sh` PASS et `test-etude.sh` PASS, rejoués sur ce commit.
 Documentation seule. SHA `be8fa3e` reporté sur l'entrée précédente.
 
-### (ce commit) — Étude #33 rejouable : fiches A figées
+### `77ad709` — Étude #33 rejouable : fiches A figées
 
 `bench/lecons-fiches/fiches-a.sh` (nouveau), `essai.sh`, `etude.py`,
 `test-etude.sh`. Constaté à la fusion de l'étude sur `main` :
@@ -2274,6 +2274,41 @@ et `smol --install-fiches` garde les fiches vivantes, car il compare deux
 chemins d'installation. Ni le protocole, ni les correctifs, ni les tâches,
 ni les résultats ne changent. Rouge : 26 échecs sur `main` ; vert : PASS,
 34 contrôles.
+
+### (ce commit) — Mesure #19 : runner et écarts déclarés
+
+`bench/mesure-retours-outils/` (nouveau : `plan.json`, `essai.sh`,
+`mesure.py`, `campagne.sh`, `analyse.py`, `test-mesure.sh`,
+`faux-mtplx.py`), `docs/mesure-retours-outils-2026-09-27.md` (nouveau).
+Ticket #19, critère 4 : runner de la mesure appariée pré-enregistrée
+(`docs/protocole-mesure-retours-outils.md`, `f93de98`), commité avant le
+premier essai avec les écarts déclarés ; la règle de décision ne change
+pas. Binaires avant `cdd6e4c` et après `88aa128` construits hors du dépôt,
+empreintes de `dist/` identiques à celles du protocole et recalculées avant
+chaque essai (différence : arrêt de la campagne). Écarts déclarés dans le
+rapport : `git archive` depuis `~/smolcoder` (le worktree cité par le
+protocole n'existe plus) ; étiquette `reference` sur le commit de
+référence (le `git diff reference` du protocole sort 128) ; verrous des
+campagnes d'autres worktrees attendus sans être pris ; dossier personnel de
+test jetable, noyau et configuration copiés ; définitions opératoires de la
+validité, dont « MTPLX occupé » par attribution des requêtes de `recent` ;
+cas limites de la règle tranchés dans le sens prudent ; ordre entrelacé et
+extension mécanique du point 4.
+
+Vérifications, sans modèle : `bench/mesure-retours-outils/test-mesure.sh`
+PASS (33 contrôles, aucun sauté), joué sur les vrais binaires contre un
+faux MTPLX qui scénarise le modèle : déroulé complet d'un essai (jamais
+joué jusque-là), échec d'édition localisé aux lignes 5 et 14 seulement avec
+le binaire après, modification externe de T3 perdue avec le binaire avant
+et conservée après un signal avec le binaire après, délai dépassé,
+interruption, requête d'un autre client, MTPLX occupé ou absent, autre
+modèle, verrous, empreinte, smol qui ne démarre pas, pièce du protocole
+modifiée, dossier personnel réel inchangé, campagne (ordre alterné, rejeu
+unique, reprise, sécurité par `banc.sh`), règle sur manifestes
+synthétiques. `npm test` 374/374 ; `shellcheck -S warning` et `ruff` sans
+avertissement. `src/`, `test/`, `docs/skills/` et le protocole inchangés.
+Aucun essai MTPLX à ce commit. SHA `77ad709` reporté sur l'entrée
+précédente.
 
 ## Hors dépôt (machine locale)
 
