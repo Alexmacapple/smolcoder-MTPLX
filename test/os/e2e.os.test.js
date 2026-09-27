@@ -171,7 +171,9 @@ function plantProbes(ws) {
  * seul serveur joignable (OLLAMA_HOST ; aucune machine du réseau n'est
  * configurée), et le PATH de l'hôte. */
 function smolEnv(model, extra = {}) {
-  return { PATH: process.env.PATH, HOME, SMOLCODER_CONFIG: process.env.SMOLCODER_CONFIG, OLLAMA_HOST: model.url, LANG: "en_US.UTF-8", ...extra };
+  // TMPDIR transmis (#44) : le binaire range son dossier temporaire privé dans
+  // celui de la passe, que le lanceur supprime, et non dans /tmp.
+  return { PATH: process.env.PATH, HOME, TMPDIR: process.env.TMPDIR, SMOLCODER_CONFIG: process.env.SMOLCODER_CONFIG, OLLAMA_HOST: model.url, LANG: "en_US.UTF-8", ...extra };
 }
 
 /** Le vrai binaire, en asynchrone : le faux modèle répond depuis ce processus. */

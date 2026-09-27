@@ -1763,6 +1763,28 @@ blanc : l'étiquette Git `reference`, sans laquelle le diff du périmètre
 sur l'arbre final, aucun test sauté. SHA `ed4ba0b` reporté sur l'entrée
 précédente.
 
+### (ce commit) — Tests : dossier temporaire propre à chaque passe — Closes #44
+
+`scripts/test.cjs`, `scripts/test-os.cjs`, `test/suite-hors-home.test.js`,
+`test/os/e2e.os.test.js`. Les suites laissaient leurs dossiers temporaires :
+441 entrées (3,6 Mo) par passe de `npm test`, une cinquantaine par passe de
+`npm run test:os`, 26 656 dossiers `/tmp/smol-*` accumulés sur ce Mac. Chaque
+lanceur crée désormais un dossier propre à la passe, le donne à la suite par
+`TMPDIR` (que `os.tmpdir()` suit), et le supprime à la fin ; le cache npm
+jetable de #41 y est rangé. Le vrai binaire lancé par les tests de bout en
+bout reçoit aussi `TMPDIR` : il retombait sinon sur `/tmp`, où il créait son
+dossier `smol-sandbox-*`. Rouge d'abord : le nouveau test exige que
+`os.tmpdir()` soit un dossier `smol-tests-*` (« os.tmpdir() is the shared
+temporary folder (/private/tmp) », 343 verts et 1 échec). Après correctif :
+`npm test` 344/344, `npm run test:os` 23/23. Mesure dans un dossier parent
+dédié, à l'abri des autres processus : aucun reste. Mesure directe, aucune
+autre suite en cours : aucune nouvelle entrée des suites dans `/tmp`. Les
+dossiers déjà accumulés ne sont pas supprimés en bloc, un processus en cours
+pouvant en utiliser. Constat de passage, hors de ce commit : le backend isolé
+ne supprime pas son dossier temporaire privé en fin de session (seulement si
+la sonde échoue), donc toute session `--mission` en laisse un ; c'est un
+défaut du produit, à traiter à part après #10.
+
 ## Hors dépôt (machine locale)
 
 - Fork créé : `Alexmacapple/smolcoder-MTPLX`.
