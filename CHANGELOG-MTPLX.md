@@ -1485,7 +1485,7 @@ test resserré sur l'instant du signal, puis rouge), `dist/` restauré
 (SHA-256). `npm test` 326/326 (321 et 5 nouveaux) et `npm run test:os`
 22/22, aucun test sauté. SHA `35ed672` reporté sur l'entrée précédente.
 
-### (ce commit) — Protocole de mesure appariée de #19 — Réf #19
+### `f93de98` — Protocole de mesure appariée de #19 — Réf #19
 
 `docs/protocole-mesure-retours-outils.md` (nouveau),
 `docs/protocole-mesure-retours-outils/` (nouveau : fixtures des trois
@@ -1545,6 +1545,47 @@ de ce chantier ; onze journaux de `test/verification.test.js` datés de
 de ses suites sont dans le HOME temporaire). Non vérifié : aucun essai
 contre MTPLX ni Qwen réel, donc aucun effet mesuré sur la conduite du
 modèle ; une seule machine. SHA `88aa128` reporté sur l'entrée précédente.
+
+### (ce commit) — Exception log:<n> dans la décision d'accès — Réf #19
+
+`src/harness/policy.ts`, `src/agent.ts`, `test/command-log.test.js`,
+`docs/profil-mission.md`. Correction demandée à la revue de #19, avant la
+PR. Sous `--mission`, `read_file {"path": "log:3"}` passait par `decide()`
+comme un fichier ordinaire du workspace nommé « log:3 » : autorisé avec un
+chemin fictif (`<workspace>/log:3`) dans `paths` et le motif « inside the
+workspace, not protected », puis servi par `executeTool`. Le journal était
+servi par accident, un journal inconnu autorisé, et l'écriture sur
+`log:<n>` autorisée par la décision puis arrêtée par l'outil seul. Aucun
+test ne couvrait `log:` sous `--mission`.
+
+Correction, sur le modèle de l'exception `fiche:<nom>` (#30) placée juste
+au-dessus dans `decide()` : une exception nommée et étroite, reconnue
+seulement quand l'hôte fournit les journaux de la session
+(`AccessRequest.logs`, posé par l'agent, jamais par un argument du modèle ;
+sans eux, `log:<n>` reste un chemin ordinaire, comme `fiche:` sans dossier
+de fiches). Lecture d'un journal gardé : `allow`, `paths` vide, motif « a
+command log ("log:<n>") kept in memory by this session, read-only, never a
+file ». Journal inconnu : `deny`, « is not a command log kept by this
+session ». `write_file` et `edit_file` : `deny`, « names a command log kept
+by the harness, which is read-only ». Le refus de l'outil reste en
+seconde ligne. `docs/profil-mission.md` nomme les deux exceptions de
+`read_file`.
+
+Vérifications. Deux tests « H07 mission » : la décision (lecture permise
+sans chemin, journal inconnu refusé, écriture et édition refusées ; sans
+régression de `fiche:tdd`, lu et non écrit, d'un chemin ordinaire lu et
+écrit, ni de `.env` protégé ; sans journaux fournis, chemin ordinaire) et
+la boucle de l'agent sous `--mission` (`run_command` raccourci, journal lu
+par l'appel proposé, `log:99` et l'écriture refusés avec le préfixe « denied
+by the access policy »). Rouge constaté avant la correction : `paths`
+valait `["<workspace>/log:1"]` au lieu de `[]` ; `log:99` n'était refusé
+que par l'outil (« Error: "log:99" is not a command log kept by this
+session… », sans décision) ; relevé direct de la décision : les quatre
+requêtes — lecture de `log:1`, de `log:99`, écriture et édition de `log:1`
+— donnaient `allow`, « inside the workspace, not protected ». `npm test`
+328/328 (326 et 2 nouveaux) et `npm run test:os` 22/22, aucun test sauté,
+sous un HOME et un cache npm temporaires neufs. SHA `f93de98` reporté sur
+l'entrée précédente.
 
 ## Hors dépôt (machine locale)
 

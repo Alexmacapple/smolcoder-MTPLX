@@ -133,6 +133,14 @@ hors d'atteinte des outils de fichiers (confinement au workspace, liens
 compris), et une commande qui le nomme (`.smolcoder`, chemin du dossier de
 données) est refusée.
 
+`read_file` connaît deux exceptions nommées, que la décision reconnaît
+avant tout chemin du workspace : `fiche:<nom>`, une fiche installée côté
+hôte (#30, `docs/decision-fiches-hote.md`), et `log:<n>`, la sortie
+complète d'une commande raccourcie, gardée en mémoire par la session (#19).
+Un journal gardé est lu sans chemin dans la décision, puisqu'il n'est
+jamais un fichier ; un journal inconnu et toute écriture sur `log:<n>` sont
+refusés par la décision elle-même.
+
 ### Schéma
 
 Fermé, tous les champs obligatoires sauf `network`, `tools`, `git` et

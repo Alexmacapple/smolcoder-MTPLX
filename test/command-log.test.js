@@ -7,6 +7,13 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
+
+// Isole ~/.smolcoder avant de charger le code : les tests sous --mission
+// n'écrivent jamais dans le vrai dossier de données.
+const HOME = fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), 'smol-h07-log-home-')));
+process.env.HOME = HOME;
+process.env.SMOLCODER_CONFIG = path.join(HOME, 'config.json');
+
 const { Agent } = require('../dist/agent');
 const { ContextManager } = require('../dist/context');
 const { EventBus } = require('../dist/events');
@@ -120,4 +127,111 @@ test('H07 AC2 (acceptance): a failing acceptance check with a long log hands the
   assert.ok(repairPrompt.includes(FAILING), 'the failing case reaches the model');
   assert.ok(repairPrompt.includes(CAUSE), 'its cause reaches the model');
   assert.equal(agent.verificationResult.passed, true);
+});
+
+// ---- Sous --mission : l'exception nommée log:<n> de la décision d'accès ----
+// Sur le modèle de l'exception fiche:<nom> (#30) : lecture d'un journal gardé
+// par la session autorisée pour ce qu'elle est, sans chemin fictif du
+// workspace ; journal inconnu et écriture refusés dès la décision.
+
+const { Mission } = require('../dist/harness/mission');
+const { decide } = require('../dist/harness/policy');
+const { CommandLogs } = require('../dist/tools/command-log');
+const fiches = require('../dist/fiches');
+
+/** Un workspace, un contrat approuvé hors du workspace, un stockage hôte et
+ * des fiches installées dans un dossier de données jetable. */
+function missionSetup(t) {
+  const tmp = (prefix) => fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), prefix)));
+  const ws = tmp('smol-h07-mws-');
+  const data = tmp('smol-h07-mdata-');
+  const src = tmp('smol-h07-msrc-');
+  t.after(() => { for (const d of [ws, data, src]) fs.rmSync(d, { recursive: true, force: true }); });
+  fs.writeFileSync(path.join(ws, 'noisy.cjs'), NOISY);
+  fs.writeFileSync(path.join(ws, 'app.js'), 'console.log(1);\n');
+  fs.writeFileSync(path.join(ws, '.env'), 'API_KEY=fake\n');
+  const file = path.join(src, 'contract.json');
+  fs.writeFileSync(file, JSON.stringify({ schema: 'smolcoder/contract/v1', id: 'h07-logs', title: 'Lire un journal', problem: 'p', outcome: 'o', acceptance: ['a'], budgets: { maxSteps: 200 } }));
+  const m = Mission.prepare({ source: file, workspace: ws, dataDir: data });
+  m.approve('terminal-human');
+  const fichesDir = path.join(data, 'fiches');
+  fiches.installFiches(path.join(__dirname, '..', 'docs', 'skills'), fichesDir);
+  return { ws, m, fichesDir };
+}
+
+test('H07 mission (decision): log:<n> is a named, narrow exception — read allowed without a workspace path, unknown log and writes denied; fiche: and ordinary paths unchanged', t => {
+  const s = missionSetup(t);
+  const logs = new CommandLogs();
+  const ref = logs.add('line 1\nline 2\n');
+  const ask = (tool, p, extra = {}) => decide(s.m, { surface: 'tool', tool, args: { path: p, content: 'x', old_text: 'a', new_text: 'b' }, logs, fichesDir: s.fichesDir, ...extra });
+
+  const read = ask('read_file', ref);
+  assert.equal(read.verdict, 'allow', read.reason);
+  assert.deepEqual(read.paths, [], 'no made-up workspace path');
+  assert.match(read.reason, /command log .*kept in memory by this session, read-only, never a file/);
+
+  const unknown = ask('read_file', 'log:99');
+  assert.equal(unknown.verdict, 'deny');
+  assert.match(unknown.reason, /"log:99" is not a command log kept by this session/);
+  assert.deepEqual(unknown.paths, []);
+
+  for (const tool of ['write_file', 'edit_file']) {
+    const w = ask(tool, ref);
+    assert.equal(w.verdict, 'deny', `${tool}: ${w.reason}`);
+    assert.match(w.reason, /names a command log kept by the harness, which is read-only/);
+    assert.deepEqual(w.paths, []);
+  }
+
+  // Aucune régression : fiche:<nom> (#30), chemins ordinaires, chemins protégés.
+  const fiche = ask('read_file', 'fiche:tdd');
+  assert.equal(fiche.verdict, 'allow', fiche.reason);
+  assert.deepEqual(fiche.paths, [path.join(s.fichesDir, 'tdd.md')]);
+  assert.equal(ask('write_file', 'fiche:tdd').verdict, 'deny');
+  const app = ask('read_file', 'app.js');
+  assert.equal(app.verdict, 'allow');
+  assert.deepEqual(app.paths, [path.join(s.ws, 'app.js')]);
+  assert.equal(ask('write_file', 'app.js').verdict, 'allow');
+  assert.equal(ask('read_file', '.env').verdict, 'deny');
+  // L'exception tient au stock fourni par l'hôte : sans lui, « log:1 » est un
+  // chemin ordinaire du workspace, comme fiche: sans dossier de fiches.
+  const bare = decide(s.m, { surface: 'tool', tool: 'read_file', args: { path: ref } });
+  assert.equal(bare.verdict, 'allow');
+  assert.deepEqual(bare.paths, [path.join(s.ws, ref)]);
+});
+
+test('H07 mission (agent): a shortened command output is read back through the decision, an unknown log and a write are refused by it', async t => {
+  const s = missionSetup(t);
+  const results = [];
+  let step = 0;
+  let ref = null;
+  const provider = {
+    label: 'fake', modelId: 'fake', contextWindow: 32000, maxOutputTokens: 2000, setEffort() {}, effortLabel() { return null; },
+    async chat(messages) {
+      step++;
+      const last = messages.at(-1);
+      if (last.role === 'tool') results.push(last.content);
+      if (step === 1) return { content: '', toolCalls: [{ id: 'run', name: 'run_command', args: { command: 'node noisy.cjs' } }] };
+      if (step === 2) {
+        const m = /read_file \{"path": "(log:\d+)", "offset": (\d+)\}/.exec(last.content);
+        if (!m) return { content: 'No log reference.', toolCalls: [] };
+        ref = m[1];
+        return { content: '', toolCalls: [{ id: 'log', name: 'read_file', args: { path: ref, offset: Number(m[2]), limit: 20 } }] };
+      }
+      if (step === 3) return { content: '', toolCalls: [{ id: 'unknown', name: 'read_file', args: { path: 'log:99' } }] };
+      if (step === 4) return { content: '', toolCalls: [{ id: 'write', name: 'write_file', args: { path: ref, content: 'forged' } }] };
+      return { content: 'Done', toolCalls: [] };
+    },
+  };
+  const ui = { token() {}, thinking() {}, toolCall() {}, toolResult() {}, println() {}, status() {}, warn() {}, error() {}, startSpinner() {}, stopSpinner() {}, turnEnd() {}, planUpdated() {}, async confirmCommand() { return 'no'; } };
+  const ctx = { workspace: s.ws, plan: new Plan(), taskManager: new TaskManager(s.ws), filesTouched: new Set(), commandsRun: [] };
+  const agent = new Agent(provider, 'bypass', 'sys', ctx, new ContextManager(32000, 2000), new EventBus(), ui, false, 20, undefined, s.m);
+  await agent.runTurn('Run the tests and read the failure.');
+  assert.equal(agent.outcome, 'completed');
+  const [run, log, unknown, write] = results;
+  assert.match(run, /^Error: command exited with code 1\n/);
+  assert.ok(ref, 'the shortened output names its log');
+  assert.ok(log.includes(FAILING) && log.includes(CAUSE), 'the log is served under --mission');
+  assert.match(unknown, /^Error: denied by the access policy \([^)]*\): "log:99" is not a command log kept by this session/);
+  assert.match(write, new RegExp(`^Error: denied by the access policy \\([^)]*\\): "${ref}" names a command log kept by the harness, which is read-only`));
+  assert.deepEqual(fs.readdirSync(s.ws).sort(), ['.env', 'app.js', 'noisy.cjs'], 'nothing written to the workspace');
 });

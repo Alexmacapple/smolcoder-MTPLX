@@ -948,7 +948,8 @@ export class Agent {
     if (this.mission) {
       const mission = this.mission;
       const fichesDir = this.toolCtx.fichesDir;
-      const auth = await this.authorize({ surface: "tool", tool: name, args, ...(fichesDir ? { fichesDir } : {}) });
+      const logs = this.toolCtx.logs;
+      const auth = await this.authorize({ surface: "tool", tool: name, args, ...(fichesDir ? { fichesDir } : {}), ...(logs ? { logs } : {}) });
       if (!auth.ok) return auth.message;
       if (signal?.aborted) throw signal.reason;
       if (!this.tools.some((t) => t.name === name)) return `Error: ${name} is no longer available in ${MODE_LABELS[this.mode]} mode.`;
