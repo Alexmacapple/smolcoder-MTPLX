@@ -2438,7 +2438,7 @@ procédure de fin de campagne, les décisions en attente d'Alex et les
 pièges connus. SHA `2502efb` reporté sur l'entrée précédente.
 Documentation seule.
 
-### (ce commit) — Mise à jour du document de reprise
+### `3d77b1e` — Mise à jour du document de reprise
 
 `docs/reprise-codex-2026-09-28.md`. La campagne #53, lancée pendant #52
 pour gagner du temps, s'est arrêtée (processus disparu, premier essai au
@@ -2449,6 +2449,19 @@ la règle de ne jamais faire tourner #53 en même temps que #52, même en
 attente, et donne la commande de relance après la fin complète de #52. La
 ligne « À reporter » pointe sur l'entrée en attente. SHA `92280eb` reporté
 sur l'entrée précédente.
+
+### (ce commit) — Reprise : pas de double campagne #53
+
+`docs/reprise-codex-2026-09-28.md`. L'agent Claude de #53 relancera
+lui-même la campagne après la fin complète de #52 si la session vit
+encore. Le document demande donc à Codex de vérifier d'abord qu'aucune
+campagne #53 ne tourne (verrou au PID vivant, ligne « relance par l'agent
+Claude » dans `lancement.log`, processus `campagne.sh`) avant toute
+relance, pour ne jamais en lancer deux. Il note aussi que l'arrêt de la
+première campagne ressemble à un SIGKILL d'un processus lancé par
+`nohup … &` depuis un appel d'outil, et conseille une relance qui survit à
+la session. La ligne « À reporter » du document pointe sur l'entrée la plus
+récente. SHA `3d77b1e` reporté sur l'entrée précédente.
 
 ## Hors dépôt (machine locale)
 
