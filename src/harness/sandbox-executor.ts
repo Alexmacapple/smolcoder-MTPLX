@@ -8,6 +8,8 @@
 // absent ou inopérant, il refuse chaque requête : sous le profil mission,
 // jamais de repli sur le shell non isolé. `sandbox-exec` est déprécié par
 // Apple mais fonctionnel, ce que la sonde vérifie sur la machine même.
+// Le TMPDIR privé vit autant que la session (#46) : sa fermeture tue ce que
+// le bac fait encore tourner, supprime le dossier, puis refuse tout lancement.
 // Modèle de menace, choix et limites : docs/decision-backend-isole.md.
 
 import * as fs from "fs";
@@ -183,11 +185,17 @@ export interface IsolationStatus {
 
 export interface IsolatedExecutor extends Executor {
   readonly status: IsolationStatus;
-  /** Le TMPDIR privé des commandes ; null quand le backend refuse. */
+  /** Le TMPDIR privé des commandes ; null quand le backend refuse ou qu'il
+   * est fermé. */
   readonly tmpDir: string | null;
   /** Les ports d'écoute que la politique accorde en ce moment ; vide quand
    * le backend refuse ou que la politique est illisible. */
   listening(): string[];
+  /** Fin de session (#46) : tue ce que le bac fait encore tourner, supprime
+   * son TMPDIR privé et son contenu, puis refuse tout lancement, sans jamais
+   * retomber sur le shell de l'hôte. Rend le motif d'une suppression
+   * impossible, null sinon. Une seconde fermeture ne fait rien. */
+  close(): string | null;
 }
 
 /** La politique au moment du lancement : ce qu'en tire le profil, ou le
@@ -226,9 +234,57 @@ function refusal(reason: string): string {
   return `isolated execution unavailable (${reason}): nothing was run — under the mission profile a command never falls back to the unconfined shell. To run commands without isolation, restart smol without --mission.`;
 }
 
-/** Un exécuteur qui refuse tout : backend absent, ou surface sans backend. */
+/** Un exécuteur qui refuse tout : backend absent, ou surface sans backend.
+ * Il n'a ni dossier ni processus : sa fermeture ne fait rien. */
 export function unavailableExecutor(reason: string): IsolatedExecutor {
-  return { status: { backend: "seatbelt", state: "unavailable", reason }, tmpDir: null, start: () => refused(refusal(reason)), listening: () => [] };
+  return { status: { backend: "seatbelt", state: "unavailable", reason }, tmpDir: null, start: () => refused(refusal(reason)), listening: () => [], close: () => null };
+}
+
+/** Le motif des refus d'un bac fermé (#46). */
+const CLOSED = "the session has ended and its isolated executor was closed";
+
+/** Rouvre pour le compte, sans suivre aucun lien, chaque dossier sous `dir` :
+ * une commande a pu en retirer la lecture ou l'écriture (chmod), ce qui
+ * bloque la suppression. */
+function reopenFolders(dir: string): void {
+  let st: fs.Stats;
+  try {
+    st = fs.lstatSync(dir);
+  } catch {
+    return;
+  }
+  if (!st.isDirectory()) return; // fichier ou lien : jamais suivi
+  try {
+    fs.chmodSync(dir, 0o700);
+  } catch {
+    /* au mieux : la suppression dira ce qui résiste */
+  }
+  let names: string[];
+  try {
+    names = fs.readdirSync(dir);
+  } catch {
+    return;
+  }
+  for (const name of names) reopenFolders(path.join(dir, name));
+}
+
+/** Supprime le TMPDIR privé et tout son contenu (#46) ; un lien est retiré,
+ * jamais suivi. Rend le motif d'un échec, null sinon. */
+function removePrivateDir(dir: string): string | null {
+  const rm = () => fs.rmSync(dir, { recursive: true, force: true, maxRetries: 2, retryDelay: 10 });
+  try {
+    rm();
+    return null;
+  } catch {
+    /* un dossier fermé par une commande : rouvert, puis nouvel essai */
+  }
+  try {
+    reopenFolders(dir);
+    rm();
+    return null;
+  } catch (err: any) {
+    return `the private temporary folder ${dir} could not be removed (${err?.message ?? err})`;
+  }
 }
 
 function real(p: string): string {
@@ -305,14 +361,41 @@ export function createSandboxExecutor(opts: SandboxOptions): IsolatedExecutor {
     return unavailableExecutor(reason);
   }
   const bounded = tmpDir!;
+  const ready: IsolationStatus = { backend: "seatbelt", state: "ready", reason: `${sandboxExec} probed: the host store stays out of reach` };
+  // #46 : les exécutions pas encore constatées finies (tâches de fond,
+  // terminal web, commande en cours), que la fermeture tue avant de supprimer
+  // le dossier. Une exécution sort de la liste dès son premier constat : son
+  // arbre est alors fini ou déjà tué, et son groupe ne se vise plus.
+  const running = new Set<Execution>();
+  let closed = false;
   return {
-    status: { backend: "seatbelt", state: "ready", reason: `${sandboxExec} probed: the host store stays out of reach` },
-    tmpDir: bounded,
+    get status(): IsolationStatus {
+      return closed ? { backend: "seatbelt", state: "unavailable", reason: CLOSED } : ready;
+    },
+    get tmpDir(): string | null {
+      return closed ? null : bounded;
+    },
     listening() {
+      if (closed) return [];
       const policy = opts.policy();
       return typeof policy === "string" ? [] : [...(policy.listen ?? [])];
     },
+    close(): string | null {
+      if (closed) return null;
+      closed = true;
+      for (const exec of running) {
+        try {
+          exec.kill();
+        } catch {
+          /* déjà fini */
+        }
+      }
+      running.clear();
+      return removePrivateDir(bounded);
+    },
     start(req: ExecRequest): Execution {
+      // #46 : fermé, le bac refuse tout, comme un backend absent ; jamais l'hôte.
+      if (closed) return refused(refusal(CLOSED));
       // Relue à chaque lancement, comme la décision : le profil suit la politique.
       const policy = opts.policy();
       if (typeof policy === "string") return refused(`the access policy cannot be read (${policy}): no sandbox profile can be built, so nothing was run`);
@@ -333,10 +416,13 @@ export function createSandboxExecutor(opts: SandboxOptions): IsolatedExecutor {
       // quand la politique ouvre .git en lecture, une configuration globale
       // vide pour git, qui s'arrête sinon sur un ~/.gitconfig illisible.
       const env = { ...req.env, TMPDIR: `${bounded}/`, ...(policy.git ? { GIT_CONFIG_GLOBAL: "/dev/null" } : {}) };
-      return run(req, () => {
+      const exec = run(req, () => {
         const shell = pickShell();
         return { exe: sandboxExec, args: ["-p", profile, shell.exe, ...shellArgs(shell, req)], env };
       });
+      running.add(exec);
+      void exec.result.then(() => running.delete(exec));
+      return exec;
     },
   };
 }

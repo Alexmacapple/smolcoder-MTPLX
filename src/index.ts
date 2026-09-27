@@ -460,6 +460,18 @@ async function runHeadless(args: CliArgs, mission: Mission | null): Promise<void
   // qui refuse tout s'il est absent ou inopérant. Hors profil, rien ne change.
   const isolation = mission ? missionExecutor(mission) : undefined;
   const taskManager = new TaskManager(args.workspace, isolation);
+  // #46 : quelle que soit la fin du run (terme, code de sortie, exception,
+  // signal), les tâches de fond sont tuées, puis le TMPDIR privé du bac est
+  // supprimé. Posé dès la création du bac, avant tout ce qui peut échouer.
+  const closeExecution = (): string | null => {
+    taskManager.killAll();
+    return isolation?.close() ?? null;
+  };
+  process.on("exit", () => closeExecution());
+  installSignalCleanup(() => {
+    closeExecution();
+    mission?.resume.release();
+  });
   const toolCtx: ToolContext = {
     workspace: args.workspace,
     taskManager,
@@ -503,11 +515,6 @@ async function runHeadless(args: CliArgs, mission: Mission | null): Promise<void
     if (ticked) ui.status(`· plan progress restored from the last session: ${ticked} step${ticked > 1 ? "s" : ""} already done`);
   }
   reportCompactions(bus, ui);
-  process.on("exit", () => taskManager.killAll());
-  installSignalCleanup(() => {
-    taskManager.killAll();
-    mission?.resume.release();
-  });
 
   ui.println(sessionLine(chosen, mode));
   if (chosen.note) ui.warn(`  ${chosen.note}`);
@@ -584,7 +591,8 @@ async function runHeadless(args: CliArgs, mission: Mission | null): Promise<void
       })}\n`
     );
   }
-  taskManager.killAll();
+  const left = closeExecution();
+  if (left) ui.warn(`· ${left}`);
   mission?.resume.release(toolCtx.plan);
   ui.close();
 }
@@ -626,12 +634,13 @@ async function runInteractive(args: CliArgs, mission: Mission | null): Promise<v
 
   const session = new Session(tui, { workspace: args.workspace, chosen, prefs: prefsOf(args), cfg, help: HELP, mission, surface: "terminal" });
   session.onExit = () => process.exit(0);
+  // #46 : tâches tuées, puis TMPDIR privé du bac supprimé, à toute sortie.
   process.on("exit", () => {
-    session.taskManager.killAll();
+    session.closeExecution();
     session.releaseWriter();
   });
   installSignalCleanup(() => {
-    session.taskManager.killAll();
+    session.closeExecution();
     session.releaseWriter();
     try {
       tui.close(); // restore the raw-mode terminal on signal death

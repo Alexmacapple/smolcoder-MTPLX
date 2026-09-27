@@ -17,7 +17,7 @@ process.env.SMOLCODER_CONFIG = path.join(HOME, "config.json");
 
 const store = require("../dist/harness/store");
 const { Mission } = require("../dist/harness/mission");
-const { hostExecutor, pickShell, shellArgs } = require("../dist/harness/executor");
+const { hostExecutor, launch, pickShell, shellArgs } = require("../dist/harness/executor");
 const { Agent } = require("../dist/agent");
 const { ContextManager } = require("../dist/context");
 const { EventBus } = require("../dist/events");
@@ -405,5 +405,201 @@ test("H03-2 AC4: the web hub gives a mission terminal its session's isolated exe
     assert.ok(!fs.existsSync(path.join(ws, "ran-hub")), "no unconfined shell behind a mission terminal");
   } finally {
     without.hub.close();
+  }
+});
+
+// ---- #46 : le dossier temporaire privé vit et meurt avec la session ---------
+
+/** Le lanceur commun réel, sans sandbox-exec : le shell de la requête tourne
+ * sur l'hôte, avec le TMPDIR privé que le bac lui donne. De vrais processus,
+ * pour prouver l'ordre de la fermeture partout où npm test tourne ; le
+ * confinement lui-même est prouvé sur macOS réel (test/os/). `observe` voit
+ * chaque requête avant son lancement. */
+function unconfined(observe = () => {}) {
+  return (req, spec) => {
+    observe(req);
+    return launch(req, () => {
+      const s = spec(); // sandbox-exec -p <profil> <shell> <arguments>
+      return { exe: s.args[2], args: s.args.slice(3), env: s.env };
+    });
+  };
+}
+/** Une commande qui ne s'arrête pas d'elle-même et récrée son TMPDIR à chaque
+ * battement : vivante après la suppression, elle ferait réapparaître le dossier. */
+const TICK = `node -e "const fs=require('fs');setInterval(()=>{fs.mkdirSync(process.env.TMPDIR,{recursive:true});fs.writeFileSync(process.env.TMPDIR+'tick',String(Date.now()))},20)"`;
+const REFUSED_CLOSED = /isolated execution unavailable \(.*closed.*\).*nothing was run.*never falls back to the unconfined shell/s;
+
+test("#46 AC1: closing the isolated executor removes its private temporary folder with everything in it — a folder a command made unreadable included, a link removed but never followed — and the executor then says it is closed", (t) => {
+  const ws = tmp("smol-sbx-ws-");
+  const { exec } = isolated(ws, { policy: { rules: RULES, network: [], listen: ["localhost:5173"] } });
+  const dir = exec.tmpDir;
+  assert.ok(fs.statSync(dir).isDirectory());
+  fs.writeFileSync(path.join(dir, "agent-temp.txt"), "left by a command");
+  fs.mkdirSync(path.join(dir, "locked", "deep"), { recursive: true });
+  fs.writeFileSync(path.join(dir, "locked", "deep", "file"), "x");
+  fs.chmodSync(path.join(dir, "locked"), 0o000);
+  // En cas d'échec avant la fermeture, le lanceur doit pouvoir supprimer la passe.
+  t.after(() => { try { fs.chmodSync(path.join(dir, "locked"), 0o700); } catch { /* déjà supprimé */ } });
+  const elsewhere = tmp("smol-sbx-elsewhere-");
+  fs.writeFileSync(path.join(elsewhere, "keep.txt"), "keep");
+  fs.symlinkSync(elsewhere, path.join(dir, "link"));
+  assert.deepEqual(exec.listening(), ["localhost:5173"]);
+  assert.equal(exec.close(), null, "removed: no failure to report");
+  assert.equal(fs.existsSync(dir), false, "the private folder is gone");
+  assert.equal(fs.readFileSync(path.join(elsewhere, "keep.txt"), "utf8"), "keep", "the link was removed, its target untouched");
+  assert.equal(exec.tmpDir, null, "no private folder any more");
+  assert.equal(exec.status.state, "unavailable");
+  assert.match(exec.status.reason, /closed/);
+  assert.deepEqual(exec.listening(), [], "a closed sandbox grants no listening");
+});
+
+test("#46 AC1: after closing, every surface's command is refused and nothing runs — never the host shell", async () => {
+  const ws = tmp("smol-sbx-ws-");
+  const { exec, launcher } = isolated(ws);
+  await exec.start({ surface: "command", command: "true", cwd: ws, env: {}, login: false, capture: "buffer" }).result;
+  assert.equal(launcher.calls.length, 1, "before closing, the sandbox launches");
+  exec.close();
+  for (const surface of ["command", "task", "check", "terminal"]) {
+    let closed = false;
+    const run = exec.start({ surface, command: surface === "terminal" ? null : marker(`ran-${surface}`), cwd: ws, env: process.env, login: false, capture: surface === "command" || surface === "check" ? "buffer" : "stream", onClose: () => (closed = true) });
+    const r = await run.result;
+    assert.deepEqual({ started: r.started, status: r.status, exitCode: r.exitCode }, { started: false, status: "spawn_error", exitCode: null }, surface);
+    assert.match(r.error, REFUSED_CLOSED, surface);
+    assert.equal(run.write("x\n"), false, `${surface}: no shell to write to`);
+    await sleep(20);
+    assert.equal(closed, false, `${surface}: no process, so no stream to close`);
+  }
+  assert.equal(launcher.calls.length, 1, "nothing is launched after closing");
+  await sleep(300);
+  for (const surface of ["command", "task", "check"]) assert.ok(!fs.existsSync(path.join(ws, `ran-${surface}`)), `${surface}: nothing ran, on the host or elsewhere`);
+});
+
+test("#46 AC1: a second close does nothing — not even to a folder that reappeared at the same path; an executor that refuses from the start closes without effect", async () => {
+  const ws = tmp("smol-sbx-ws-");
+  const { exec } = isolated(ws);
+  const dir = exec.tmpDir;
+  assert.equal(exec.close(), null);
+  assert.equal(fs.existsSync(dir), false);
+  fs.mkdirSync(dir);
+  fs.writeFileSync(path.join(dir, "someone-else.txt"), "not this session's");
+  assert.equal(exec.close(), null, "the second close reports nothing");
+  assert.equal(fs.readFileSync(path.join(dir, "someone-else.txt"), "utf8"), "not this session's", "and removes nothing");
+  fs.rmSync(dir, { recursive: true, force: true });
+  const off = sbx().unavailableExecutor("no backend in this test");
+  assert.equal(off.close(), null);
+  assert.equal(off.close(), null);
+  const r = await off.start({ surface: "command", command: "true", cwd: ws, env: {}, login: false, capture: "buffer" }).result;
+  assert.equal(r.status, "spawn_error");
+});
+
+test("#46 AC2: closing kills a command the sandbox still runs before it removes the folder, and nothing recreates it", async (t) => {
+  const ws = tmp("smol-sbx-ws-");
+  const kills = [];
+  let dir = null;
+  const { exec } = isolated(ws, { deps: { launch: (req, spec) => {
+    const run = unconfined()(req, spec);
+    return { result: run.result, write: (s) => run.write(s), kill() { kills.push(fs.existsSync(dir)); run.kill(); } };
+  } } });
+  dir = exec.tmpDir;
+  const run = exec.start({ surface: "command", command: TICK, cwd: ws, env: process.env, login: false, capture: "buffer" });
+  let settled = false;
+  void run.result.then(() => (settled = true));
+  t.after(() => { if (!settled) run.kill(); });
+  await until(() => fs.existsSync(path.join(dir, "tick")), 10000, "the command writing in its TMPDIR");
+  assert.equal(exec.close(), null);
+  assert.deepEqual(kills, [true], "killed once, while its folder still existed");
+  assert.equal(fs.existsSync(dir), false);
+  const r = await run.result;
+  assert.equal(r.status, "signaled", "the command was killed, not left to finish");
+  await sleep(300);
+  assert.equal(fs.existsSync(dir), false, "the command is dead: nothing recreated the folder");
+});
+
+test("#46 AC2: at the end of a session its background task is killed before the private folder is removed, then every start is refused", async (t) => {
+  const ws = tmp("smol-sbx-ws-");
+  const m = contract(ws);
+  const aborted = [];
+  let dir = null;
+  // Enregistré avant celui du lanceur : voit le dossier au moment de l'arrêt.
+  const { exec } = isolated(ws, { deps: { launch: unconfined((req) => req.signal?.addEventListener("abort", () => aborted.push(fs.existsSync(dir)), { once: true })) } });
+  dir = exec.tmpDir;
+  const ui = quietUi();
+  const session = new Session(ui, { workspace: ws, chosen: FAKE_MODEL, prefs: {}, cfg: {}, help: "help", mission: m, surface: "terminal", isolation: exec });
+  t.after(() => session.taskManager.killAll());
+  let ended = false;
+  session.onExit = () => (ended = true);
+  session.taskManager.start(TICK);
+  await until(() => fs.existsSync(path.join(dir, "tick")), 10000, "the background task writing in its TMPDIR");
+  await session.shutdown();
+  assert.equal(ended, true);
+  assert.deepEqual(aborted, [true], "the task was stopped while its folder still existed");
+  assert.equal(fs.existsSync(dir), false, "the private folder is removed at the end of the session");
+  assert.match(session.taskManager.list(), /t1 {2}stopped/);
+  await sleep(300);
+  assert.equal(fs.existsSync(dir), false, "the task is dead: nothing recreated the folder");
+  const after = await session.toolCtx.executor.start({ surface: "command", command: marker("ran-after-end"), cwd: ws, env: process.env, login: false, capture: "buffer" }).result;
+  assert.match(after.error, REFUSED_CLOSED, "the tools' executor refuses once the session has ended");
+  await session.shutdown();
+  assert.ok(!fs.existsSync(path.join(ws, "ran-after-end")));
+});
+
+test("#46 AC2: a session that fails to open closes the sandbox it had built", () => {
+  const ws = tmp("smol-sbx-ws-");
+  const m = contract(ws);
+  const { exec } = isolated(ws);
+  const dir = exec.tmpDir;
+  const broken = Object.create(m);
+  broken.openResume = () => { throw new Error("the host store cannot be read in this test"); };
+  assert.throws(() => new Session(quietUi(), { workspace: ws, chosen: FAKE_MODEL, prefs: {}, cfg: {}, help: "help", mission: broken, surface: "web", isolation: exec }), /cannot be read in this test/);
+  assert.equal(fs.existsSync(dir), false, "no private folder outlives a session that never opened");
+});
+
+test("#46 AC2: the web hub closes a session's sandbox when the session is closed, when it is deleted, when it is closed while still starting, and for every open session when the hub stops", async () => {
+  const ws = tmp("smol-sbx-ws-");
+  const dirs = [];
+  let gate = null;
+  const factory = async (ui, workspace) => {
+    if (gate) await gate;
+    const { exec } = isolated(workspace);
+    dirs.push(exec.tmpDir);
+    return new Session(ui, { workspace, chosen: FAKE_MODEL, prefs: {}, cfg: {}, help: "help", mission: contract(workspace), surface: "web", isolation: exec });
+  };
+  const hub = new WebHub({ port: 0, prefs: {}, help: "help", version: "9.9.9", dataDir: tmp("smol-sbx-hub-"), factory, quiet: true });
+  await hub.start();
+  const k = "?k=" + hub.authToken;
+  const open = async () => {
+    const { id } = JSON.parse((await request(hub, "POST", "/sessions/new" + k, { workspace: ws })).body);
+    await until(() => hub.live.get(id)?.session, 5000, "the session");
+    return { id, dir: dirs.at(-1) };
+  };
+  try {
+    // 1. Fermée depuis la page.
+    const a = await open();
+    assert.ok(fs.existsSync(a.dir));
+    await request(hub, "POST", "/sessions/close" + k, { id: a.id });
+    await until(() => !fs.existsSync(a.dir), 5000, "the closed session's folder to go");
+    // 2. Supprimée depuis la page.
+    const b = await open();
+    await request(hub, "POST", "/sessions/delete" + k, { id: b.id });
+    await until(() => !fs.existsSync(b.dir), 5000, "the deleted session's folder to go");
+    // 3. Fermée pendant son démarrage : son bac est fermé dès qu'il existe.
+    let release;
+    gate = new Promise((r) => (release = r));
+    const { id: starting } = JSON.parse((await request(hub, "POST", "/sessions/new" + k, { workspace: ws })).body);
+    await request(hub, "POST", "/sessions/close" + k, { id: starting });
+    const built = dirs.length;
+    release();
+    gate = null;
+    await until(() => dirs.length > built, 5000, "the late session to be built");
+    await until(() => !fs.existsSync(dirs.at(-1)), 5000, "the late session's folder to go");
+    // 4. Arrêt du hub : chaque session ouverte.
+    const c = await open();
+    const d = await open();
+    assert.ok(fs.existsSync(c.dir) && fs.existsSync(d.dir));
+    hub.close();
+    assert.equal(fs.existsSync(c.dir), false, "an open session's folder goes with the hub");
+    assert.equal(fs.existsSync(d.dir), false, "every one of them");
+  } finally {
+    hub.close();
   }
 });

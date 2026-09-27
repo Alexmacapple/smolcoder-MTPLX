@@ -6,6 +6,8 @@ de la pull request qui porte cette page vaut acceptation. S'en écarter
 ensuite exige une nouvelle validation. Amendée par #17 : l'empreinte des
 outils devient une allow-list mesurée entrée par entrée
 (`docs/allowlist-outils.md`), qui resserre le profil décrit ci-dessous.
+Amendée par #46 : le TMPDIR privé vit autant que la session (section « Cycle
+de vie du dossier temporaire privé »).
 
 ## Problème
 
@@ -75,8 +77,8 @@ profil est généré depuis la politique à chaque lancement, dans cet ordre
   `/opt`, `/private/etc`, fuseaux horaires, nœuds nommés de `/dev`), sauf les
   données et la configuration de services de Homebrew, et du workspace ;
 - écriture : le workspace et un TMPDIR privé (créé par session, mode 0700,
-  hors du workspace), que l'exécuteur pose dans l'environnement — son seul
-  ajout à l'environnement minimal de #11 ;
+  hors du workspace, supprimé à sa fin depuis #46), que l'exécuteur pose dans
+  l'environnement — son seul ajout à l'environnement minimal de #11 ;
 - noms protégés de la politique : contenu et écriture refusés à toute
   profondeur, sans tenir compte de la casse ; puis leurs exceptions ;
 - stockage hôte de smol et fichier de configuration : ni lus ni modifiés,
@@ -93,6 +95,65 @@ workspace qui contient le dossier personnel est refusé. Sinon, et sur
 Linux ou Windows, toute commande du profil est refusée avec son motif,
 jamais relancée dans le shell non isolé. Hors `--mission`, l'adaptateur
 hôte reste inchangé.
+
+## Cycle de vie du dossier temporaire privé (#46)
+
+Le backend crée son dossier `smol-sandbox-*` (mode 0700) dans le dossier
+temporaire de l'utilisateur à sa création, avant la sonde ; une sonde qui
+échoue le supprime aussitôt. Prêt, le dossier vit autant que la session, et
+les commandes y écrivent leurs fichiers temporaires.
+
+La fermeture de l'exécuteur (`close()` dans
+`src/harness/sandbox-executor.ts`) :
+
+- tue d'abord ce que le bac fait encore tourner : toute exécution qu'il a
+  lancée et dont la fin n'est pas encore constatée (tâche de fond, shell du
+  terminal web, commande en cours) ; une exécution finie n'est plus visée,
+  son groupe de processus pouvant avoir été réattribué ;
+- supprime ensuite le dossier et son contenu : un lien y est retiré, jamais
+  suivi ; un sous-dossier dont une commande a retiré les droits est rouvert
+  pour le compte avant un second essai ;
+- fait refuser toute requête suivante, avec le motif « the session has ended
+  and its isolated executor was closed », comme un backend absent : jamais de
+  repli sur le shell de l'hôte. L'état de l'isolation passe à « unavailable ».
+  Une seconde fermeture ne fait rien, pas même à un dossier réapparu au même
+  chemin ;
+- dit une suppression impossible (un drapeau `uchg` posé par une commande,
+  par exemple) par un avertissement de fin de session, sans la taire.
+
+Points d'appel, chacun après l'arrêt des tâches de fond
+(`Session.closeExecution`, ou son équivalent dans `runHeadless`) :
+
+- terminal : `/exit`, ctrl+c deux fois, ctrl+d (`Session.shutdown`), toute
+  sortie du processus (`exit`) et les signaux SIGTERM, SIGHUP et SIGINT
+  (`src/index.ts`) ;
+- headless : fin du run quel qu'en soit le terme (succès, verdict qui ne
+  passe pas, suspension sur une décision « ask », sortie par code), sortie du
+  processus et signaux ; ces fermetures sont posées dès la création du bac,
+  avant tout ce qui peut échouer ;
+- web : session fermée ou supprimée depuis la page (sa boucle se termine par
+  `Session.shutdown`), session fermée pendant son démarrage (son bac est fermé
+  dès qu'il existe), arrêt du hub (`shutdownSync`, aussi sur signal et
+  `exit`) ;
+- session qui ne s'ouvre pas (reprise durable impossible à ouvrir) : le bac
+  déjà créé est fermé avant que l'erreur remonte, sinon chaque nouvel essai
+  du hub laisserait un dossier.
+
+Limite, décidée : un processus tué brutalement (`SIGKILL`, plantage, coupure
+de courant) n'exécute plus rien ; il laisse au plus son propre dossier, avec
+les fichiers temporaires de ses commandes, toujours privé et hors du
+workspace. Aucun nettoyage n'est fait au démarrage suivant : rien ne
+distingue sûrement le dossier d'une session morte de celui d'une session
+vivante (un autre terminal, le hub web, un run headless), et le supprimer
+retirerait son TMPDIR à une commande en cours. Un descendant détaché
+(`setsid` et double fork), qui survit déjà à la destruction du groupe, peut
+aussi recréer le dossier après sa suppression, en y restant confiné (non
+mesuré).
+
+Preuves : `test/sandbox-executor.test.js` (tests « #46 AC1 » et « #46 AC2 »,
+dans `npm test`) et `test/os/e2e.os.test.js` (tests « #46 OS », vrai binaire
+en headless, en web et en terminal, faux serveur local, dans
+`npm run test:os`).
 
 ## Limites connues
 
@@ -118,6 +179,9 @@ hôte reste inchangé.
   reste confiné (mesuré). Les lignes de commande des autres processus du
   compte restent lisibles (`KERN_PROCARGS2`), pas leur environnement : ne
   jamais passer un secret en argument.
+- Dossier temporaire privé (#46) : supprimé en fin de session sur les trois
+  surfaces ; un processus tué brutalement laisse le sien, qu'aucun démarrage
+  suivant ne nettoie (section ci-dessus).
 - Empreinte des outils (#17, `docs/allowlist-outils.md`) : sous la
   politique par défaut, git s'arrête dès qu'un `~/.gitconfig` existe et
   `.git` reste protégé, les outils installés sous le dossier personnel (nvm,

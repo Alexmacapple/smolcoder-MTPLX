@@ -253,8 +253,9 @@ Sous le profil, les quatre surfaces lancent leurs commandes par le backend
 Seatbelt (`sandbox-exec`), dont le profil est généré depuis la politique à
 chaque lancement : lecture de l'allow-list de l'empreinte des outils
 (`docs/allowlist-outils.md`) et du workspace, écriture dans le workspace et
-un TMPDIR privé à la session, noms protégés et stockage hôte refusés, réseau
-fermé sauf les destinations de `network` et les écoutes de `listen`. La
+un TMPDIR privé à la session (supprimé à sa fin, #46), noms protégés et
+stockage hôte refusés, réseau fermé sauf les destinations de `network` et les
+écoutes de `listen`. La
 session l'annonce à l'ouverture (`· isolation: macOS Seatbelt …`, avec les
 ports d'écoute accordés et leur limite) ; le headless écrit aussi une ligne
 `[isolation] {…}` sur stderr.
