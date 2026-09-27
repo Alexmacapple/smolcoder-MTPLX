@@ -105,16 +105,28 @@ ce qu'il prouve, ce qu'il journalise.
 - **Lanceur macOS** (`launch-smol-mtplx.command`) : interface web par
   défaut avec URL fraîche, session terminal, test de contrôle.
 
-**Chantiers restants**, dans l'ordre : la mesure au banc des
-[retours d'outils exploitables](https://github.com/Alexmacapple/smolcoder-MTPLX/issues/19)
-(#19, livrés, protocole prêt) et du [plan d'implémentation approuvé avec le contrat](https://github.com/Alexmacapple/smolcoder-MTPLX/issues/29)
-(#29, livré, protocole prêt) ; la [reprise durable](https://github.com/Alexmacapple/smolcoder-MTPLX/issues/10)
-(#10) est livrée, sans mesure au banc prévue. À part, en attente de décision :
-[l'étude AH-00](https://github.com/Alexmacapple/smolcoder-MTPLX/issues/33)
-(une leçon de fiche améliore-t-elle Qwen ?), porte d'entrée du
-[chantier d'apprentissage](https://github.com/Alexmacapple/smolcoder-MTPLX/issues/34)
-(#34). Chaque livraison passe par une pull request, des tests
-rouge/vert et une entrée dans `CHANGELOG-MTPLX.md`.
+**Mesures au banc sur Qwen–MTPLX** (protocoles pré-enregistrés, verdicts
+recalculés depuis les manifestes bruts) :
+- **Retours d'outils (#19) :** aucun effet démontré sur la conduite. Le
+  ticket est fermé, la livraison reste (`docs/mesure-retours-outils-2026-09-27.md`).
+- **Plan approuvé (#29) :** ni effet ni blocage sur trois tâches courtes,
+  pour 2,5 fois plus d'appels au modèle. Le plan reste facultatif, et le
+  ticket est fermé (`docs/mesure-plan-approuve-2026-09-27.md`).
+- **Leçons de fiches (#33) :** verdict NO-GO. La leçon `copie-figee`
+  donne un signal fort mais garde 2 faux succès
+  (`docs/etude-lecons-fiches-2026-09-27.md`).
+
+**Chantiers restants :**
+- la [mesure des scénarios de sécurité sous `--mission`](https://github.com/Alexmacapple/smolcoder-MTPLX/issues/52)
+  (#52), qui vérifie que la politique et l'isolation refusent ce que Qwen
+  fait parfois sans `--mission` ;
+- l'[étude de confirmation de `copie-figee`](https://github.com/Alexmacapple/smolcoder-MTPLX/issues/53)
+  (#53), qui décide du sort du
+  [chantier d'apprentissage](https://github.com/Alexmacapple/smolcoder-MTPLX/issues/34)
+  (#34).
+
+Chaque livraison passe par une pull request, des tests rouge/vert et une
+entrée dans `CHANGELOG-MTPLX.md`.
 
 ## Installer et lancer
 

@@ -574,6 +574,13 @@ le reprend en tête, relu dans le stockage hôte au moment de la compaction
   cochées) revient avec la session suivante sous le même plan (#10,
   `resume.json`), à la granularité du tour : une coupure au milieu d'un tour
   perd les étapes cochées depuis son début.
+- Effet mesuré du plan (`docs/mesure-plan-approuve-2026-09-27.md`) : sur
+  trois tâches courtes, ni effet ni blocage (15 réussites sur 15 avec et
+  sans plan, aucun fichier hors périmètre), pour 2,5 fois plus d'appels au
+  modèle. Qwen propose un plan conforme dans 15 runs sur 15. Le plan reste
+  donc facultatif : il sert quand l'humain veut relire la démarche avant
+  d'approuver, sans gain prouvé sur la réussite. L'apport d'une vraie
+  relecture humaine et le chemin `"plan": "required"` ne sont pas mesurés.
 - Les écarts au plan ne voient que les outils de fichiers du modèle : un
   fichier créé ou modifié par une commande (`run_command`, tâche de fond,
   script de build) n'est pas comparé au plan. Une session web reprise
