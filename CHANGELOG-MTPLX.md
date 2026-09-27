@@ -1173,6 +1173,19 @@ même binaire hors profil garde la barre d'état historique, sans pastille.
 Documentation seule dans ce commit, `npm test` et `npm run test:os`
 inchangés depuis `c74f005`. SHA `c74f005` reporté sur l'entrée précédente.
 
+### (ce commit) — Banc : index des fiches neutralisé
+
+`bench/noyau-agents-md/banc.sh`, `bench/noyau-agents-md/test-banc.sh`.
+Suite de #30, relevée par l'agent qui l'a implémenté : le banc du noyau
+tourne avec le vrai dossier personnel, donc une fois les fiches installées
+(`smol --install-fiches`), l'index des fiches serait entré dans les deux
+bras (avec et sans noyau) et aurait changé le prompt comparé. Le banc pose
+`SMOL_NO_FICHES=1` dans les deux conditions : il mesure le noyau seul, comme
+avant #30. Rouge d'abord : le faux `smol` de `test-banc.sh` refuse désormais
+de tourner sans `SMOL_NO_FICHES=1`, et le test rendait `statut
+blocage_harnais au lieu de succes` (sortie 1) ; avec le correctif, PASS
+(sortie 0). Mesurer l'effet des fiches elles-mêmes relève de l'étude #33.
+
 ## Hors dépôt (machine locale)
 
 - Fork créé : `Alexmacapple/smolcoder-MTPLX`.
