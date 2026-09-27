@@ -175,6 +175,26 @@ signalé à l'ouverture et dans la ligne `[resume]`. La phrase de précédence
 de sécurité de `src/prompt.ts` et l'opt-out `SMOL_NO_GLOBAL_AGENTS` ne
 changent pas.
 
+## Politique liée à l'approbation
+
+Reste tracé depuis #11 et confié à ce ticket : une politique modifiée après
+approbation changeait les droits sans nouvelle approbation. Décision :
+l'approbation garde la version de la politique en vigueur, chaque intention
+du journal d'effets la version de la décision qui l'a permise, et `policyRef`
+du contrat — réservé à cet effet — nomme la version exacte avec laquelle le
+contrat est approuvé. Sous `policyRef`, une autre version en vigueur ne
+décide de rien (sauf du plan), sur toutes les surfaces ; en headless, sortie
+3 avant tout modèle. Sans `policyRef`, le changement est dit à l'ouverture et
+dans la ligne `[mission]`, sans refus.
+
+Écarté pour l'instant : lier par défaut. Les campagnes de #11 et #17
+élargissent la politique après l'approbation (tests et fixtures OS) ; lier par
+défaut les ferait toutes refuser et changerait leur sens sans qu'on le
+décide. Écarté aussi : n'autoriser sans nouvelle approbation que les
+politiques plus étroites — l'ordre entre deux politiques (chemins, réseau,
+outils, écoutes, environnement) est un jugement qu'un contrôle mécanique ne
+porte pas sans risque. La bascule vers un lien par défaut reste à décider.
+
 ## Terminal, headless et web : un seul contrat
 
 Sous `--mission`, la même reprise s'ouvre avec la session, quelle que soit la

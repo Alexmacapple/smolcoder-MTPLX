@@ -32,6 +32,7 @@ import {
   LOCK_SCHEMA,
   MAX_RESUME_FILES,
   observedLine,
+  POLICY_VERSION_RE,
   ProofEvent,
   readLock,
   readProofs,
@@ -647,7 +648,7 @@ export class MissionResume {
 
   /** Enregistre l'intention, sur le disque, avant l'effet. Lève si le
    * journal la refuse : l'effet n'a alors pas lieu. */
-  begin(call: { id: string; name: string; args: Record<string, any> }): EffectHandle {
+  begin(call: { id: string; name: string; args: Record<string, any>; policy?: string }): EffectHandle {
     const tool = call.name as EffectTool;
     const id = randomBytes(6).toString("hex");
     let abs: string | null = null;
@@ -663,6 +664,7 @@ export class MissionResume {
     } else {
       input.command = String(call.args?.command ?? "").slice(0, 2000);
     }
+    if (call.policy && POLICY_VERSION_RE.test(call.policy)) input.policy = call.policy;
     const event = appendProof(this.mission.dir, input) as IntentEvent;
     this.effects.set(id, { intent: event, result: null, uncertain: null, resolved: null });
     this.point("before-effect");

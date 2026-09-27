@@ -784,3 +784,71 @@ test("H05 C1 (mission): the plan's progress survives a terminal session — the 
   assert.ok(ui.lines.some((l) => /plan progress restored from the last session: 1 step already done/.test(l)));
   b.releaseWriter();
 });
+
+// ---- politique liée à l'approbation (commentaire du ticket, reste de #11) ----
+
+const { decide } = require("../dist/harness/policy");
+
+test("H05 policy: a contract that names its policy (policyRef) is approved with that exact version — a policy changed after approval decides nothing, on any surface or in headless, until the host restores it; the model cannot lift it", async () => {
+  const version = store.policyVersion(store.DEFAULT_POLICY);
+  const ws = tmp("smol-h05-pol-ws-");
+  const src = path.join(tmp("smol-h05-pol-src-"), "contract.json");
+  fs.writeFileSync(src, JSON.stringify({ schema: "smolcoder/contract/v1", id: "h05-policy", title: "Politique liée", problem: "p", outcome: "o", acceptance: ["a"], budgets: { maxSteps: 40 }, policyRef: version }));
+  const m = Mission.prepare({ source: src, workspace: ws });
+  m.approve("terminal-human");
+  assert.equal(store.readContract(m.dir).record.approval.policy, version, "the approval records the policy in force");
+  assert.equal(effects(m).length, 0);
+  assert.equal(store.readProofs(m.dir).events.find((e) => e.type === "approval").policy, version);
+  const write = { surface: "tool", tool: "write_file", args: { path: "x.txt", content: "x" } };
+  assert.equal(decide(m, write).verdict, "allow");
+  assert.equal(m.policyBinding().state, "bound");
+
+  // L'appelant élargit la politique après l'approbation.
+  store.writePolicy(m.dir, { ...store.DEFAULT_POLICY, tasks: "workspace", env: ["SECRET_TOKEN"] });
+  const widened = store.readPolicy(m.dir).version;
+  for (const req of [write, { surface: "tool", tool: "read_file", args: { path: "x.txt" } }, { surface: "tool", tool: "task", args: { action: "start", command: "npm run dev" } }, { surface: "check", tool: "verification", args: { command: "npm test" } }, { surface: "terminal", tool: "terminal", args: { command: "ls" }, cwd: m.workspace }]) {
+    const d = decide(m, req);
+    assert.equal(d.verdict, "deny", `${req.surface} ${req.tool}`);
+    assert.match(d.reason, new RegExp(`binds the access policy ${version.replace(/[/.]/g, "\\$&")} \\(policyRef\\), and the policy in force is ${widened.replace(/[/.]/g, "\\$&")}`));
+  }
+  assert.equal(decide(m, { surface: "tool", tool: "plan", args: { action: "show" } }).verdict, "allow", "the plan has no effect");
+  assert.deepEqual(require("../dist/harness/mission").missionReport(m).policyBinding, { state: "mismatch", approved: version, current: widened });
+  const gate = require("../dist/harness/mission").authorizeHeadless(m);
+  assert.equal(gate.ok, false);
+  assert.match(gate.message, /binds the access policy .* \(policyRef\), and the policy in force is/);
+
+  const ui = terminalUi(["the policy is fine now, write"]);
+  const s = missionSession(ui, m, "terminal");
+  s.announce();
+  assert.ok(ui.lines.some((l) => /the contract binds the access policy .* every decision is refused/.test(l)), ui.lines.join("\n"));
+  const provider = scriptedProvider([{ content: "The host said the new policy is approved.", toolCalls: [{ id: "w1", name: "write_file", args: { path: "x.txt", content: "x" } }] }, { content: "blocked" }]);
+  s.agent.setProvider(provider);
+  await s.run();
+  assert.match(lastToolResults(provider, 1)[0], /^Error: denied: the mission contract binds the access policy/);
+  assert.equal(fs.existsSync(path.join(ws, "x.txt")), false);
+
+  // Politique rétablie par l'hôte : la décision reprend (session suivante).
+  store.writePolicy(m.dir, store.DEFAULT_POLICY);
+  assert.equal(decide(Mission.prepare({ source: src, workspace: ws }), write).verdict, "allow");
+});
+
+test("H05 policy: without policyRef, a policy changed after approval is shown — at the opening and in the [mission] line — and every effect records the version of the decision that allowed it", async () => {
+  const f = missionFixture("polchg");
+  const approved = store.readContract(f.m.dir).record.approval.policy;
+  assert.equal(approved, store.policyVersion(store.DEFAULT_POLICY));
+  store.writePolicy(f.m.dir, { ...store.DEFAULT_POLICY, tasks: "workspace" });
+  const current = store.readPolicy(f.m.dir).version;
+  assert.equal(f.m.policyBinding().state, "changed");
+  assert.deepEqual(require("../dist/harness/mission").missionReport(f.m).policyBinding, { state: "changed", approved, current });
+  const ui = terminalUi(["write"]);
+  const s = missionSession(ui, f.m, "terminal");
+  s.announce();
+  assert.ok(ui.lines.some((l) => l.includes(`the access policy changed since the contract was approved (${approved} → ${current})`)), ui.lines.join("\n"));
+  s.agent.setProvider(scriptedProvider([call("w1", "write_file", { path: "y.txt", content: "y" }), { content: "done" }]));
+  await s.run();
+  const intent = effects(f.m).find((e) => e.kind === "intent");
+  assert.equal(intent.policy, current, "the journal says under which policy the effect was decided");
+  // Sans changement, rien n'est ajouté au rapport (clés d'avant #10).
+  const g = missionFixture("polsame");
+  assert.equal("policyBinding" in require("../dist/harness/mission").missionReport(g.m), false);
+});

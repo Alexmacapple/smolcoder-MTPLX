@@ -322,8 +322,12 @@ export class Mission {
     }
     const frozen = this.freeze(this.verifierCommands(opts.commands));
     const withPlan = opts.plan !== undefined ? { plan: opts.plan } : {};
-    const approval: Approval = { fingerprint: this.fingerprint, by, at: new Date().toISOString(), verifiers: frozen, ...withPlan };
-    appendProof(this.dir, { type: "approval", fingerprint: this.fingerprint, by, verifiers: frozen?.digest ?? null, ...withPlan });
+    // #10 : la version de la politique en vigueur à l'approbation, gardée avec
+    // elle : un changement ultérieur se constate (et se refuse sous policyRef).
+    const pol = readPolicy(this.dir);
+    const withPolicy = pol.state === "ok" ? { policy: pol.version } : {};
+    const approval: Approval = { fingerprint: this.fingerprint, by, at: new Date().toISOString(), verifiers: frozen, ...withPlan, ...withPolicy };
+    appendProof(this.dir, { type: "approval", fingerprint: this.fingerprint, by, verifiers: frozen?.digest ?? null, ...withPlan, ...withPolicy });
     writeContract(this.dir, createRecord(this.contract, { status: "approved", approval, steps: read.record.usage.steps }));
     return this.status();
   }
@@ -643,6 +647,22 @@ export class Mission {
     return { ...(read.record.approval?.verifiers?.files ?? {}) };
   }
 
+  /** La politique d'accès au regard de l'approbation (#10). Sous `policyRef`,
+   * le contrat nomme la version exacte avec laquelle il est approuvé :
+   * `bound` si c'est celle en vigueur, sinon `mismatch` (tout est refusé).
+   * Sans `policyRef` : `same` ou `changed` par rapport à la version en vigueur
+   * à l'approbation (un changement se constate, sans refus), `unknown` si
+   * l'une des deux manque. */
+  policyBinding(): { ref: string | null; approved: string | null; current: string | null; state: "bound" | "mismatch" | "same" | "changed" | "unknown" } {
+    const read = readPolicy(this.dir);
+    const current = read.state === "ok" ? read.version : null;
+    const ref = this.contract.policyRef;
+    const approved = this.status().approval?.policy ?? null;
+    if (ref !== null) return { ref, approved, current, state: current === ref ? "bound" : "mismatch" };
+    if (!approved || !current) return { ref, approved, current, state: "unknown" };
+    return { ref, approved, current, state: approved === current ? "same" : "changed" };
+  }
+
   /** Les noms protégés de la politique : jamais lus pour une empreinte. */
   pathRules(): PathRules {
     const p = readPolicy(this.dir);
@@ -703,7 +723,8 @@ export class Mission {
     // Une approbation par sujet : celle des entrées ne touche pas au plan
     // approuvé avec le contrat (#29), que contract.json garde.
     const plan = read.record.approval?.plan;
-    const approval: Approval = { fingerprint: this.fingerprint, by, at: new Date().toISOString(), verifiers: now.freeze, ...(plan ? { plan } : {}) };
+    const policy = read.record.approval?.policy;
+    const approval: Approval = { fingerprint: this.fingerprint, by, at: new Date().toISOString(), verifiers: now.freeze, ...(plan ? { plan } : {}), ...(policy ? { policy } : {}) };
     appendProof(this.dir, { type: "approval", fingerprint: this.fingerprint, by, verifiers: now.freeze.digest });
     writeContract(this.dir, { ...read.record, approval, updatedAt: new Date().toISOString() });
     return this.verifierState(commands);
@@ -851,6 +872,12 @@ export function missionReport(mission: Mission, status: MissionStatus = mission.
     approvedBy: status.approval?.by ?? null,
     store: mission.dir,
     policy: policy.state === "ok" ? policy.version : policy.state,
+    // #10 : la politique a changé depuis l'approbation, ou ne correspond pas
+    // à celle que le contrat nomme (policyRef) ; rien sinon.
+    ...(() => {
+      const b = mission.policyBinding();
+      return b.state === "changed" || b.state === "mismatch" ? { policyBinding: { state: b.state, approved: b.ref ?? b.approved, current: b.current } } : {};
+    })(),
     ...(status.reason ? { reason: status.reason } : {}),
     // #9 : l'état des entrées du vérificateur et l'empreinte qu'une nouvelle
     // approbation figerait (--approve-verifiers).
@@ -940,6 +967,11 @@ export function authorizeHeadless(
   const policy = readPolicy(mission.dir);
   if (policy.state !== "ok") {
     return refuse(`The access policy of mission "${id}" is ${policy.state === "absent" ? "missing from" : `${policy.state} in`} the host store (${mission.dir}): the controller cannot decide, so nothing may run. Repair or remove policy.json by hand (removing it restores the default policy at the next run).`);
+  }
+  // #10 : le contrat nomme la politique avec laquelle il est approuvé.
+  const ref = mission.contract.policyRef;
+  if (ref !== null && ref !== policy.version) {
+    return refuse(`The mission contract "${id}" binds the access policy ${ref} (policyRef), and the policy in force is ${policy.version}: restore that policy, or approve a new contract version that names the new one.`);
   }
   if (approve !== undefined && (status.state === "proposed" || (status.state === "approved" && opts.approvePlan !== undefined))) {
     try {

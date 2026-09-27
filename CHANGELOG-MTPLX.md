@@ -1910,7 +1910,7 @@ reconstruit ensuite. `npm test` 358/358 (350 et 8 nouveaux), aucun test
 sauté, sous un HOME et un cache npm temporaires. SHA `ff56e7d` reporté sur
 l'entrée précédente.
 
-### (ce commit) — Un seul écrivain et changements externes — Réf #10
+### `df91965` — Un seul écrivain et changements externes — Réf #10
 
 `src/harness/resume.ts`, `src/harness/store.ts`, `src/harness/mission.ts`,
 `src/tools/read-tracker.ts`, `src/agent.ts`, `src/session.ts`,
@@ -1972,6 +1972,51 @@ sauté ; en parallèle, 362/364 : deux tests préexistants sensibles au délai
 supérieure à 60 : ImageOptim et MTPLX tournent à côté), échec reproduit à
 l'identique sur l'arbre de base `e36f0b6` sous la même charge, sans rapport
 avec ce commit. `npm run test:os` 23/23. SHA `f7d3cd8` reporté sur l'entrée
+précédente.
+
+### (ce commit) — Politique liée à l'approbation — Réf #10
+
+`src/harness/store.ts`, `src/harness/mission.ts`, `src/harness/policy.ts`,
+`src/harness/resume.ts`, `src/agent.ts`, `src/session.ts`,
+`test/reprise.test.js`, `test/plan-mission.test.js`,
+`docs/decision-stockage-hote.md`, `docs/decision-reprise-durable.md`,
+`docs/profil-mission.md`. Ticket #10 (H05), cinquième commit : le périmètre
+ajouté par le commentaire reporté de #11 (« la politique n'est pas liée à
+l'approbation ; `policyRef` est réservé à cet effet »), traité avec le journal
+d'effets.
+
+- L'approbation garde la version de la politique en vigueur (`policy`, dans
+  `contract.json` et l'événement `approval`) ; chaque intention du journal
+  d'effets garde la version de la décision qui l'a permise.
+- `policyRef` prend son sens : la version exacte avec laquelle le contrat est
+  approuvé, couverte par l'empreinte du contrat. Une autre version en vigueur
+  ne décide de rien, sauf du plan : outils, tâches, vérifications et
+  terminal web refusés, run headless refusé avant tout modèle (sortie 3) ;
+  rien de ce que dit le modèle n'y change. Rétablir la politique, ou
+  approuver une nouvelle version du contrat qui nomme la nouvelle, lève le
+  refus.
+- Sans `policyRef`, comportement de #11 conservé (la politique en vigueur
+  décide), mais le changement depuis l'approbation est dit à l'ouverture de la
+  session et dans la ligne `[mission]` (`policyBinding`, absente sans
+  changement). Lier par défaut ferait refuser les campagnes de #11 et #17, qui
+  élargissent la politique après approbation : décision laissée à Alex,
+  motivée dans `docs/decision-reprise-durable.md`.
+
+Grammaire, amendée explicitement dans `docs/decision-stockage-hote.md`
+(section du 2026-09-27, politique liée à l'approbation). Test existant
+adapté, dit ici : « H08 AC5 » comparait les clés exactes de l'approbation ; il
+admet désormais `policy`, toujours sans aucune clé du plan.
+
+Vérifications. Deux tests « H05 policy » : sous `policyRef`, politique
+élargie après approbation refusée sur cinq surfaces (écriture, lecture, tâche,
+vérification, terminal web), plan permis, ligne `[mission]` en `mismatch`,
+`authorizeHeadless` refusé, session qui le dit, Qwen simulé qui prétend
+l'inverse sans effet, décision rétablie avec la politique ; sans
+`policyRef`, changement dit à l'ouverture et dans `[mission]`, version portée
+par l'intention, aucune clé ajoutée sans changement. Rouge constaté sur
+l'arbre du commit précédent, construit à part : deux échecs (version absente
+de l'approbation). `npm test` en série 366/366 (364 et 2 nouveaux), aucun
+test sauté ; `npm run test:os` 23/23. SHA `df91965` reporté sur l'entrée
 précédente.
 
 ## Hors dépôt (machine locale)

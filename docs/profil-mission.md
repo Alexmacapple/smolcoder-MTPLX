@@ -57,7 +57,10 @@ Obligatoires : `schema`, `id`, `title`, `problem`, `outcome`, `acceptance`
 d'intention s'y retrouvent (problème, résultat attendu, utilisateurs,
 contraintes, hors périmètre, critère observable, questions ouvertes).
 `workspace` est rempli par l'hôte (chemin réel) ; s'il est fourni, il doit
-désigner le même dossier. `policyRef` est réservé à #11.
+désigner le même dossier. `policyRef` (#10) nomme, s'il est donné, la version
+exacte de la politique d'accès avec laquelle le contrat est approuvé
+(`smolcoder/policy/v1@<empreinte>`, section « Politique d'accès ») : comme il
+entre dans l'empreinte du contrat, l'approbation la couvre.
 
 `plan` (facultatif, #29) : `"required"` exige un plan d'implémentation
 approuvé avec le contrat ; absent, le plan est facultatif (section « Plan
@@ -134,6 +137,20 @@ est gardée telle quelle ; une politique illisible n'est jamais écrasée. Elle
 est relue à chaque décision. Sa version, `smolcoder/policy/v1@<empreinte>`,
 est l'empreinte de son contenu, jamais un champ modifiable : elle figure dans
 chaque décision et dans la ligne `[mission]`.
+
+L'approbation garde la version de la politique en vigueur (`policy`, dans
+`contract.json` et l'événement `approval`, #10), et chaque effet du modèle
+enregistre au journal la version de la décision qui l'a permis. Sans
+`policyRef`, une politique modifiée après l'approbation décide des actions
+suivantes, mais le changement est dit à l'ouverture de chaque session et dans
+la ligne `[mission]` (`policyBinding`). Avec `policyRef`, le contrat n'est
+approuvé qu'avec cette version : une autre version en vigueur ne décide de
+rien (tout est refusé sauf le plan, terminal web compris, et un run headless
+sort en 3) jusqu'à ce que l'hôte rétablisse la politique, ou approuve une
+nouvelle version du contrat qui nomme la nouvelle. Pourquoi pas par défaut :
+les campagnes de #11 et #17 élargissent la politique après l'approbation, et
+lier sans le dire changerait leur sens ; la décision de rendre le lien
+obligatoire reste à Alex.
 
 Aucun fichier du workspace n'est lu comme politique. Le stockage hôte est
 hors d'atteinte des outils de fichiers (confinement au workspace, liens
@@ -525,9 +542,11 @@ le reprend en tête, relu dans le stockage hôte au moment de la compaction
   refuse la lecture quel que soit le texte de la commande ; ses limites
   (réseau, écoute, descendants détachés, git) sont dans
   `docs/decision-backend-isole.md` et `docs/allowlist-outils.md`.
-- La politique n'est pas liée à l'approbation : l'appelant qui la modifie
-  après approbation change les droits sans nouvelle approbation (la version
-  figure dans chaque décision). `policyRef` du contrat reste réservé.
+- Sans `policyRef`, la politique n'est pas liée à l'approbation : l'appelant
+  qui la modifie après approbation change les droits sans nouvelle
+  approbation ; le changement est dit (ouverture de session, ligne
+  `[mission]`) et chaque effet journalise sa version (#10). Avec `policyRef`,
+  elle l'est.
 - `list_files` montre le nom des fichiers protégés, jamais leur contenu.
   L'`AGENTS.md` du workspace reste modifiable (une consigne, pas un droit) ;
   l'appelant peut l'ajouter à `paths.protect`.

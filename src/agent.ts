@@ -1041,7 +1041,7 @@ export class Agent {
       let effect: EffectHandle | null = null;
       if (isEffectCall(name, args)) {
         try {
-          effect = mission.resume.begin({ id: callId, name, args });
+          effect = mission.resume.begin({ id: callId, name, args, policy: auth.decision.policyVersion });
         } catch (err: any) {
           if (err instanceof SimulatedCrash) throw err;
           return `Error: ${name} was not run: the host could not record it before acting (${err?.message ?? err}). Nothing was changed.`;

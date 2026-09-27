@@ -531,6 +531,9 @@ export class Session {
       );
       if (this.executor) ui.status(isolationLine(this.executor.status, this.executor.listening()));
       this.noteBypassUnderMission();
+      const pb = this.mission.policyBinding();
+      if (pb.state === "mismatch") ui.warn(`· mission profile: the contract binds the access policy ${pb.ref} (policyRef), and the policy in force is ${pb.current ?? "unreadable"} — every decision is refused until the host restores it or approves a new contract version`);
+      else if (pb.state === "changed") ui.warn(`· mission profile: the access policy changed since the contract was approved (${pb.approved} → ${pb.current}); decisions follow the current one. To bind the approval to one policy, name its version in the contract's policyRef.`);
       for (const line of this.mission.resume.lines()) ui.warn(line);
     }
   }

@@ -351,3 +351,27 @@ borne de 8 Mio. Un fichier perdu ou illisible ne retire aucun droit : la
 session suivante le dit et repart de l'état constaté.
 
 Cet amendement est accepté par la fusion de la pull request du ticket #10.
+
+### 2026-09-27 — ticket #10 : politique liée à l'approbation
+
+Deux champs facultatifs, dans le module propriétaire `src/harness/store.ts`,
+schémas inchangés ; un lecteur antérieur refuse un champ inconnu, comme le
+prévoient les règles de lecture.
+
+- `contract.json`, l'approbation, et l'événement `approval` : champ
+  facultatif `policy`, la version de la politique d'accès en vigueur à
+  l'approbation (`smolcoder/policy/v1@<16 hexadécimaux>`). Absent :
+  approbation antérieure à #10, ou politique illisible alors. La nouvelle
+  approbation des seules entrées du vérificateur (#9) le garde.
+- Événement `effect` de nature `intent` : champ facultatif `policy`, la
+  version de la décision qui a permis l'effet.
+- `policyRef` du contrat, réservé depuis #8, prend son sens : la version exacte
+  de la politique avec laquelle le contrat est approuvé ; une autre version en
+  vigueur ne décide de rien. Aucun changement de grammaire (le champ était
+  déjà un texte facultatif, dans l'empreinte) : un `policyRef` qui n'est pas
+  une version ne correspond jamais, et tout est refusé (fail-closed).
+
+Pourquoi l'approbation plutôt qu'un fichier de plus : la version qualifie
+l'approbation, comme les entrées figées du vérificateur et le plan approuvé.
+
+Cet amendement est accepté par la fusion de la pull request du ticket #10.

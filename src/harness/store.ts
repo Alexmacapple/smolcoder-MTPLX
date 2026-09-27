@@ -117,7 +117,13 @@ export interface Approval {
   /** Empreinte du plan d'implémentation approuvé avec le contrat (#29).
    * Absent : contrat approuvé sans plan. */
   plan?: string;
+  /** Version de la politique d'accès en vigueur à l'approbation (#10).
+   * Absent : approbation antérieure à #10, ou politique illisible alors. */
+  policy?: string;
 }
+
+/** La version d'une politique : `smolcoder/policy/v1@<16 hexadécimaux>`. */
+export const POLICY_VERSION_RE = /^smolcoder\/policy\/v1@[0-9a-f]{16}$/;
 
 export interface ContractRecord {
   schema: typeof CONTRACT_SCHEMA;
@@ -227,6 +233,8 @@ export interface EffectIntentInput {
   before?: string | null;
   expected?: string | null;
   command?: string;
+  /** La version de la politique d'accès de la décision qui l'a permise. */
+  policy?: string;
 }
 
 export type EffectInput =
@@ -246,7 +254,7 @@ export type ProofInput =
   // `verifiers` (#9) : l'empreinte des entrées du vérificateur figées par
   // cette approbation ; null quand elles n'ont pas pu l'être. `plan` (#29) :
   // l'empreinte du plan approuvé avec le contrat, absente sans plan.
-  | { type: "approval"; fingerprint: string; by: ApprovalAuthority; verifiers?: string | null; plan?: string }
+  | { type: "approval"; fingerprint: string; by: ApprovalAuthority; verifiers?: string | null; plan?: string; policy?: string }
   // Lecture d'une fiche de méthode installée (#30) : son nom et l'empreinte
   // du contenu servi, liés à l'empreinte du contrat de la session.
   | { type: "fiche"; fingerprint: string; name: string; sha256: string }
@@ -484,14 +492,16 @@ function parseVerifiers(raw: unknown): VerifierFreeze | null {
 function parseApproval(raw: unknown): Approval | null {
   if (raw === null) return null;
   if (!isObject(raw)) throw new ContractError('field "approval" must be null or an object');
-  onlyFields(raw, ["fingerprint", "by", "at", "verifiers", "plan"], "approval.");
+  onlyFields(raw, ["fingerprint", "by", "at", "verifiers", "plan", "policy"], "approval.");
   if (typeof raw.fingerprint !== "string" || !HEX64.test(raw.fingerprint)) throw new ContractError('field "approval.fingerprint" must be 64 hexadecimal characters');
   if (!APPROVAL_AUTHORITIES.includes(raw.by as ApprovalAuthority)) throw new ContractError(`field "approval.by" must be one of ${APPROVAL_AUTHORITIES.join(", ")}`);
   if (typeof raw.at !== "string" || Number.isNaN(Date.parse(raw.at))) throw new ContractError('field "approval.at" must be a date');
   if (raw.plan !== undefined && (typeof raw.plan !== "string" || !HEX64.test(raw.plan))) throw new ContractError('field "approval.plan" must be 64 hexadecimal characters');
+  if (raw.policy !== undefined && (typeof raw.policy !== "string" || !POLICY_VERSION_RE.test(raw.policy))) throw new ContractError('field "approval.policy" must be a policy version');
   const approval: Approval = { fingerprint: raw.fingerprint, by: raw.by as ApprovalAuthority, at: raw.at };
   if (raw.verifiers !== undefined) approval.verifiers = parseVerifiers(raw.verifiers);
   if (raw.plan !== undefined) approval.plan = raw.plan as string;
+  if (raw.policy !== undefined) approval.policy = raw.policy as string;
   return approval;
 }
 
@@ -616,8 +626,9 @@ function checkEffectEvent(event: Record<string, unknown>): void {
   const line = (v: unknown, max: number) => typeof v === "string" && v.length <= max && !/[\x00-\x08\x0a-\x1f\x7f]/.test(v);
   switch (event.kind) {
     case "intent": {
-      onlyFields(event, ["schema", "type", "at", "fingerprint", "kind", "id", "session", "call", "tool", "path", "before", "expected", "command"]);
+      onlyFields(event, ["schema", "type", "at", "fingerprint", "kind", "id", "session", "call", "tool", "path", "before", "expected", "command", "policy"]);
       if (typeof event.session !== "string" || !EFFECT_ID_RE.test(event.session)) throw bad("session");
+      if (event.policy !== undefined && (typeof event.policy !== "string" || !POLICY_VERSION_RE.test(event.policy))) throw bad("policy");
       if (!line(event.call, CALL_ID_MAX)) throw bad("call");
       if (!EFFECT_TOOLS.includes(event.tool as EffectTool)) throw bad("tool");
       if (event.tool === "write_file" || event.tool === "edit_file") {
@@ -671,10 +682,11 @@ function checkEvent(event: Record<string, unknown>): void {
     if (typeof event.name !== "string" || !FICHE_NAME_RE.test(event.name)) throw new ContractError('proof field "name" must be a method sheet name');
     if (typeof event.sha256 !== "string" || !HEX64.test(event.sha256)) throw new ContractError('proof field "sha256" must be 64 hexadecimal characters');
   } else {
-    onlyFields(event, ["schema", "type", "at", "fingerprint", "by", "verifiers", "plan"]);
+    onlyFields(event, ["schema", "type", "at", "fingerprint", "by", "verifiers", "plan", "policy"]);
     if (!APPROVAL_AUTHORITIES.includes(event.by as ApprovalAuthority)) throw new ContractError(`proof field "by" must be one of ${APPROVAL_AUTHORITIES.join(", ")}`);
     if (event.verifiers !== undefined && !hexOrNull(event.verifiers)) throw new ContractError('proof field "verifiers" must be 64 hexadecimal characters or null');
     if (event.plan !== undefined && (typeof event.plan !== "string" || !HEX64.test(event.plan))) throw new ContractError('proof field "plan" of an approval must be 64 hexadecimal characters');
+    if (event.policy !== undefined && (typeof event.policy !== "string" || !POLICY_VERSION_RE.test(event.policy))) throw new ContractError('proof field "policy" of an approval must be a policy version');
   }
 }
 
