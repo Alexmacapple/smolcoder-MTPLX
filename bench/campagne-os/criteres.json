@@ -1,0 +1,43 @@
+{
+  "format": "campagne-os-criteres/v1",
+  "source": "https://github.com/Alexmacapple/smolcoder-MTPLX/issues/12",
+  "note": "Chaque préfixe désigne exactement un test de test/os/*.os.test.js (vérifié par test/campagne-os.test.js). kind « refus » : la garantie est un refus du système ; « fonctionnel » : un cas qui doit fonctionner sous isolation.",
+  "criteria": [
+    {
+      "id": "AC1",
+      "kind": "refus",
+      "text": "Un script de fixture, pourtant situé dans le workspace, ne peut pas lire un faux secret externe ni altérer un contrôle protégé ; ses sous-processus non plus.",
+      "tests": ["H03-2 OS AC1:", "H03-3 OS AC2:"]
+    },
+    {
+      "id": "AC2",
+      "kind": "refus",
+      "text": "Tentatives vers un serveur HTTP de test interdit et vers une API locale non autorisée bloquées ; destination expressément autorisée testée positivement.",
+      "tests": ["H03-2 OS AC2:", "H03-3 OS AC4:"]
+    },
+    {
+      "id": "AC3",
+      "kind": "fonctionnel",
+      "text": "Un npm test de fixture et un serveur de développement autorisé fonctionnent ; fichiers temporaires nécessaires explicités.",
+      "tests": ["H03-2 OS AC3 (partial", "H03-3 OS AC1:", "H03-3 OS AC2:", "H03-3 OS AC6:", "H03-4 OS AC3 (headless):"]
+    },
+    {
+      "id": "AC4",
+      "kind": "fonctionnel",
+      "text": "Arrêt/timeout terminent les descendants et donnent un résultat observable ; aucune affirmation de réussite fondée sur la seule disparition du processus parent.",
+      "tests": ["H03-2 OS AC4:", "H03-2 OS AC4 (known limit):"]
+    },
+    {
+      "id": "AC5",
+      "kind": "refus",
+      "text": "Même frontière pour terminal, web, headless et vérifications automatiques.",
+      "tests": ["H03-2 OS AC5:", "H03-4 OS AC5 (headless):", "H03-4 OS AC5 (web):", "H03-4 OS AC5 (terminal):"]
+    },
+    {
+      "id": "AC6",
+      "kind": "refus",
+      "text": "Absence de backend : aucune commande du profil renforcé n'est lancée. Tests OS sur macOS obligatoires avant de déclarer ce support validé ; les mocks seuls ne suffisent pas.",
+      "tests": ["H03-2 OS:", "H03-2 OS AC6:"]
+    }
+  ]
+}

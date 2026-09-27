@@ -186,9 +186,10 @@ l'environnement de l'hôte (elles ne lancent pas de code du projet).
   destination loopback nommée, écoute d'un serveur de développement
   (`listen`) ; chaque entrée justifiée et testée.
 - #18 : indication de l'isolation dans l'interface au-delà de la ligne
-  d'ouverture, campagne OS complète archivée au format du banc ; sort des
-  sondes internes `src/tools/check.ts` et `src/detect.ts`, restées hors de
-  l'exécuteur.
+  d'ouverture (ligne d'état du terminal, pastille de la page web), sondes
+  internes laissées sur l'hôte (section ci-dessus), vrai binaire éprouvé de
+  bout en bout, campagne OS archivée au format du banc : inventaire et
+  résultat dans `docs/campagne-os-2026-09-27.md`.
 
 ## Critère de validation
 

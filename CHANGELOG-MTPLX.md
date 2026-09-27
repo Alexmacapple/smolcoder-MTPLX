@@ -964,7 +964,7 @@ profil), pastille et styles ; le script de la page se compile
 (`new Function(CLIENT_JS)`). `npm test` 270/270 (266 et 4 nouveaux). SHA
 `737106f` reporté sur l'entrée précédente.
 
-### (ce commit) — Bout en bout du vrai binaire sous --mission — Réf #18
+### `449e22f` — Bout en bout du vrai binaire sous --mission — Réf #18
 
 `test/os/e2e.os.test.js` (nouveau), `scripts/test-os.cjs` (nouveau),
 `package.json`, `docs/decision-backend-isole.md`, `docs/allowlist-outils.md`,
@@ -1013,6 +1013,43 @@ auprès des sondes (« no planted program ran on the host », `bin-docker`).
 4 nouveaux), `npm test` 270/270 ; entrées de `~/.npm` et `~/.smolcoder`
 comptées avant et après : inchangées. SHA `79ef236` reporté sur l'entrée
 précédente.
+
+### (ce commit) — Harnais de la campagne OS — Réf #18
+
+`bench/campagne-os/campagne.sh`, `criteres.json`, `rapporteur.mjs`,
+`manifeste.cjs` (nouveaux), `scripts/test.cjs`,
+`docs/campagne-os-2026-09-27.md` (nouveau), `docs/decision-backend-isole.md`,
+`test/campagne-os.test.js` (nouveau). Ticket #18 : campagne OS réelle
+archivée au format du banc (#13).
+
+`campagne.sh` rejoue sur le Mac `npm test` puis `npm run test:os` sous le
+verrou de campagne du banc (même bibliothèque, fichier de verrou propre),
+dans un dossier horodaté `bench/campagne-os/resultats/<UTC>-campagne-os.*`
+qui garde les sorties lisibles, une ligne JSON par test (rapporteur
+`node:test`) et le manifeste `campagne-os/v1` : SHA et état du harnais,
+version de macOS, présence de `sandbox-exec`, statut de chacun des six
+critères du chapeau #12 avec ses tests et leurs durées, durées des suites,
+comptes d'entrées du vrai `~/.npm` et du vrai `~/.smolcoder` avant et
+après. Statuts du banc : `refus_securite_attendu` pour un critère de refus
+prouvé, `succes` pour un critère fonctionnel, `echec_test`,
+`blocage_harnais` (test absent, ambigu, sauté ou annulé ; verrou ;
+préconditions), jamais `mtplx_indisponible`. Les journaux de npm vont dans
+le dossier du run. Résultats ignorés par Git, comme ceux du banc (règle
+existante de `bench/.gitignore`). `scripts/test.cjs` transmet à `node --test`
+les arguments donnés après `npm test --`, comme `scripts/test-os.cjs`.
+`docs/campagne-os-2026-09-27.md` tient l'inventaire critère par critère (le
+test qui prouve chacun, les trous comblés par #18), les décisions et le
+protocole ; son résultat suit au commit suivant.
+
+Vérifications. Rouge d'abord : les cinq tests de `test/campagne-os.test.js`
+échouent (fichiers absents) ; puis deux restent rouges pour de vraies
+raisons, corrigées : le `node --test` imbriqué héritait de
+`NODE_TEST_CONTEXT` et sortait 0, et le script interrogeait npm avant de
+prendre le verrou. Après : 5/5 (correspondance des critères avec les tests
+OS existants, classement des statuts, rapporteur sur une fixture, verrou
+tenu sans rien lancer, chaîne complète avec un faux npm) ; `shellcheck`
+sans avertissement ; `npm test` 275/275 (270 et 5 nouveaux). SHA `449e22f`
+reporté sur l'entrée précédente.
 
 ## Hors dépôt (machine locale)
 
