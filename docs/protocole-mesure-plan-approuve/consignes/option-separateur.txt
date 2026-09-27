@@ -1,0 +1,1 @@
+Ajoute un réglage separateur, le séparateur décimal des montants ("," par défaut), dans config.py ; utilise-le dans format.montant() ; documente-le dans docs/usage.md, dans la liste des réglages, sur le modèle des deux autres. Ne modifie ni les tests ni le README. Vérifie avec python3 -m unittest -q test_format.

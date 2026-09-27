@@ -1,0 +1,43 @@
+{
+  "schema": "smolcoder/contract/v1",
+  "id": "banc-plan-option-separateur",
+  "title": "Réglage du séparateur décimal",
+  "problem": "Les montants s'affichent avec un point décimal, pas avec la virgule attendue en français.",
+  "outcome": "Un réglage separateur (\",\" par défaut) décide du séparateur décimal des montants, et docs/usage.md le documente.",
+  "constraints": [
+    "pas de nouvelle dépendance"
+  ],
+  "outOfScope": [
+    "modifier les tests",
+    "modifier le README"
+  ],
+  "acceptance": [
+    "python3 -m unittest -q test_format passe",
+    "docs/usage.md documente le réglage separateur dans la liste des réglages",
+    "test_format.py et README.md sont inchangés"
+  ],
+  "checks": [
+    {
+      "command": "python3 -m unittest -q test_format",
+      "covers": [
+        1
+      ]
+    },
+    {
+      "command": "grep -q '^- separateur' docs/usage.md",
+      "covers": [
+        2
+      ]
+    },
+    {
+      "command": "[ \"$(shasum -a 256 test_format.py README.md | shasum -a 256 | cut -c1-64)\" = \"8679f1345482d2173860c51cbea42c52f201993721b2caacf9b914657a10dd99\" ]",
+      "covers": [
+        3
+      ]
+    }
+  ],
+  "openQuestions": [],
+  "budgets": {
+    "maxSteps": 60
+  }
+}

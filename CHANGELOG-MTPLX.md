@@ -1680,7 +1680,7 @@ Rouge constaté avant le code : aucune note d'écart, réécriture refusée
 et `npm run test:os` 22/22, aucun test sauté, sous un HOME et un cache npm
 temporaires. SHA `21e9cd6` reporté sur l'entrée précédente.
 
-### (ce commit) — Plan en headless sur le vrai binaire — Réf #29
+### `ed4ba0b` — Plan en headless sur le vrai binaire — Réf #29
 
 `test/os/e2e.os.test.js`, `docs/profil-mission.md`. Ticket #29 (H08),
 troisième commit : aucun code touché, la preuve de bout en bout du parcours
@@ -1707,6 +1707,44 @@ Rouge constaté sur le binaire de base `f149f90` (arbre extrait par
 "--propose-plan"`, sortie 1 au lieu de 3. `npm test` 342/342 et `npm run
 test:os` 23/23 (22 et 1 nouveau), aucun test sauté, sous un HOME et un cache
 npm temporaires. SHA `ec82098` reporté sur l'entrée précédente.
+
+### (ce commit) — Protocole de mesure du plan approuvé — Réf #29
+
+`docs/protocole-mesure-plan-approuve.md` (nouveau),
+`docs/protocole-mesure-plan-approuve/` (nouveau : fixtures, contrats,
+consignes, périmètres, `controle.py`, `essai.sh`, `mesures.py`),
+`docs/profil-mission.md`, `README.md`. Ticket #29 (H08), dernier commit : le
+critère « effet sur Qwen mesuré par le banc » n'est pas joué, MTPLX étant
+occupé par l'étude #33. Le protocole est écrit à la place, règle de décision
+figée avant tout essai.
+
+- Binaire figé : `ed4ba0b`, un seul pour les deux bras, `dist/` identique à
+  celui d'`ec82098` ; empreinte attendue
+  `6c103f86…208c0348`, construction vérifiée reproductible (deux
+  constructions identiques, identiques au `dist/` du worktree).
+- Deux bras appariés, même contrat, même consigne : sans plan (parcours
+  d'avant #29) et avec plan (`--propose-plan`, approbation mécanique du plan
+  proposé, `--approve-plan`). Trois tâches Python multi-fichiers, cinq
+  répétitions, ordre alterné.
+- Mesures lues dans les fichiers : réussite réelle par un contrôle
+  indépendant que le modèle ne voit pas, fichiers hors du périmètre attendu
+  (dans les deux bras), appels d'outils et du modèle, écarts journalisés,
+  précision et rappel du plan, durée.
+- Règle : validité, faisabilité (plan proposé dans 12 runs sur 15 au moins),
+  blocages, effet démontré, coût ; issues possibles écrites à l'avance, la
+  décision reste à Alex.
+
+Vérifications sans modèle réel : chaque fixture échoue avant la tâche et
+passe après une solution minimale (hors dépôt) ; les neuf contrôles de l'hôte
+échouent ou passent comme attendu ; `controle.py` refuse la fixture, accepte
+la solution, refuse un test retouché ; `essai.sh` et `mesures.py` joués à
+blanc dans les deux bras contre un faux serveur OpenAI-compatible local et le
+binaire figé (proposition sortie 3, travail sortie 0 `verified`, écart `file`
+compté), sous un HOME temporaire, sans MTPLX. Corrigé pendant cet essai à
+blanc : l'étiquette Git `reference`, sans laquelle le diff du périmètre
+échouait. Aucun code touché : `npm test` 342/342 et `npm run test:os` 23/23
+sur l'arbre final, aucun test sauté. SHA `ed4ba0b` reporté sur l'entrée
+précédente.
 
 ## Hors dépôt (machine locale)
 

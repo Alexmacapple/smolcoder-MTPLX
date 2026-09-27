@@ -387,7 +387,9 @@ décide.
 Décision : le plan est facultatif. Sans plan proposé, rien ne change — mêmes
 vues, même question de `/approve`, même événement `approval`, même
 `contract.json`, même rapport, même ligne `[mission]`. Le rendre exigible par
-défaut se décidera sur mesure (dernier critère du ticket), pas sur intuition.
+défaut se décidera sur mesure (dernier critère du ticket), pas sur intuition :
+protocole de mesure appariée, règle de décision figée avant les essais,
+`docs/protocole-mesure-plan-approuve.md`.
 Le contrat peut l'exiger, par `"plan": "required"` : l'approbation sans plan
 est alors refusée partout (`/approve` le dit sans rien demander ; headless,
 sortie 3 avec la marche à suivre, `--propose-plan` d'abord), et le bloc du
