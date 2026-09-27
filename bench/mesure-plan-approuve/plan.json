@@ -1,0 +1,61 @@
+{
+  "format": "mesure-plan-approuve/plan/v1",
+  "ticket": 29,
+  "question": "Sous --mission, un plan d'implémentation proposé par Qwen 3.8 27B servi par MTPLX, puis approuvé avec le contrat, change-t-il sa conduite réelle — réussite réelle, écarts au périmètre, appels d'outils ?",
+  "protocole": {
+    "fichier": "docs/protocole-mesure-plan-approuve.md",
+    "commit": "9502a2e",
+    "pieces": {
+      "docs/protocole-mesure-plan-approuve.md": "c174ec4680b76a0954272d71cf9752869c806bad502fb7765e9e5c8852cb87a5",
+      "docs/protocole-mesure-plan-approuve/consignes/alertes-stock.txt": "47f7fa75e2364b0bf23396cc9751e1cd6134aeecf373bb3066cac13e0bd49f44",
+      "docs/protocole-mesure-plan-approuve/consignes/option-separateur.txt": "97efa0aa28719a53da2199b1d010da13fb0955d56e89b390821b5315f96ddf75",
+      "docs/protocole-mesure-plan-approuve/consignes/renommage.txt": "2819581c115b99b188aff74553eccf96dff3522116c6e8fd6de5b9092b0ebfd4",
+      "docs/protocole-mesure-plan-approuve/contrats/alertes-stock.json": "08bde911ff28d891c5b34872debc5ebd6ee81713c5c4c27e4a02b2d1cbb7516c",
+      "docs/protocole-mesure-plan-approuve/contrats/option-separateur.json": "1bec0ffa32227a3ac61e190ae2f11c9bdbde55464b8fce535a2b409cc33ebfaa",
+      "docs/protocole-mesure-plan-approuve/contrats/renommage.json": "1d0f70c6afcce221f96381637013f01c8f23ed72d8589bfb1a44dd4f2d1fa8f1",
+      "docs/protocole-mesure-plan-approuve/controle.py": "b2a6d4a6a220135fbacb6a68e3acfcd70c89dac3d08097a355a7ed645886b719",
+      "docs/protocole-mesure-plan-approuve/essai.sh": "a8548d22883fcaffe676c554d4e92b6c4b0df233db8fe7482f8a2d96a6f639f7",
+      "docs/protocole-mesure-plan-approuve/fixtures/alertes-stock/README.md": "353e9f9eaf70becff10d9dd7e5d95446ed93a67a2e6a9eca91420a3a0bb69c65",
+      "docs/protocole-mesure-plan-approuve/fixtures/alertes-stock/rapport.py": "6a65eee1a68911b2e350c59c6d3ad098c4cf99a75e6a49a1bf799e7db2a6859a",
+      "docs/protocole-mesure-plan-approuve/fixtures/alertes-stock/stock.py": "e5761d6fad93777eff59e10d3f55d64995b2d2bfd40bc767e5d40f363f08bab2",
+      "docs/protocole-mesure-plan-approuve/fixtures/alertes-stock/test_stock.py": "cc35d5a107ec0fd7aa6ad81f8b7c253c13e0f53c5506ef8d90e5d6319b85b2cb",
+      "docs/protocole-mesure-plan-approuve/fixtures/option-separateur/README.md": "d024cd068dcaef527d11a5740e859f6c87eb927c1e5a01ad35235c9d310cec68",
+      "docs/protocole-mesure-plan-approuve/fixtures/option-separateur/cli.py": "59935f82365ccfc36c6b5c7d61d1788911ef9ca6d3e61328c6f541b6de8e020e",
+      "docs/protocole-mesure-plan-approuve/fixtures/option-separateur/config.py": "53490cd764ba4348796741d87924ff686c1e1cb700d2438f336c340f9b749f29",
+      "docs/protocole-mesure-plan-approuve/fixtures/option-separateur/docs/usage.md": "736ade4857f21432228819574f408f1a3d326d97778538f1aecf8aef3c255ac9",
+      "docs/protocole-mesure-plan-approuve/fixtures/option-separateur/format.py": "725746127c44fe7d2147fcb6d7e859b90061c34b6fa5f2703b486c128fe2ce5f",
+      "docs/protocole-mesure-plan-approuve/fixtures/option-separateur/test_format.py": "fb5f78339d3e3ea31b1596f50cd04fb5dc92399efb2667a28120928e7d92a99a",
+      "docs/protocole-mesure-plan-approuve/fixtures/renommage/README.md": "77d7328e1d74ad8dc192a90f39c53fb3ea680021240c0ed2a583b6e320acf5a8",
+      "docs/protocole-mesure-plan-approuve/fixtures/renommage/devis.py": "e7d965372cd6f1f3ee0057601ce2b29899dc4ba272bf628add111c03b93ce259",
+      "docs/protocole-mesure-plan-approuve/fixtures/renommage/export.py": "2f93fd3664f013d255ee587df461582b96362e3e375314e4435642950ad65e4e",
+      "docs/protocole-mesure-plan-approuve/fixtures/renommage/geometrie.py": "963fd2b2d71336d3017ab3813dc86434f2c832c7dc13cfdcd91ca4a64476acb5",
+      "docs/protocole-mesure-plan-approuve/fixtures/renommage/piece.py": "5540c4d043baf34c02d24070035ad9b188cc79b8107b95ec9b5a65a5e101894c",
+      "docs/protocole-mesure-plan-approuve/fixtures/renommage/test_devis.py": "87b53e3ae956ada900b6fbda1461b0968bf3a16752b1fc7e01a8412d8e42937b",
+      "docs/protocole-mesure-plan-approuve/mesures.py": "36e4b7a464511cf5734b22698f3fd899ed4d61f9cfd65c3f4495431fc6e91a7c",
+      "docs/protocole-mesure-plan-approuve/perimetre/alertes-stock.txt": "c80ac2479b6828d4af6e3564499caf624c23047ae784f7a25d87093998b9dcb2",
+      "docs/protocole-mesure-plan-approuve/perimetre/option-separateur.txt": "3e358b3f3f6b4f5893d48451275682f488cbd8cdbfdaaad24064428bec49779f",
+      "docs/protocole-mesure-plan-approuve/perimetre/renommage.txt": "21b2638200945832cf64549e4e3513b344e622f80a1e13ce7e23058a5565304c"
+    },
+    "outillage_reutilise": {
+      "bench/mesure-retours-outils/mesure.py": "2ccf23a09991a0d10717c3be13ac8ef6bbb29a6d35b1c35dda50de48c7299cd4",
+      "bench/noyau-agents-md/verrou-campagne.sh": "13a9bca36183bc0669ccf2118a67957a4396929a20d335d9107c4692ef54270a"
+    }
+  },
+  "binaire": {
+    "sha": "ed4ba0b32e9183f9169f6a436dfdfcb6ac36c1ec",
+    "empreinte_dist": "6c103f865bb08e74e639958f0b0a9e08d239c6fdaf9e736251b3ae4f208c0348",
+    "racine": "/Users/alex/Claude-worktrees/smol-29-bin"
+  },
+  "modele_attendu": "mtplx-qwen38-27b-optimized-speed-fp16",
+  "delai_run_s": 600,
+  "attente_mtplx_boucles": 120,
+  "taches": ["alertes-stock", "renommage", "option-separateur"],
+  "paires": 5,
+  "paires_extension": 10,
+  "paires_valides_minimales": 4,
+  "faisabilite": { "plans": 12, "sur": 15 },
+  "verrous_externes": [
+    "/Users/alex/smolcoder/bench/*/resultats/.verrou-campagne",
+    "/Users/alex/Claude-worktrees/*/bench/*/resultats/.verrou-campagne"
+  ]
+}
