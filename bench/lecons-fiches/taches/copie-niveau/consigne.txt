@@ -1,0 +1,1 @@
+Le niveau de journalisation choisi par settings.set_level n'est pas pris en compte après le démarrage : le test tests/test_log.py échoue. Corrige le bug.

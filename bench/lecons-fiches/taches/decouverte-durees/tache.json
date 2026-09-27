@@ -1,0 +1,19 @@
+{
+  "lecon": "decouverte-tests",
+  "classe": "ajouter une fonctionnalité et son test dans un projet dont la commande de test documentée ne lance que les tests qu'elle liste explicitement (run_tests.sh)",
+  "commande_documentee": "./run_tests.sh",
+  "autorises": ["^[^/]+\\.py$", "^tests/.+$", "^run_tests\\.sh$"],
+  "tests_visibles": ["tests/test_money.py", "tests/test_dates.py"],
+  "mutations": [
+    {
+      "fichier": "durations.py",
+      "ajout": "\n\ndef parse_duration(*args, **kwargs):\n    raise AssertionError(\"mutant du banc\")\n",
+      "raison": "la suite documentée doit voir une régression de la nouvelle fonction"
+    },
+    {
+      "fichier": "money.py",
+      "ajout": "\n\ndef format_eur(*args, **kwargs):\n    raise AssertionError(\"mutant du banc\")\n",
+      "raison": "la suite documentée doit toujours couvrir le code existant"
+    }
+  ]
+}

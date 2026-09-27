@@ -1,0 +1,1 @@
+La valeur totale du stock est parfois fausse après une modification de l'inventaire : le test tests/test_inventory.py échoue. Corrige le bug.

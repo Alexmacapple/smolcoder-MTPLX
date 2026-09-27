@@ -1,0 +1,1 @@
+Ajoute un module slug.py avec une fonction slugify(texte) : elle met le texte en minuscules, retire les accents (é devient e, ç devient c), remplace toute suite de caractères qui ne sont ni des lettres ni des chiffres par un seul tiret, sans tiret au début ni à la fin. Par exemple, slugify("Été 2026 : Bilan !") renvoie "ete-2026-bilan". Ajoute aussi ses tests.

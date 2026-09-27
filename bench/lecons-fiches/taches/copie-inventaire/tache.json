@@ -1,0 +1,8 @@
+{
+  "lecon": "copie-figee",
+  "classe": "bug d'état qui ne suit pas l'état courant : valeur calculée une fois et mise en cache, que trois chemins de modification (remove, set_price, promotions.apply_discount) n'invalident pas",
+  "commande_documentee": "python3 -m unittest discover -s tests",
+  "autorises": ["^[^/]+\\.py$", "^tests/.+$"],
+  "tests_visibles": ["tests/test_inventory.py"],
+  "mutations": []
+}

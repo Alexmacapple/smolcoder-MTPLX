@@ -1186,7 +1186,7 @@ de tourner sans `SMOL_NO_FICHES=1`, et le test rendait `statut
 blocage_harnais au lieu de succes` (sortie 1) ; avec le correctif, PASS
 (sortie 0). Mesurer l'effet des fiches elles-mêmes relève de l'étude #33.
 
-### (ce commit) — README : chantiers restants à jour
+### `91f8cd6` — README : chantiers restants à jour
 
 `README.md`. La liste « Chantiers restants » ne citait plus que #19 et #10
 depuis la fermeture du chapeau #12. Elle suit l'ordre acté : #9 (preuves
@@ -1194,6 +1194,42 @@ d'acceptation protégées, socle déjà livré), #19, #29 (plan approuvé avec l
 contrat), puis #10 ; l'étude #33, porte d'entrée du chantier
 d'apprentissage #34, est mise à part, en attente de décision. SHA `83fc9be`
 reporté sur l'entrée précédente.
+
+### (ce commit) — Étude #33 : protocole pré-enregistré — Réf #33
+
+`bench/lecons-fiches/` (nouveau : `essai.sh`, `campagne.sh`, `etude.py`,
+`analyse.py`, `installer-fiches.cjs`, `figer-binaire.sh`, `test-etude.sh`,
+`protocole.json`, `lecons/`, `taches/`), `bench/.gitignore`,
+`docs/etude-lecons-fiches-2026-09-27.md` (nouveau). Ticket #33 (AH-00),
+porte d'entrée du chapeau #34 : pré-enregistrement du protocole avant tout
+essai sur Qwen, comme l'exige le ticket.
+
+Deux leçons écrites à la main (pas par Qwen), chacune correctif minimal d'une
+fiche, figé sous `bench/` avec son empreinte, jamais dans `docs/skills/` :
+`tdd` (vérifier que la commande de test documentée lance bien le nouveau
+test), tirée de `docs/unattended-2026-09-13.md` (suite annoncée en échec,
+invocation directe verte) ; `diagnostic-bugs` (copie figée d'un état qui ne
+suit pas l'état courant), tirée des essais `verified-v8` et `verified-v9` du
+même document. Trois tâches de transfert par leçon, en Python, avec tests
+cachés et critère lu dans l'état final (acceptation, commande documentée,
+mutations, périmètre, clé factice). Séries A, A2 et B, trois répétitions,
+54 essais dans un ordre entrelacé fixé ; règle KEEP / REJECT / INCONCLUSIVE
+chiffrée (gain supérieur à l'écart A/A et à 2/9, deux tâches gagnantes,
+aucun faux succès ni fuite, fiche corrigée lue dans au moins cinq essais B).
+Binaire figé (`dist/` de ce worktree, empreinte vérifiée à chaque essai) ;
+fiches servies par le chemin de production dans un dossier personnel de
+test jetable, index du prompt identique en A et en B ; le vrai
+`~/.smolcoder` n'est que lu.
+
+Vérifications, sans modèle : `bench/lecons-fiches/test-etude.sh` PASS
+(34 contrôles, dont : référence complète `succes` et référence naïve
+`echec_test` avec faux succès sur chacune des six tâches ; fuite, périmètre,
+commit, délai, MTPLX absent, autre modèle, verrous ; dossier personnel réel
+inchangé ; reprise de campagne ; règle de décision sur manifestes
+synthétiques ; binaire figé contre un faux serveur Ollama, fiche B servie par
+`fiche:diagnostic-bugs`) ; `npm test` 292/292 ; `test-banc.sh` PASS ;
+`shellcheck` et `ruff` sans avertissement. Aucun essai MTPLX à ce commit.
+SHA `91f8cd6` reporté sur l'entrée précédente.
 
 ## Hors dépôt (machine locale)
 

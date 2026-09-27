@@ -1,0 +1,19 @@
+{
+  "lecon": "decouverte-tests",
+  "classe": "ajouter une fonctionnalité et son test dans un projet dont la commande de test documentée ne lance que les tests qui suivent sa convention (motif de nom check_*.py)",
+  "commande_documentee": "make test",
+  "autorises": ["^[^/]+\\.py$", "^tests/.+$", "^Makefile$"],
+  "tests_visibles": ["tests/check_mathx.py"],
+  "mutations": [
+    {
+      "fichier": "slug.py",
+      "ajout": "\n\ndef slugify(*args, **kwargs):\n    raise AssertionError(\"mutant du banc\")\n",
+      "raison": "la suite documentée doit voir une régression de la nouvelle fonction"
+    },
+    {
+      "fichier": "mathx.py",
+      "ajout": "\n\ndef clamp(*args, **kwargs):\n    raise AssertionError(\"mutant du banc\")\n",
+      "raison": "la suite documentée doit toujours couvrir le code existant"
+    }
+  ]
+}
