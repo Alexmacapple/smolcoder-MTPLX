@@ -901,6 +901,99 @@ un jeton dans une URL de remote devient lisible ; l'écoute accordée reste
 joignable du réseau local ; indication dans l'interface, campagne archivée
 et sondes de `check.ts` et `detect.ts` relèvent de #18.
 
+### `3dde690` — Fiches de méthode servies hors du dépôt — Closes #30
+
+`src/fiches.ts` (nouveau), `src/prompt.ts`, `src/tools/index.ts`,
+`src/tools/fs-tools.ts`, `src/harness/store.ts`, `src/harness/mission.ts`,
+`src/harness/policy.ts`, `src/agent.ts`, `src/session.ts`, `src/index.ts`,
+`src/sandbox.ts`, `docs/decision-fiches-hote.md` (nouveau),
+`docs/decision-stockage-hote.md`, `docs/skills/index.md`,
+`docs/profil-mission.md`, `docs/how-it-works.md`, `README.md`,
+`test/fiches.test.js` (nouveau), `test/os/seatbelt.os.test.js`. Ticket #30 :
+les fiches de `docs/skills/` ne servaient que sur le dépôt du fork.
+
+Décision (`docs/decision-fiches-hote.md`). `smol --install-fiches` copie
+`docs/skills/` du clone dont le binaire fait partie, seule source, dans
+`~/.smolcoder/fiches/` : une copie par fiche et un manifeste `fiches.json`
+(nom, résumé tiré du sommaire, SHA-256). Le sommaire fait la liste : une
+fiche non listée, ou listée mais absente, fait refuser l'installation sans
+rien écrire. Toute session ouverte ensuite reçoit un index de
+593 caractères, bloc séparé entre le noyau du prompt et les blocs
+`AGENTS.md` (phrase de précédence et `SMOL_NO_GLOBAL_AGENTS` intacts), sauf
+dans un workspace qui annonce ses propres fiches : le fork, ses clones et
+ses worktrees n'ont pas de double index. Lecture par une exception nommée
+de `read_file`, `{"path": "fiche:<nom>"}` : un nom du manifeste, un fichier
+ordinaire ouvert sans suivre de lien, un contenu qui a encore l'empreinte
+de l'installation ; tout le reste est refusé, écriture comprise. Retenue
+plutôt qu'un outil dédié : la liste d'outils et leurs schémas restent
+identiques pour le petit modèle, qui imite l'appel montré dans l'index.
+Sous `--mission`, la décision d'accès reconnaît l'exception, et chaque
+lecture servie laisse au journal un événement `fiche` (nom, SHA-256 du
+contenu, empreinte du contrat), écrit avant de servir : un journal qui
+refuse l'écriture bloque la lecture. Sans installation, le prompt est
+identique octet pour octet et le modèle ne reçoit aucun message.
+
+Amendement déclaré de `docs/decision-stockage-hote.md` : le journal passe
+de trois à quatre types d'événements (`fiche`), même schéma
+`smolcoder/proof/v1`, même module propriétaire ; la page dit aussi que
+`~/.smolcoder/fiches/` est hors du stockage du harnais.
+
+Ajouts déclarés au-delà de la recommandation du ticket : empreinte vérifiée
+à chaque lecture ; `write_file` et `edit_file` refusés sur `fiche:…` ;
+`--install-fiches` signalé au scan du mode edit (la commande écrit hors du
+workspace, donc elle demande) ; opt-out `SMOL_NO_FICHES=1` ; rendu en
+tranches de `read_file` extrait en `renderRead`, partagé par l'exception.
+Pas de révision git dans le manifeste : la lire lançait `git` hors de
+l'exécuteur, ce que « H03-1 AC1 » (#15) a refusé ; retirée.
+
+Vérifications. Rouge d'abord, contre un squelette de `src/fiches.ts` sans
+comportement : 14 des 15 premiers tests « #30 » échouent (« not
+implemented », `unknown proof event type "fiche"`, `Unknown option
+"--install-fiches"`, scan muet), le quinzième (fiches non installées) est un
+garde-fou de non-régression, vert avant et après ; « #30 OS AC3 » échoue
+aussi. Les deux tests de câblage ajoutés ensuite (le CLI headless réel
+contre un faux serveur Ollama, avec puis sans installation ; une session
+terminal et web) virent au rouge quand leur câblage est retiré du code
+compilé. Neuf mutations du code compilé (lien suivi, nom hors liste servi,
+empreinte non vérifiée, lecture non journalisée, double index, décision
+sans exception, installation non signalée, opt-out ignoré, écriture
+permise) font chacune échouer au moins un test. Après : `npm test` 281/281
+(264 existants, 17 nouveaux), `npm run test:os` 17/17 (16 existants,
+1 nouveau : lecture, liste et écriture de `~/.smolcoder/fiches` refusées par
+le noyau, témoin hôte à l'appui, puis lecture nommée servie par l'hôte et
+journalisée), sortie 0, aucun test sauté. Tests sous dossier personnel
+jetable : le vrai `~/.smolcoder` n'a pas été touché, et les fiches ne sont
+pas installées sur cette machine.
+
+Restes : le banc (`bench/noyau-agents-md/banc.sh`, vrai dossier personnel)
+verra l'index dans ses deux bras une fois les fiches installées, tant qu'il
+ne pose pas `SMOL_NO_FICHES=1` (`bench/` hors zone) ; dans le fork, les
+lectures de `docs/skills/` ne laissent pas d'événement `fiche` ; un fichier
+du workspace nommé littéralement `fiche:…` est masqué tant que des fiches
+sont installées ; le paquet npm ne publie pas `docs/skills/`, la commande
+y refuse ; la conduite de Qwen face à l'index n'est pas mesurée (aucun run
+MTPLX).
+
+### (ce commit) — Fiches génériques, servies sur tout projet
+
+`docs/skills/index.md`, `implementer.md`, `tdd.md`,
+`verification-finale.md`, `conflits-git.md`, `revue-de-code.md`. Suite de
+#30, relevée à la revue de sa livraison : dès que les fiches sont servies
+sur tout projet, leurs consignes propres au dépôt smolcoder deviennent
+fausses ailleurs. `implementer.md` exigeait une entrée dans
+`CHANGELOG-MTPLX.md` et un message en français à la forme nominale,
+`tdd.md` disait « Dans ce dépôt : `npm test` = build + suite », la
+vérification et les conflits citaient `npm run build`, `node dist/index.js`
+et `npm test` ; sur un autre projet, Qwen aurait cherché un journal et une
+commande qui n'existent pas. Ces consignes renvoient désormais aux
+conventions du projet (son `AGENTS.md` : commande de test, journal s'il en
+tient un, format des commits) ; celles de smolcoder restent dans l'`AGENTS.md`
+du fork, qui les portait déjà. Les sept renvois par chemin entre fiches
+(`docs/skills/tdd.md`…) deviennent des renvois par nom (« la fiche `tdd` »),
+qui se lisent `docs/skills/tdd.md` dans ce dépôt et `fiche:tdd` ailleurs ;
+le sommaire l'explique. Aucune modification de code ; SHA `3dde690` reporté
+sur l'entrée précédente.
+
 ## Hors dépôt (machine locale)
 
 - Fork créé : `Alexmacapple/smolcoder-MTPLX`.

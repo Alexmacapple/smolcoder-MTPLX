@@ -3,7 +3,11 @@
 Portées depuis les skills de Matt Pocock
 ([mattpocock/skills](https://github.com/mattpocock/skills), commit `c55ee46`,
 licence MIT), condensées en français et adaptées à smolcoder : mono-agent
-(pas de sous-agents), renvois par chemin de fichier, conventions du fork.
+(pas de sous-agents), génériques pour servir sur tout projet. Une fiche en
+nomme une autre par son nom (« la fiche `tdd` ») : `docs/skills/tdd.md` dans
+ce dépôt, `fiche:tdd` ailleurs. Les conventions d'un projet (commande de
+test, journal, format des commits) restent dans son `AGENTS.md`, jamais dans
+une fiche.
 L'axe sécurité de la revue et la vérification finale viennent du guide
 Anthropic ([AI-native SDLC
 playbook](https://claude.com/blog/the-ai-native-sdlc-playbook), ticket #31).
@@ -27,6 +31,14 @@ Lis la fiche AVANT de commencer la tâche correspondante :
   en question.
 - `conflits-git.md` — merge ou rebase en conflit : comprendre les deux
   intentions avant de résoudre, jamais d'abandon.
+
+Hors de ce dépôt, ces fiches servent aussi : `smol --install-fiches` les
+copie dans `~/.smolcoder/fiches/` et toute session ouverte ensuite, sur
+n'importe quel projet, en reçoit l'index et les lit par
+`read_file {"path": "fiche:<nom>"}` (décision : `docs/decision-fiches-hote.md`).
+Ce sommaire est la liste installée : une fiche ajoutée ici doit y figurer,
+sinon l'installation refuse ; après une modification, relancer
+l'installation pour mettre la copie de l'hôte à jour.
 
 Non portés depuis l'amont (v1) : les skills de pilotage produit (to-spec,
 to-tickets, triage, wayfinder, ask-matt, wizard), research et prototype —

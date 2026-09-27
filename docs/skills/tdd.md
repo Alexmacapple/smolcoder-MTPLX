@@ -17,7 +17,7 @@ entrer dans l'implémentation. Les tests vivent aux coutures, jamais contre les
 internes. Avant d'écrire un test, nomme les coutures visées et fais-les
 confirmer par l'utilisateur : on ne peut pas tout tester, l'accord préalable
 concentre l'effort sur les chemins critiques. Si la forme même de l'interface
-est en question, lis d'abord `docs/skills/conception-modules.md`.
+est en question, lis d'abord la fiche `conception-modules`.
 
 ## Anti-patterns à refuser
 
@@ -41,8 +41,8 @@ est en question, lis d'abord `docs/skills/conception-modules.md`.
 - Une tranche à la fois : une couture, un test, une implémentation minimale
   par cycle.
 - Le refactoring n'est pas dans la boucle : il appartient à la revue
-  (`docs/skills/revue-de-code.md`), pas au cycle rouge → vert.
+  (la fiche `revue-de-code`), pas au cycle rouge → vert.
 
-Dans ce dépôt : `npm test` = build + suite complète ; joue la suite complète
-une fois la tranche finie, et n'oublie pas l'entrée au journal dans le même
-commit.
+Une fois la tranche finie, joue la suite complète par la commande que
+documente le projet (build compris quand ce qui est livré est construit) ;
+si le projet tient un journal, son entrée va dans le même commit.

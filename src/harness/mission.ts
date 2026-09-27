@@ -232,6 +232,14 @@ export class Mission {
     writeContract(this.dir, { ...read.record, status: "expired", updatedAt: new Date().toISOString() });
   }
 
+  /** Trace la lecture d'une fiche de méthode installée (#30) : son nom et
+   * l'empreinte du contenu servi, liés au contrat de cette session. Appelée
+   * avant de servir la fiche : un journal qui refuse l'écriture (ligne
+   * tronquée, borne) lève, et la fiche n'est pas servie. */
+  recordFiche(name: string, sha256: string): void {
+    appendProof(this.dir, { type: "fiche", fingerprint: this.fingerprint, name, sha256 });
+  }
+
   /** La porte d'écriture, consultée par l'agent avant chaque outil : null
    * autorise, sinon la raison du refus renvoyée au modèle. L'état est relu
    * dans le stockage hôte : ce que le modèle écrit ou prétend n'y change rien. */

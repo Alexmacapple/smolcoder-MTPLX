@@ -34,10 +34,13 @@ conformément à la rubrique « conséquences » ci-dessous) :
 - `policy.json` — la politique d'accès et sa version (ajouté par #11,
   même grammaire, module propriétaire commun).
 - `proofs.jsonl` — journal en ajout seul (motifs B plein et C minimal) :
-  une ligne JSON par événement, trois types exactement — `contract`
+  une ligne JSON par événement, quatre types exactement (le quatrième
+  ajouté par #30, voir « Amendements ») — `contract`
   (création ou changement d'état d'un contrat), `approval` (qui, quand,
   quelle empreinte), `verdict` (résultat d'une vérification, avec
-  l'empreinte des fichiers vérifiés au moment du verdict). Un verdict dont
+  l'empreinte des fichiers vérifiés au moment du verdict), `fiche`
+  (lecture d'une fiche de méthode installée : son nom, l'empreinte du
+  contenu servi et celle du contrat). Un verdict dont
   les fichiers ont changé depuis est périmé par construction : la
   péremption se constate en comparant les empreintes, elle n'est jamais un
   champ modifiable.
@@ -116,3 +119,32 @@ Rien n'est importé ni exécuté depuis Loriq : smolcoder reste autonome.
 Cette page est acceptée quand la pull request qui la porte est fusionnée
 par Alex. Les tickets #8, #9, #11 et #10 la référencent alors comme source
 de vérité du stockage hôte au lieu de redéfinir chacun le leur.
+
+## Amendements
+
+### 2026-09-27 — ticket #30 : quatrième événement du journal, `fiche`
+
+Écart déclaré à « trois types exactement ». Sous `--mission`, chaque
+lecture d'une fiche de méthode installée côté hôte (`fiche:<nom>`,
+`docs/decision-fiches-hote.md`) laisse au journal une ligne
+`{"schema": "smolcoder/proof/v1", "type": "fiche", "at": …, "fingerprint":
+<empreinte du contrat>, "name": <nom>, "sha256": <empreinte du contenu
+servi>}`. Même grammaire, même module propriétaire (`src/harness/store.ts`),
+champs fermés ; l'événement est écrit avant que la fiche soit servie, et un
+journal qui refuse l'écriture empêche la lecture (fail-closed). Le schéma
+reste `smolcoder/proof/v1` : un lecteur antérieur à #30 classe déjà un type
+inconnu en `unknown-schema`, comme le prévoit la règle de lecture.
+
+Pourquoi ce journal plutôt qu'un fichier de plus : la version d'une fiche
+lue est une preuve rattachée au contrat de la session, comme l'approbation
+et le verdict ; un quatrième fichier par workspace dupliquerait l'ajout seul,
+les bornes et la réparation à la main. Écarté : un registre des lectures
+hors mission, faute de stockage hôte hors profil.
+
+Hors de cette décision, dit pour qu'il n'y ait pas d'écart silencieux : les
+fiches installées vivent dans `~/.smolcoder/fiches/`, à côté de `harness/`
+et non dedans. Ce n'est pas du stockage du harnais (ni contrat, ni
+politique, ni preuve) ; sa grammaire appartient à `src/fiches.ts`. Comme
+tout `~/.smolcoder`, le dossier reste refusé aux commandes isolées.
+
+Cet amendement est accepté par la fusion de la pull request du ticket #30.

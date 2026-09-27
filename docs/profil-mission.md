@@ -276,7 +276,8 @@ le reprend en tête, relu dans le stockage hôte au moment de la compaction
 - Pas de verrou : deux sessions simultanées sous le même contrat peuvent
   perdre un débit de pas (verrou mono-écrivain : #10).
 - Les événements `verdict` sont reconnus par la grammaire mais pas encore
-  produits (#9).
+  produits (#9). Les événements `fiche` (#30) le sont à chaque lecture
+  d'une fiche installée côté hôte (`docs/decision-fiches-hote.md`).
 - La suspension headless (sortie 4) est testée par ses briques (agent non
   interactif, rapport de décision), pas par le CLI réel contre un backend.
 - Le run headless approuvé est testé par ses briques (autorisation, agent

@@ -53,7 +53,11 @@ ce qu'il prouve, ce qu'il journalise.
   revue à trois axes (standards, spécification, sécurité), vérification
   finale sans correction, conception de modules, conflits git — portées
   des skills de Matt Pocock, complétées par le guide Anthropic, chargées
-  à la demande par l'agent.
+  à la demande par l'agent. Sur tout autre projet après
+  `smol --install-fiches` : copie dans `~/.smolcoder/fiches/`, index court
+  dans le prompt, lecture seule par `read_file {"path": "fiche:tdd"}`,
+  chaque lecture tracée au journal sous `--mission`. Détail :
+  `docs/decision-fiches-hote.md`.
 - **Lanceur macOS** (`launch-smol-mtplx.command`) : interface web par
   défaut avec URL fraîche, session terminal, test de contrôle.
 

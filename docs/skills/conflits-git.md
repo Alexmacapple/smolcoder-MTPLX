@@ -11,7 +11,9 @@ Pour un merge ou un rebase déjà en cours, avec conflits.
    quand elles sont incompatibles, choisis celle qui correspond au but déclaré
    de la fusion et note le compromis. N'invente jamais de comportement
    nouveau. Résous toujours — jamais d'`--abort`.
-4. Découvre et joue les contrôles automatiques du projet (ici : `npm test`,
-   build compris). Corrige ce que la fusion a cassé.
-5. Termine : indexe tout et committe (entrée au journal dans le même commit) ;
+4. Découvre et joue les contrôles automatiques du projet (la commande de
+   test qu'il documente, build compris s'il en a un). Corrige ce que la
+   fusion a cassé.
+5. Termine : indexe tout et committe (entrée au journal dans le même commit
+   si le projet en tient un) ;
    en rebase, continue jusqu'à ce que tous les commits soient rejoués.
