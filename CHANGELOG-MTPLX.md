@@ -2427,7 +2427,7 @@ l'accueil. La bannière du terminal garde SMOL. Rouge d'abord : trois tests
 du web échouaient (logo absent), les quatre du terminal restaient verts.
 Après : `npm test` 375/375. SHA `dca4b4f` reporté sur l'entrée précédente.
 
-### (ce commit) — Document de reprise pour Codex
+### `92280eb` — Document de reprise pour Codex
 
 `docs/reprise-codex-2026-09-28.md` (nouveau). Passage de relais de fin de
 session Claude : dépôt et conventions, état au 2026-09-28 00 h 15, les deux
@@ -2437,6 +2437,18 @@ complets et consignes d'analyse issues des relectures indépendantes, la
 procédure de fin de campagne, les décisions en attente d'Alex et les
 pièges connus. SHA `2502efb` reporté sur l'entrée précédente.
 Documentation seule.
+
+### (ce commit) — Mise à jour du document de reprise
+
+`docs/reprise-codex-2026-09-28.md`. La campagne #53, lancée pendant #52
+pour gagner du temps, s'est arrêtée (processus disparu, premier essai au
+statut provisoire, verrou au PID mort) après avoir bloqué #52 : chaque
+runner tient son verrou de campagne et attend celui des autres, si bien que
+#52 a perdu un essai. Le document dit désormais que #53 est arrêtée, pose
+la règle de ne jamais faire tourner #53 en même temps que #52, même en
+attente, et donne la commande de relance après la fin complète de #52. La
+ligne « À reporter » pointe sur l'entrée en attente. SHA `92280eb` reporté
+sur l'entrée précédente.
 
 ## Hors dépôt (machine locale)
 
