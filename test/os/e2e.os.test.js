@@ -10,7 +10,9 @@
 // « H04 OS » (#9) prouve le contrôle décisif dans le bac et le verdict hors
 // de portée du modèle ; « H08 OS » (#29), le plan proposé puis approuvé en
 // deux runs headless et l'écart journalisé sans refus ; « H05 OS » (#10), la
-// coupure réelle entre une écriture et son reçu, puis la reprise.
+// coupure réelle entre une écriture et son reçu, puis la reprise ; « #46 OS »,
+// le dossier temporaire privé du bac supprimé en fin de session sur les trois
+// surfaces, et laissé seul par les runs suivants après une coupure brutale.
 const test = require("node:test");
 const assert = require("node:assert/strict");
 const fs = require("fs");
@@ -455,6 +457,132 @@ test("H05 OS (headless): the real smol binary killed between a write and its rec
   assert.equal(fs.existsSync(path.join(f.m.dir, "lock")), false, "the lock is released at the end of the run");
 });
 
+// ---- #46 : le dossier temporaire privé du bac, supprimé en fin de session ----
+
+/** Les dossiers privés des bacs dans le dossier temporaire de la passe (#44),
+ * où le binaire range le sien (TMPDIR transmis par smolEnv). */
+const sandboxes = () => fs.readdirSync(os.tmpdir()).filter((n) => n.startsWith("smol-sandbox-")).sort();
+/** La commande confinée note son TMPDIR dans le workspace et y laisse un
+ * fichier temporaire, comme une commande de l'agent. */
+const TMP_SH = 'echo "$TMPDIR" > "tmpdir-$1.txt" && echo agent > "$TMPDIR/agent-temp.txt" && echo "tmp-written=$1"\n';
+/** Une tâche de fond qui écrit dans son TMPDIR et le récrée à chaque
+ * battement : vivante après la suppression, elle ferait réapparaître le dossier. */
+const TICK_CJS = "const fs = require('fs'), dir = process.env.TMPDIR;\nconsole.log('ticking in ' + dir);\nsetInterval(() => { fs.mkdirSync(dir, { recursive: true }); fs.writeFileSync(dir + '/tick', String(Date.now())); }, 50);\n";
+function withTmpScripts(f) {
+  fs.writeFileSync(path.join(f.ws, "tmp.sh"), TMP_SH);
+  fs.writeFileSync(path.join(f.ws, "tick.cjs"), TICK_CJS);
+  fs.writeFileSync(path.join(f.ws, "check.sh"), "grep -q bonjour hello.txt\n");
+  return f;
+}
+/** Le TMPDIR privé qu'une commande confinée a noté : un smol-sandbox-* du
+ * dossier temporaire de la passe. */
+function notedTmp(ws, tag) {
+  const dir = fs.readFileSync(path.join(ws, `tmpdir-${tag}.txt`), "utf8").trim().replace(/\/+$/, "");
+  assert.match(path.basename(dir), /^smol-sandbox-/, dir);
+  assert.equal(path.dirname(dir), fs.realpathSync.native(os.tmpdir()), "the pass's temporary folder holds it");
+  return dir;
+}
+const hasNoted = (ws, tag) => {
+  const file = path.join(ws, `tmpdir-${tag}.txt`);
+  return fs.existsSync(file) && /smol-sandbox-/.test(fs.readFileSync(file, "utf8"));
+};
+const CHECKS_46 = [{ command: "sh check.sh", covers: [1] }];
+const headless46 = (f, env) => smol([f.ws, "-p", "work", "--mission", f.src, "--approve", f.m.fingerprint, "--model", MODEL], env);
+
+test("#46 OS AC2 (headless): the real smol binary under --mission removes its private temporary folder when a run ends normally — the background task still writing there is killed first, nothing recreates it, and no smol-sandbox-* folder is left", { skip, timeout: 180000 }, async (t) => {
+  const f = withTmpScripts(fixture("i46-ok", { policy: { tasks: "workspace" }, checks: CHECKS_46 }));
+  const before = sandboxes();
+  let ticking = null;
+  const model = await fakeModel([
+    call("c1", "run_command", { command: "sh tmp.sh ok" }),
+    call("t1", "task", { action: "start", command: "node tick.cjs" }),
+    // Pendant le run, côté hôte : la tâche écrit dans le dossier privé, à côté
+    // du fichier temporaire de la commande.
+    async () => {
+      const dir = notedTmp(f.ws, "ok");
+      ticking = await until(() => fs.existsSync(path.join(dir, "tick")) && fs.existsSync(path.join(dir, "agent-temp.txt")), 20000, "the task ticking in the private folder").then(() => true, (e) => String(e));
+      return call("w1", "write_file", { path: "hello.txt", content: "bonjour\n" });
+    },
+    { content: "done" },
+  ]);
+  t.after(() => model.close());
+  const r = await headless46(f, smolEnv(model));
+  assert.equal(r.code, 0, r.all);
+  assert.equal(tagged(r.stderr, "isolation").state, "ready");
+  assert.equal(tagged(r.stderr, "verdict").state, "verified");
+  const [command, task] = model.toolResults();
+  assert.match(command, /tmp-written=ok/, command);
+  assert.match(task, /Task t1 is running in the background/, task);
+  assert.equal(ticking, true, "during the run the background task wrote in the private folder");
+  const dir = notedTmp(f.ws, "ok");
+  assert.equal(fs.existsSync(dir), false, "the private folder is removed at the end of the run");
+  await sleep(500);
+  assert.equal(fs.existsSync(dir), false, "the task was killed: nothing recreated the folder");
+  assert.deepEqual(sandboxes(), before, "no smol-sandbox-* folder is left behind");
+});
+
+test("#46 OS AC2 (headless): the private folder is removed however the run ends — a verdict that cannot pass (exit 5), a suspension on a decision nobody can take (exit 4), a SIGTERM in the middle of a turn (exit 143)", { skip, timeout: 240000 }, async (t) => {
+  const before = sandboxes();
+  // 1. Échec : aucun contrôle ne couvre le critère, le verdict ne peut pas passer.
+  const a = withTmpScripts(fixture("i46-fail"));
+  const failing = await fakeModel([call("c1", "run_command", { command: "sh tmp.sh fail" }), { content: "done" }]);
+  t.after(() => failing.close());
+  const r1 = await headless46(a, smolEnv(failing));
+  assert.equal(r1.code, 5, r1.all);
+  assert.match(failing.toolResults()[0], /tmp-written=fail/);
+  assert.equal(fs.existsSync(notedTmp(a.ws, "fail")), false, "failure: the folder is removed");
+  // 2. Suspension : une tâche de fond demande une décision humaine (politique par défaut).
+  const b = withTmpScripts(fixture("i46-ask", { checks: CHECKS_46 }));
+  const asking = await fakeModel([call("c1", "run_command", { command: "sh tmp.sh ask" }), call("t1", "task", { action: "start", command: "node tick.cjs" }), { content: "done" }]);
+  t.after(() => asking.close());
+  const r2 = await headless46(b, smolEnv(asking));
+  assert.equal(r2.code, 4, r2.all);
+  assert.equal(tagged(r2.stderr, "policy").verdict, "ask");
+  assert.equal(fs.existsSync(notedTmp(b.ws, "ask")), false, "suspension: the folder is removed");
+  // 3. Signal : SIGTERM pendant un tour ; le verrou d'écriture du run donne son pid.
+  const c = withTmpScripts(fixture("i46-term", { checks: CHECKS_46 }));
+  let atSignal = null;
+  const stopped = await fakeModel([
+    call("c1", "run_command", { command: "sh tmp.sh term" }),
+    async () => {
+      atSignal = fs.existsSync(notedTmp(c.ws, "term"));
+      process.kill(JSON.parse(fs.readFileSync(path.join(c.m.dir, "lock"), "utf8")).pid, "SIGTERM");
+      await sleep(2000);
+      return { content: "too late" };
+    },
+  ]);
+  t.after(() => stopped.close());
+  const r3 = await headless46(c, smolEnv(stopped));
+  assert.equal(r3.code, 143, r3.all);
+  assert.equal(atSignal, true, "the folder existed when the signal came");
+  assert.equal(fs.existsSync(notedTmp(c.ws, "term")), false, "signal: the folder is removed");
+  assert.deepEqual(sandboxes(), before, "no smol-sandbox-* folder is left behind");
+});
+
+test("#46 OS AC3 (headless): a run killed outright (SIGKILL) leaves at most its own private folder — the documented limit — and a later run leaves it alone: no clean-up at start-up touches another session's folder", { skip, timeout: 180000 }, async (t) => {
+  const before = sandboxes();
+  // 1. Coupure réelle, après la commande et avant son reçu.
+  const a = withTmpScripts(fixture("i46-kill", { checks: CHECKS_46 }));
+  const killed = await fakeModel([call("c1", "run_command", { command: "sh tmp.sh kill" }), { content: "done" }]);
+  t.after(() => killed.close());
+  const r1 = await headless46(a, smolEnv(killed, { SMOLCODER_TEST_CRASH_AT: "after-effect" }));
+  assert.equal(r1.signal, "SIGKILL", r1.all);
+  const left = notedTmp(a.ws, "kill");
+  t.after(() => fs.rmSync(left, { recursive: true, force: true }));
+  assert.ok(fs.existsSync(path.join(left, "agent-temp.txt")), "killed outright, the run could not remove its folder");
+  assert.deepEqual(sandboxes(), [...before, path.basename(left)].sort(), "at most its own folder");
+  // 2. Un run suivant, normal, sur un autre workspace : il ne supprime que le sien.
+  const b = withTmpScripts(fixture("i46-next", { checks: CHECKS_46 }));
+  const next = await fakeModel([call("c1", "run_command", { command: "sh tmp.sh next" }), call("w1", "write_file", { path: "hello.txt", content: "bonjour\n" }), { content: "done" }]);
+  t.after(() => next.close());
+  const r2 = await headless46(b, smolEnv(next));
+  assert.equal(r2.code, 0, r2.all);
+  assert.equal(fs.existsSync(notedTmp(b.ws, "next")), false, "its own folder is removed");
+  assert.ok(fs.existsSync(path.join(left, "agent-temp.txt")), "the killed run's folder is left alone, content included");
+  assert.equal(fs.readFileSync(path.join(left, "agent-temp.txt"), "utf8"), "agent\n");
+  assert.deepEqual(sandboxes(), [...before, path.basename(left)].sort());
+});
+
 // ---- web ----------------------------------------------------------------------
 
 function post(port, token, p, body) {
@@ -555,4 +683,87 @@ test("H03-4 OS AC5 (terminal): the real interactive smol under --mission, driven
   p.stdin.end(); // cat, puis script, se terminent avec smol
   const end = await Promise.race([exited, sleep(15000).then(() => null)]);
   assert.ok(end, "the session exits on /exit");
+});
+
+// ---- #46 : web et terminal ------------------------------------------------------
+
+test("#46 OS AC2 (web): the real smol --web --mission removes a session's private folder when the page closes it, when the page deletes it, and when the web UI stops with a session open", { skip, timeout: 180000 }, async (t) => {
+  const f = withTmpScripts(fixture("i46-web", { approve: true }));
+  const before = sandboxes();
+  const model = await fakeModel([{ content: "done" }]);
+  t.after(() => model.close());
+  const webPort = await free();
+  const p = spawn(process.execPath, [CLI, "--web", String(webPort), f.ws, "--mission", f.src, "--model", MODEL], { env: smolEnv(model), stdio: ["ignore", "pipe", "pipe"] });
+  let out = "";
+  p.stdout.on("data", (d) => (out += d));
+  p.stderr.on("data", (d) => (out += d));
+  const exited = new Promise((r) => p.on("close", (code, signal) => r({ code, signal })));
+  t.after(() => p.kill("SIGKILL"));
+  const token = (await until(() => /http:\/\/127\.0\.0\.1:\d+\/\?k=([\w-]+)/.exec(out), 20000, "the web UI URL"))[1];
+  const sse = events(webPort, token);
+  t.after(() => sse.close());
+  const ready = (sid) => until(() => sse.list.find((e) => e.t === "state" && (!sid || e.sid === sid) && e.s?.isolation?.state === "ready"), 30000, `the state of mission session ${sid ?? "(first)"}`);
+  /** Le terminal web de la session note le TMPDIR de son shell confiné. */
+  const privateOf = async (sid, tag) => {
+    const { tid } = await post(webPort, token, "/term/open", { sid });
+    assert.ok(tid, "a terminal opens");
+    await post(webPort, token, "/term/input", { sid, tid, text: `sh tmp.sh ${tag}` });
+    await until(() => hasNoted(f.ws, tag), 30000, `the ${tag} terminal's TMPDIR`);
+    const dir = notedTmp(f.ws, tag);
+    await until(() => fs.existsSync(path.join(dir, "agent-temp.txt")), 10000, "the command's temporary file");
+    return dir;
+  };
+  // 1. La session ouverte au lancement, fermée depuis la page.
+  const first = (await ready()).sid;
+  const closedDir = await privateOf(first, "close");
+  await post(webPort, token, "/sessions/close", { id: first });
+  await until(() => !fs.existsSync(closedDir), 10000, "the closed session's folder to go");
+  // 2. Une nouvelle session, supprimée depuis la page.
+  const { id: second } = await post(webPort, token, "/sessions/new", { workspace: f.ws });
+  await ready(second);
+  const deletedDir = await privateOf(second, "delete");
+  await post(webPort, token, "/sessions/delete", { id: second });
+  await until(() => !fs.existsSync(deletedDir), 10000, "the deleted session's folder to go");
+  // 3. Une troisième, encore ouverte quand l'interface web s'arrête.
+  const { id: third } = await post(webPort, token, "/sessions/new", { workspace: f.ws });
+  await ready(third);
+  const openDir = await privateOf(third, "stop");
+  p.kill("SIGTERM");
+  const end = await exited;
+  assert.ok(end.code !== null || end.signal, "the web UI stops");
+  assert.equal(fs.existsSync(openDir), false, "the stopped web UI removed its open session's folder");
+  assert.deepEqual(sandboxes(), before, "no smol-sandbox-* folder is left behind");
+});
+
+test("#46 OS AC2 (terminal): the real interactive smol under --mission, driven through a pseudo-terminal, keeps its private folder for the session and removes it when the user types /exit", { skip, timeout: 180000 }, async (t) => {
+  const f = withTmpScripts(fixture("i46-tui", { approve: true }));
+  const before = sandboxes();
+  const model = await fakeModel([call("c1", "run_command", { command: "sh tmp.sh tui" }), { content: "done" }]);
+  t.after(() => model.close());
+  // Même montage que le test AC5 du terminal : `script` pour le terminal, `cat |` pour les touches.
+  const inner = 'stty cols 160 rows 40; exec "$@"';
+  const p = spawn("/bin/sh", ["-c", `/bin/cat | /usr/bin/script -q /dev/null /bin/sh -c '${inner}' sh "$@"`, "tui", process.execPath, CLI, f.ws, "--mission", f.src, "--model", MODEL], { env: { ...smolEnv(model), TERM: "xterm-256color" }, stdio: ["pipe", "pipe", "pipe"], detached: true });
+  let out = "";
+  p.stdout.on("data", (d) => (out += d));
+  p.stderr.on("data", (d) => (out += d));
+  const exited = new Promise((r) => p.on("close", (code, signal) => r({ code, signal })));
+  t.after(() => { try { process.kill(-p.pid, "SIGKILL"); } catch { /* déjà terminé */ } });
+  await until(() => /mission approved 0\/50 · isolated/.test(plain(out)), 30000, "the status row");
+  await sleep(300);
+  p.stdin.write("note the temporary folder");
+  await sleep(200);
+  p.stdin.write("\r");
+  await until(() => hasNoted(f.ws, "tui"), 30000, "the model's command");
+  const dir = notedTmp(f.ws, "tui");
+  await until(() => model.requests.filter((q) => q.body?.tools).length >= 2, 15000, "the end of the turn");
+  await sleep(500);
+  assert.ok(fs.existsSync(path.join(dir, "agent-temp.txt")), "the folder lives as long as the session");
+  p.stdin.write("/exit");
+  await sleep(200);
+  p.stdin.write("\r");
+  p.stdin.end();
+  const end = await Promise.race([exited, sleep(15000).then(() => null)]);
+  assert.ok(end, "the session exits on /exit");
+  assert.equal(fs.existsSync(dir), false, "the private folder is removed when the terminal session ends");
+  assert.deepEqual(sandboxes(), before, "no smol-sandbox-* folder is left behind");
 });

@@ -282,6 +282,8 @@ export class WebHub {
         /* best effort */
       }
       live.session?.taskManager.killAll();
+      // #46 : puis le bac de la session fermé, son TMPDIR privé supprimé.
+      live.session?.closeExecution?.();
       live.session?.releaseWriter?.();
       for (const t of live.terminals.values()) t.close();
     }
@@ -481,7 +483,9 @@ export class WebHub {
     try {
       const session = await this.factory(live.channel, live.workspace, prefs);
       if (live.channel.closed || this.live.get(live.id) !== live) {
+        // Fermée pendant son démarrage : aucune boucle ne la terminera (#46).
         session.taskManager.killAll();
+        session.closeExecution?.();
         session.releaseWriter?.();
         return;
       }

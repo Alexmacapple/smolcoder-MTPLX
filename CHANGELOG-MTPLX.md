@@ -2101,6 +2101,94 @@ précédente.
 Non vérifié : aucun run contre MTPLX (occupé par l'étude #33) ; le lien de la
 politique par défaut, sans `policyRef`, reste une décision à prendre.
 
+### (ce commit) — Suppression du TMPDIR privé en fin de session — Closes #46
+
+`src/harness/sandbox-executor.ts`, `src/session.ts`, `src/index.ts`,
+`src/web/hub.ts`, `test/sandbox-executor.test.js`, `test/os/e2e.os.test.js`,
+`docs/decision-backend-isole.md`, `docs/profil-mission.md`. Ticket #46 : sous
+`--mission`, le backend isolé (#16) créait son dossier privé `smol-sandbox-*`
+à sa construction et ne le supprimait que si la sonde échouait ; chaque
+session en laissait un, avec les fichiers temporaires des commandes de
+l'agent.
+
+Correctif. L'exécuteur isolé expose `close()` : il tue les exécutions qu'il a
+lancées et dont la fin n'est pas encore constatée (tâche de fond, shell du
+terminal web, commande en cours), supprime le dossier et son contenu (un lien
+retiré sans être suivi, un sous-dossier rendu illisible par une commande
+rouvert pour le compte), puis refuse toute requête avec le motif « the session
+has ended and its isolated executor was closed », sans repli sur l'hôte.
+L'état de l'isolation passe à `unavailable` ; une seconde fermeture ne fait
+rien ; une suppression impossible est dite en avertissement de fin de
+session. `Session.closeExecution()` tue les tâches de fond, puis ferme le bac.
+
+Points d'appel :
+
+- terminal : `Session.shutdown` (`/exit`, ctrl+c deux fois, ctrl+d), `exit`
+  du processus et signaux dans `runInteractive` ;
+- headless : fin de `runHeadless` quel qu'en soit le terme, `exit` et
+  signaux ; ces deux gestionnaires sont déplacés juste après la création du
+  bac, avant tout ce qui peut échouer ;
+- web : session fermée ou supprimée (sa boucle se termine par
+  `Session.shutdown`), session fermée pendant son démarrage (`spawn`), arrêt
+  du hub (`shutdownSync`, aussi sur signal et `exit`).
+
+Écarts déclarés, au-delà de la lettre du ticket : une session dont la reprise
+durable ne s'ouvre pas ferme le bac qu'elle avait créé avant de lever (le hub
+peut retenter, et chaque essai laissait un dossier) ; la réouverture des
+sous-dossiers verrouillés ; une demi-phrase dans `docs/profil-mission.md`.
+Limite documentée dans `docs/decision-backend-isole.md` (nouvelle section
+« Cycle de vie du dossier temporaire privé ») : un processus tué brutalement
+laisse au plus son propre dossier, et aucun nettoyage au démarrage ne touche
+celui d'une autre session, peut-être vivante.
+
+Correspondance critère par critère, tests nommés ; rouge constaté avant le
+correctif, sur le binaire de base `b69783f` construit dans ce worktree, avec
+les mêmes fichiers de test :
+
+- fermeture qui supprime le dossier, lancement suivant refusé sans repli sur
+  l'hôte, seconde fermeture sans effet : « #46 AC1 » (trois tests, dans
+  `npm test`) ; rouge : `exec.close is not a function`.
+- fermeture en fin de session sur les trois surfaces, tâche de fond tuée
+  avant la suppression : « #46 AC2 » unitaires (commande vivante tuée avant
+  la suppression, fin de session avec une tâche de fond réelle qui récrée son
+  TMPDIR à chaque battement, session qui ne s'ouvre pas, hub avec de vraies
+  sessions : fermée, supprimée, fermée pendant son démarrage, arrêt du hub) ;
+  « #46 OS AC2 (headless) », deux tests (run réussi avec une tâche de fond
+  encore vivante, puis sortie 5, suspension en sortie 4, SIGTERM en sortie
+  143) ; « #46 OS AC2 (web) » (fermée, supprimée, arrêt de l'interface) ;
+  « #46 OS AC2 (terminal) » (`/exit` sous pseudo-terminal). Le dossier est
+  relevé par la commande confinée elle-même, qui note son `TMPDIR`, et par
+  l'inventaire du dossier temporaire de la passe (#44). Rouge : dossier
+  présent après la fin, en unitaire comme sur le vrai binaire.
+- coupure brutale : « #46 OS AC3 (headless) » (run tué par `SIGKILL` : son
+  seul dossier reste ; un run suivant ne supprime que le sien). Ce test passe
+  aussi sur la base, où la limite existait déjà : sa sensibilité est prouvée
+  par mutation, un nettoyage au démarrage ajouté temporairement le fait
+  échouer.
+- ordre « tuer, puis supprimer » : deux mutations temporaires (suppression
+  avant l'arrêt dans `close()`, bac fermé avant `killAll()` dans
+  `closeExecution()`) font échouer les deux tests d'ordre. Les trois
+  mutations sont retirées.
+
+Mesure, sous un TMPDIR conservé après la passe : `test/os/e2e.os.test.js`
+seul (12 tests, vrai binaire en headless, web et terminal) laisse un dossier
+`smol-sandbox-*`, vide, celui du premier run de « H05 OS », tué par `SIGKILL`
+(la limite) ; la passe OS complète en laisse 4, les 3 autres venant des
+exécuteurs que `test/os/seatbelt.os.test.js` crée lui-même dans le processus
+de test, hors de toute session, et que le lanceur supprime avec le dossier de
+la passe (#44).
+
+`npm test` 374/374 (367 et 7 nouveaux), `npm run test:os` 29/29 (24 et 5
+nouveaux), aucun test sauté, sous un HOME et un cache npm temporaires.
+
+Non vérifié : aucun run contre MTPLX (occupé par l'étude #33) ; ctrl+c et
+ctrl+d du terminal, SIGHUP et SIGINT passent par les mêmes appels que `/exit`
+et SIGTERM, sans test propre ; la recréation du dossier par un descendant
+détaché (`setsid`), qui survit déjà à la destruction du groupe, n'est pas
+mesurée. Non traité : une session web dont la restauration ou l'annonce lève
+après sa construction garde son bac ouvert, comme elle gardait déjà ses
+tâches et son verrou (comportement antérieur du hub).
+
 ## Hors dépôt (machine locale)
 
 - Fork créé : `Alexmacapple/smolcoder-MTPLX`.

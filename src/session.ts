@@ -406,14 +406,21 @@ export class Session {
     // contrat pour le terminal, le web et le headless (src/harness/resume.ts) :
     // verrou d'écriture, état incertain, changements externes, consignes.
     if (this.mission) {
-      const resume = this.mission.openResume(this.surface, this.instructionPrints());
-      const report = resume.state();
-      resume.onExternal = (why) => this.agent.requireReanchor(why);
-      if (report.external) this.agent.requireReanchor(`The workspace changed since the last session under this contract (${describeExternal(report.external)}); those changes are someone else's and must be preserved.`);
-      // #19 réutilisé : un fichier jamais vu est comparé à l'état connu de l'hôte.
-      this.toolCtx.reads?.setBaseline((abs) => resume.baselineHash(abs));
-      const ticked = resume.applyPlanProgress(this.toolCtx.plan);
-      if (ticked) ui.status(`· plan progress restored from the last session: ${ticked} step${ticked > 1 ? "s" : ""} already done`);
+      try {
+        const resume = this.mission.openResume(this.surface, this.instructionPrints());
+        const report = resume.state();
+        resume.onExternal = (why) => this.agent.requireReanchor(why);
+        if (report.external) this.agent.requireReanchor(`The workspace changed since the last session under this contract (${describeExternal(report.external)}); those changes are someone else's and must be preserved.`);
+        // #19 réutilisé : un fichier jamais vu est comparé à l'état connu de l'hôte.
+        this.toolCtx.reads?.setBaseline((abs) => resume.baselineHash(abs));
+        const ticked = resume.applyPlanProgress(this.toolCtx.plan);
+        if (ticked) ui.status(`· plan progress restored from the last session: ${ticked} step${ticked > 1 ? "s" : ""} already done`);
+      } catch (err) {
+        // #46 : une session qui ne s'ouvre pas ne garde pas le TMPDIR privé
+        // de son bac (le hub peut retenter, et chaque essai en créerait un).
+        this.executor?.close();
+        throw err;
+      }
     }
 
     ui.slashCommands = this.commands;
@@ -934,8 +941,8 @@ export class Session {
     }
   }
 
-  /** Idempotent: end-of-session hook, kill background tasks, close the UI,
-   * then tell the host. */
+  /** Idempotent: end-of-session hook, kill background tasks, close the
+   * isolated executor (#46), close the UI, then tell the host. */
   async shutdown(): Promise<void> {
     if (this.ended) return;
     this.ended = true;
@@ -945,10 +952,21 @@ export class Session {
     } catch {
       /* best effort */
     }
-    this.taskManager.killAll();
+    const left = this.closeExecution();
+    if (left) this.ui.warn(`· ${left}`);
     this.releaseWriter();
     this.ui.close();
     this.onExit?.();
+  }
+
+  /** #46 : la fin des exécutions de la session — tâches de fond tuées
+   * d'abord, puis, sous le profil mission, le bac fermé : son TMPDIR privé
+   * supprimé, tout lancement suivant refusé. Synchrone pour les sorties du
+   * processus (signal, `exit`) ; idempotente. Rend le motif d'une
+   * suppression impossible, null sinon. */
+  closeExecution(): string | null {
+    this.taskManager.killAll();
+    return this.executor?.close() ?? null;
   }
 
   /** #10 : rend le verrou d'écriture du workspace (fin de session, arrêt du
