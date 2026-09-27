@@ -747,7 +747,7 @@ couvert que pour l'arbre du groupe ; filtrage des hôtes distants (proxy),
 personnel (#17) ; indication dans l'interface et campagne archivée (#18) ;
 les sondes de `check.ts` et `detect.ts` restent hors de l'exécuteur.
 
-### (ce commit) — Axe sécurité de la revue et vérification finale — Closes #31
+### `f568ddf` — Axe sécurité de la revue et vérification finale — Closes #31
 
 `docs/skills/revue-de-code.md`, `docs/skills/verification-finale.md`
 (nouveau), `docs/skills/implementer.md`, `docs/skills/index.md`,
@@ -809,6 +809,21 @@ non encore commité » (`git diff <point>`) ne montre pas un fichier nouveau
 non suivi, ici `verification-finale.md` ; le traitement de #21 est laissé
 intact, à trancher dans un ticket. SHA `d8aecbb` reporté sur l'entrée
 précédente.
+
+### (ce commit) — Revue : fichiers non suivis et README à jour
+
+`docs/skills/revue-de-code.md`, `README.md`. Suites du ticket #31, relevées
+par l'agent qui l'a implémenté et tranchées à la revue de sa livraison.
+
+Le cas « travail non encore commité » de la fiche de revue (#21) prescrit
+`git diff <point>`, qui inclut l'arbre de travail mais omet les fichiers
+nouveaux non suivis : constaté sur #31 même, où `verification-finale.md`
+n'apparaissait pas dans le diff relu. La fiche demande désormais de lire en
+entier chaque fichier marqué `??` par `git status --short`, sans toucher à
+l'index (pas de `git add -N` pendant une revue). Le README annonçait encore
+une « revue à deux axes » : il décrit les trois axes, la vérification finale
+et la liste complète des fiches. SHA `f568ddf` reporté sur l'entrée
+précédente. Documentation seule, `npm test` inchangé.
 
 ## Hors dépôt (machine locale)
 

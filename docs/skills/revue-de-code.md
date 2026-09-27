@@ -13,7 +13,9 @@ travail humain en cours dans le même dépôt.
 Deux cas pour le diff, à ne pas confondre :
 
 - travail non encore commité (revue avant commit) : `git diff <point>` —
-  cette forme inclut l'arbre de travail ; le trois-points ne montrerait rien ;
+  cette forme inclut l'arbre de travail ; le trois-points ne montrerait rien.
+  Elle omet les fichiers nouveaux non suivis (`??` dans `git status
+  --short`) : lis chacun en entier, il fait partie du changement candidat ;
 - branche déjà commitée : `git diff <point>...HEAD` (trois points :
   comparaison à la base de fusion) et `git log <point>..HEAD --oneline`.
 
