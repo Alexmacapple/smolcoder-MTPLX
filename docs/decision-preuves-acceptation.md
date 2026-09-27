@@ -73,7 +73,10 @@ les fichiers actuels).
 La décision humaine d'accepter ou d'intégrer est un troisième axe, toujours
 `pending` dans le rapport : le harnais ne l'enregistre jamais. Le plan du
 modèle y figure comme déclaratif (« un plan coché n'est jamais une preuve ») ;
-il n'entre dans aucun statut.
+il n'entre dans aucun statut. Le plan d'implémentation approuvé avec le
+contrat (#29, `docs/profil-mission.md`) non plus : sa preuve prévue par
+critère est une déclaration, ses écarts une trace pour la revue ; le rapport
+les montre dans une rubrique à part, après le bilan des critères.
 
 ### Critères requis et couverture
 

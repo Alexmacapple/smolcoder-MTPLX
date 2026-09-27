@@ -43,7 +43,8 @@ projections, `report.json` et `report.md`, voir « Amendements ») :
   par #9, voir « Amendements »), `fiche`
   (lecture d'une fiche de méthode installée : son nom, l'empreinte du
   contenu servi et celle du contrat), `plan` (plan d'implémentation
-  proposé par l'agent, contenu entier et empreinte). Un verdict dont
+  proposé par l'agent, contenu entier et empreinte, puis chaque écart au
+  plan approuvé). Un verdict dont
   les fichiers ont changé depuis est périmé par construction : la
   péremption se constate en comparant les empreintes, elle n'est jamais un
   champ modifiable.
@@ -205,6 +206,10 @@ Cet amendement est accepté par la fusion de la pull request du ticket #9.
 
 ### 2026-09-27 — ticket #29 : plan d'implémentation, cinquième événement `plan`
 
+Deux natures, `proposed` (le plan proposé) et `deviation` (un écart après
+approbation) ; le rapport de #9 gagne une rubrique du plan, projection comme
+le reste, seulement quand un plan existe ou que le contrat l'exige.
+
 Écarts déclarés à « quatre types exactement » et à la grammaire de
 `contract.json`, tous dans le module propriétaire `src/harness/store.ts`,
 schémas inchangés (`smolcoder/contract/v1`, `smolcoder/proof/v1`). Les champs
@@ -226,6 +231,18 @@ décisions : `docs/profil-mission.md`, section du ticket #29.
   sous une autre version du contrat est un autre plan. Elle se vérifie à la
   lecture ; une ligne retouchée à la main rend le journal illisible
   (fail-closed). Une proposition identique à la précédente n'ajoute rien.
+- Même type, de nature `deviation`, après approbation :
+  `{"schema", "type": "plan", "at", "fingerprint", "kind": "deviation",
+  "plan": <empreinte du plan approuvé>, "change": "file" | "steps" | "files"
+  | "risks" | "proofs", "before": […], "after": […], "reason": <motif de
+  l'agent> | null}` — un écart au plan approuvé, jamais un refus. `file` : un
+  fichier écrit par `write_file` ou `edit_file` hors des fichiers du plan
+  (`before` vide, `after` le seul chemin écrit), une fois par chemin ; les
+  autres : une rubrique du plan réécrite par l'agent, avant et après (les
+  preuves en lignes « N: preuve »), 50 lignes de 1 024 caractères au plus,
+  motif de 500 caractères au plus. La version approuvée n'est jamais
+  réécrite ; la version courante se reconstruit en rejouant les écarts sur
+  elle, dans l'ordre du journal.
 - Événement `approval` : champ facultatif `plan`, l'empreinte du plan approuvé
   avec le contrat. Absent : contrat approuvé sans plan.
 - `contract.json`, l'approbation : même champ facultatif `plan`, écrit
@@ -235,6 +252,11 @@ décisions : `docs/profil-mission.md`, section du ticket #29.
   `"required"` — l'hôte n'approuve alors ce contrat qu'avec un plan. Absent,
   il n'entre pas dans la forme canonique : l'empreinte des contrats existants
   ne change pas.
+
+- `report.json` et `report.md` : rubrique facultative `plan` (état,
+  empreinte, version approuvée ou proposée, version courante si l'agent l'a
+  réécrite, critères sans preuve prévue, écarts), absente sans plan ni
+  exigence. Elle n'entre dans aucun statut.
 
 Pourquoi le journal plutôt qu'un fichier `plan.json` : le plan approuvé doit
 rester lisible tel qu'il a été approuvé, même quand l'agent réécrit ensuite sa

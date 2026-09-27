@@ -70,7 +70,8 @@ Retrouve la source :
   `/mission` l'affiche et que tu le reçois à chaque tour (bloc « Mission
   contract ») — résultat attendu, hors périmètre, critères d'acceptation
   (« Critère observable », « Acceptance ») ; quand un plan approuvé existe
-  (H08, #29), il s'y ajoute ;
+  (H08, #29), il s'y ajoute — `/mission` le montre avec ses écarts, et tu
+  le reçois dans ce bloc (ligne « Plan: ») et par l'outil `plan` (`show`) ;
 - sinon : ticket cité dans les messages de commit (`Closes #N`, lisible par
   `gh issue view`), fichier de spécification dans `docs/`, ou demande à
   l'utilisateur.
@@ -81,7 +82,8 @@ Rapporte : (a) exigences demandées absentes ou partielles ; (b) comportements
 du diff que personne n'a demandés (dérive de périmètre, dont ce que le contrat
 met hors périmètre) ; (c) exigences qui semblent implémentées mais dont
 l'implémentation paraît fausse ; (d) quand un plan approuvé existe, écarts à
-ce plan (fichier touché hors plan, étape ajoutée ou retirée). Cite la ligne
+ce plan (fichier touché hors plan, étape ajoutée ou retirée) : le harnais les
+journalise sans les bloquer, la revue dit s'ils sont justifiés. Cite la ligne
 de la spécification, du contrat ou du plan pour chaque constat.
 
 ## Axe 3 — sécurité

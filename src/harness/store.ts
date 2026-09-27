@@ -168,7 +168,23 @@ export interface PlanProposedInput {
   content: PlanContent;
 }
 
-export type PlanInput = PlanProposedInput;
+/** Un écart au plan approuvé (#29), constaté après approbation : un fichier
+ * écrit hors du plan (`file` : `before` vide, `after` le chemin écrit) ou une
+ * rubrique du plan réécrite par l'agent (`steps`, `files`, `risks`, `proofs` :
+ * la rubrique avant et après, les preuves en lignes « N: preuve »), avec le
+ * motif que l'agent en donne, ou null. Jamais un refus : une trace. */
+export interface PlanDeviationInput {
+  type: "plan";
+  fingerprint: string;
+  kind: "deviation";
+  plan: string;
+  change: PlanChange;
+  before: string[];
+  after: string[];
+  reason: string | null;
+}
+
+export type PlanInput = PlanProposedInput | PlanDeviationInput;
 
 export type ProofInput =
   | { type: "contract"; fingerprint: string; id: string; status: ContractStatus; reason?: string }
@@ -564,13 +580,22 @@ function checkEvent(event: Record<string, unknown>): void {
 //
 // Proposé par l'agent avant approbation, par l'outil plan, puis approuvé par
 // l'hôte avec le contrat (l'empreinte du plan dans l'approbation). Le journal
-// garde le contenu entier de chaque proposition : c'est là que se relit le
-// plan approuvé. Le plan est un guide, jamais une preuve ni une permission.
+// garde le contenu entier de chaque proposition — c'est là que se relit le
+// plan approuvé — puis chaque écart constaté après approbation, avant et
+// après : la version courante se reconstruit en les rejouant, sans jamais
+// remplacer l'approuvée. Le plan est un guide, jamais une preuve ni une
+// permission ; un écart n'est jamais un refus.
 
 /** Seule valeur du champ `plan` du contrat : l'approbation exige un plan. */
 export const PLAN_REQUIRED = "required";
-export const PLAN_KINDS = ["proposed"] as const;
+export const PLAN_KINDS = ["proposed", "deviation"] as const;
 export type PlanKind = (typeof PLAN_KINDS)[number];
+/** Ce qu'un écart change : un fichier écrit hors du plan, ou une rubrique. */
+export const PLAN_CHANGES = ["file", "steps", "files", "risks", "proofs"] as const;
+export type PlanChange = (typeof PLAN_CHANGES)[number];
+const DEVIATION_ITEMS_MAX = 50;
+const DEVIATION_ITEM_MAX = 1024;
+const REASON_MAX = 500;
 
 /** La preuve prévue d'un critère d'acceptation (numéro à partir de 1) :
  * une déclaration de l'agent, jamais un contrôle ni une preuve. */
@@ -658,6 +683,21 @@ export function planFingerprint(contractFp: string, content: PlanContent): strin
 function checkPlanEvent(event: Record<string, unknown>): void {
   if (!PLAN_KINDS.includes(event.kind as PlanKind)) throw new ContractError(`proof field "kind" of a plan event must be one of ${PLAN_KINDS.join(", ")}`);
   if (typeof event.plan !== "string" || !HEX64.test(event.plan)) throw new ContractError('proof field "plan" must be 64 hexadecimal characters');
+  if (event.kind === "deviation") {
+    onlyFields(event, ["schema", "type", "at", "fingerprint", "kind", "plan", "change", "before", "after", "reason"]);
+    if (!PLAN_CHANGES.includes(event.change as PlanChange)) throw new ContractError(`proof field "change" of a plan deviation must be one of ${PLAN_CHANGES.join(", ")}`);
+    for (const side of ["before", "after"]) {
+      const v = event[side];
+      if (!Array.isArray(v) || v.length > DEVIATION_ITEMS_MAX || !v.every((x) => typeof x === "string" && x.length <= DEVIATION_ITEM_MAX && !/[\x00-\x08\x0a-\x1f\x7f]/.test(x))) {
+        throw new ContractError(`proof field "${side}" of a plan deviation must be a list of at most ${DEVIATION_ITEMS_MAX} lines`);
+      }
+    }
+    if (event.change === "file" && ((event.before as string[]).length !== 0 || (event.after as string[]).length !== 1 || !isRelativeWorkspacePath((event.after as string[])[0]))) {
+      throw new ContractError('a "file" deviation names one written path in "after" and nothing in "before"');
+    }
+    if (event.reason !== null && (typeof event.reason !== "string" || !event.reason.trim() || event.reason.length > REASON_MAX)) throw new ContractError('proof field "reason" of a plan deviation must be null or a text of at most 500 characters');
+    return;
+  }
   onlyFields(event, ["schema", "type", "at", "fingerprint", "kind", "plan", "content"]);
   const content = parsePlanContent(event.content, null);
   if (planFingerprint(event.fingerprint as string, content) !== event.plan) throw new ContractError('proof field "plan" does not match the proposed content');

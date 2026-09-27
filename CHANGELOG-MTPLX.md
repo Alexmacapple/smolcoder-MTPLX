@@ -1587,7 +1587,7 @@ requêtes — lecture de `log:1`, de `log:99`, écriture et édition de `log:1`
 sous un HOME et un cache npm temporaires neufs. SHA `f93de98` reporté sur
 l'entrée précédente.
 
-### (ce commit) — Plan proposé et approuvé avec le contrat — Réf #29
+### `21e9cd6` — Plan proposé et approuvé avec le contrat — Réf #29
 
 `src/harness/store.ts`, `src/harness/mission.ts`, `src/plan.ts`,
 `src/tools/index.ts`, `src/agent.ts`, `src/session.ts`, `src/index.ts`,
@@ -1633,6 +1633,52 @@ toujours présente dans la ligne `[mission]`), `dist/` reconstruit ensuite.
 `npm test` 339/339 (328 et 11 nouveaux) et `npm run test:os` 22/22, aucun
 test sauté, sous un HOME et un cache npm temporaires. SHA `f85b7fe` reporté
 sur l'entrée précédente.
+
+### (ce commit) — Écarts au plan approuvé journalisés — Réf #29
+
+`src/harness/store.ts`, `src/harness/mission.ts`, `src/harness/proofs.ts`,
+`src/plan.ts`, `src/tools/index.ts`, `src/agent.ts`,
+`test/plan-mission.test.js`, `docs/decision-stockage-hote.md`,
+`docs/profil-mission.md`, `docs/decision-preuves-acceptation.md`,
+`docs/skills/revue-de-code.md`. Ticket #29 (H08), deuxième commit : après
+approbation, le plan guide sans enfermer. Hors `--mission`, et sous mission
+sans plan approuvé, rien ne change.
+
+Sous un contrat approuvé avec son plan, une écriture (`write_file`,
+`edit_file`) sur un fichier absent du plan a lieu et laisse un écart `file`
+au journal, une fois par chemin, avec une note qui invite le modèle à dire
+pourquoi ; seule la politique d'accès de #11 refuse. Une étape ajoutée ou
+retirée (`add`, `set`) ou un plan réécrit (`propose` après approbation)
+laisse un écart par rubrique changée (étapes, fichiers, risques, preuves),
+avant, après et motif (`reason`, ou `null` et une invitation à le donner) ;
+`add` accepte `files` et `reason`. `done` et `checkpoint` ne sont pas des
+écarts. Un changement que l'hôte ne peut pas enregistrer est annulé et dit au
+modèle, jamais tu. La version approuvée n'est jamais réécrite : la version
+courante se reconstruit en rejouant les écarts, et les deux restent lisibles
+— `/mission` (plan approuvé, plan courant, écarts « journalisés, jamais
+bloquants »), rubrique `plan` de `report.json` et de `report.md` (après le
+bilan des critères, sans effet sur aucun statut), nombre d'écarts dans le
+bloc du contrat. Une session suivante repart de la version courante.
+
+Grammaire, amendement du ticket #29 complété dans
+`docs/decision-stockage-hote.md` : nature `deviation` de l'événement `plan`
+(`change` fermé `file | steps | files | risks | proofs`, `before`, `after`,
+`reason`), rubrique facultative `plan` du rapport. La fiche
+`docs/skills/revue-de-code.md` mentionnait le plan approuvé « quand il
+existe » : texte précisé (où le lire, écarts journalisés sans blocage), resté
+générique ; `docs/skills/verification-finale.md` ne le mentionne pas.
+
+Vérifications. Trois tests « H08 » de plus : AC3 (fichier hors plan écrit et
+journalisé, sans refus, `.env` refusé par la politique seule, fichier ajouté
+au plan avec son motif, visibilité dans `/mission`, `report.json`,
+`report.md` et le bloc du contrat), AC3 (étape ajoutée et retirée, avec et
+sans motif ; `done` et `checkpoint` sans écart), AC4 (plan réécrit : version
+approuvée intacte dans le journal et l'approbation, version courante
+reconstruite, les deux dans `/mission` et le rapport, session suivante).
+Rouge constaté avant le code : aucune note d'écart, réécriture refusée
+(« already approved with its plan »). `npm test` 342/342 (339 et 3 nouveaux)
+et `npm run test:os` 22/22, aucun test sauté, sous un HOME et un cache npm
+temporaires. SHA `21e9cd6` reporté sur l'entrée précédente.
 
 ## Hors dépôt (machine locale)
 

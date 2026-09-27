@@ -383,6 +383,8 @@ export class Agent {
         scan,
         run: { outcome, suspended: this.suspended, error: outcome === "running" ? null : this.lastError, attempts: this.verificationResult?.attempts ?? null },
         plan: plan.exists ? { done: plan.doneCount, total: plan.steps.length } : null,
+        // #29 : le plan d'implémentation et ses écarts, seulement s'il existe.
+        implementationPlan: mission.planReport(),
       });
       let files: { json: string; markdown: string } | null = null;
       try {

@@ -463,3 +463,174 @@ test("H08 AC5: under --mission without a proposed plan — even with a checklist
   assert.doesNotMatch(fs.readFileSync(path.join(m.dir, "report.md"), "utf8"), /Plan d'implémentation/);
   assert.equal(m.planView().state, "none");
 });
+
+// ---- H08 AC3, AC4 : après approbation, le plan guide sans enfermer ----
+
+/** Un contrat approuvé avec le plan CONTENT. */
+function approvedWithPlan(overrides = {}) {
+  const s = setup(overrides);
+  const m = s.prepare();
+  const { fingerprint: planFp } = m.proposePlan(CONTENT);
+  m.approve("terminal-human", m.fingerprint, { plan: planFp });
+  return { s, m, planFp };
+}
+
+function quietUi() {
+  const lines = [];
+  return {
+    lines,
+    token() {}, thinking() {}, toolCall() {}, toolResult() {}, println(s = "") { lines.push(String(s)); },
+    status(s) { lines.push(s); }, warn(s) { lines.push(s); }, error(s) { lines.push(s); },
+    startSpinner() {}, stopSpinner() {}, async confirmCommand() { return "no"; }, turnEnd() {}, planUpdated() {},
+  };
+}
+
+/** L'agent d'un run headless (non interactif) sous le contrat. */
+function missionAgent(provider, m) {
+  const toolCtx = { workspace: m.workspace, taskManager: new TaskManager(m.workspace), plan: new Plan(), filesTouched: new Set(), commandsRun: [] };
+  return new Agent(provider, "edit", "sys", toolCtx, new ContextManager(16000, 2000), new EventBus(), quietUi(), false, 40, undefined, m);
+}
+
+const deviations = (m) => events(m).filter((e) => e.type === "plan" && e.kind === "deviation");
+
+test("H08 AC3: after approval, writing a file outside the plan records a deviation — before, after, reason — and is never refused; the access policy of #11 stays the only one to refuse", async () => {
+  const { s, m, planFp } = approvedWithPlan();
+  const provider = scriptedProvider([
+    call("w1", "write_file", { path: "hello.txt", content: "bonjour" }),
+    call("w2", "write_file", { path: "notes/extra.md", content: "x" }),
+    call("w3", "edit_file", { path: "notes/extra.md", old_text: "x", new_text: "y" }),
+    call("w4", "write_file", { path: ".env", content: "K=1" }),
+    call("p1", "plan", { action: "add", text: "add a helper", files: "src/helper.js", reason: "the greeting needs a helper" }),
+    call("w5", "write_file", { path: "src/helper.js", content: "module.exports = 1;\n" }),
+    { content: "done" },
+  ]);
+  const agent = missionAgent(provider, m);
+  assert.deepEqual(agent.toolCtx.plan.content(), CONTENT, "the session starts from the approved plan");
+  await agent.runTurn("do it");
+  const results = toolResults(provider);
+  assert.equal(results[0], "Created hello.txt (1 lines).", "a planned file: no note");
+  assert.match(results[1], /^Created notes\/extra\.md \(1 lines\)\.\n\[Plan: "notes\/extra\.md" is not among the files of the approved plan — recorded as a deviation for the host's review, never blocked/);
+  assert.equal(fs.readFileSync(path.join(s.ws, "notes", "extra.md"), "utf8"), "y", "the write outside the plan went through, the edit too");
+  assert.doesNotMatch(results[2], /\[Plan:/, "one deviation per file, not per write");
+  assert.match(results[3], /^Error: denied by the access policy/, "the policy of #11 alone refuses");
+  assert.ok(!fs.existsSync(path.join(s.ws, ".env")));
+  assert.match(results[4], /^Added step 3: add a helper\n\[Plan: changed after the host approved plan/);
+  assert.equal(results[5].split("\n")[0], "Created src/helper.js (2 lines).");
+  assert.doesNotMatch(results[5], /\[Plan:/, "a file added to the plan with its reason is no longer outside it");
+
+  const devs = deviations(m);
+  assert.deepEqual(devs.map((d) => [d.change, d.before, d.after, d.reason]), [
+    ["file", [], ["notes/extra.md"], null],
+    ["steps", ["write hello.txt", "read it back"], ["write hello.txt", "read it back", "add a helper"], "the greeting needs a helper"],
+    ["files", ["hello.txt"], ["hello.txt", "src/helper.js"], "the greeting needs a helper"],
+  ]);
+  for (const d of devs) {
+    assert.equal(d.plan, planFp, "each deviation names the approved plan");
+    assert.equal(d.fingerprint, m.fingerprint);
+  }
+  assert.equal(m.status().state, "approved", "a deviation never touches the approval");
+
+  // Visible dans /mission et dans le rapport de #9.
+  const view = m.planMarkdown();
+  assert.match(view, /### Écarts au plan approuvé \(journalisés, jamais bloquants\)/);
+  assert.match(view, /fichier hors plan : `notes\/extra\.md` — motif : non donné/);
+  assert.match(view, /étapes : ajoutée « add a helper » — motif : the greeting needs a helper/);
+  assert.match(view, /fichiers : ajouté `src\/helper\.js` — motif : the greeting needs a helper/);
+  const report = JSON.parse(fs.readFileSync(path.join(m.dir, "report.json"), "utf8"));
+  assert.equal(report.plan.state, "approved");
+  assert.deepEqual(report.plan.deviations.map((d) => d.change), ["file", "steps", "files"]);
+  const md = fs.readFileSync(path.join(m.dir, "report.md"), "utf8");
+  assert.match(md, /## Plan d'implémentation/);
+  assert.match(md, /3 écart\(s\) au plan approuvé/);
+  assert.match(md, /fichier hors plan : `notes\/extra\.md`/);
+  assert.match(m.modelBlock(), /Deviations recorded so far: 3/);
+});
+
+test("H08 AC3: a step added or removed after approval is a recorded deviation with its reason; marking a step done or saving a checkpoint is not", async () => {
+  const { m } = approvedWithPlan();
+  const provider = scriptedProvider([
+    call("p1", "plan", { action: "done" }),
+    call("p2", "plan", { action: "checkpoint", text: "hello.txt written; next: read it back" }),
+    call("p3", "plan", { action: "set", steps: "write hello.txt", reason: "reading it back is the host check's job" }),
+    call("p4", "plan", { action: "add", text: "say bonjour twice" }),
+    { content: "done" },
+  ]);
+  await missionAgent(provider, m).runTurn("go");
+  const results = toolResults(provider);
+  assert.doesNotMatch(results[0] + results[1], /\[Plan:/);
+  assert.match(results[2], /\[Plan: changed after the host approved plan .* recorded as a deviation \(steps\)/);
+  assert.match(results[3], /say why with "reason"/, "a change without a reason is recorded all the same, and the model is asked for one");
+  assert.deepEqual(deviations(m).map((d) => [d.change, d.before, d.after, d.reason]), [
+    ["steps", ["write hello.txt", "read it back"], ["write hello.txt"], "reading it back is the host check's job"],
+    ["steps", ["write hello.txt"], ["write hello.txt", "say bonjour twice"], null],
+  ]);
+  assert.match(m.planMarkdown(), /étapes : retirée « read it back » — motif : reading it back is the host check's job/);
+});
+
+test("H08 AC4: a plan rewritten by the model after approval never silently replaces the approved one — both versions stay readable in the journal, /mission, report.json and report.md", async () => {
+  const { m, planFp } = approvedWithPlan();
+  const rewrite = {
+    action: "propose",
+    steps: "write hello.txt with bonjour\nadd a README line",
+    files: "hello.txt\nREADME.md",
+    risks: "the README is shared",
+    proofs: "2: cat hello.txt\n3: diff README.md",
+    reason: "the README needs a mention",
+  };
+  const provider = scriptedProvider([call("p1", "plan", rewrite), { content: "rewritten" }]);
+  const ui = terminalUi(["rewrite the plan", "/mission"], []);
+  const sess = session(ui, m);
+  sess.agent.setProvider(provider);
+  await sess.run();
+
+  assert.match(toolResults(provider).at(-1), new RegExp(`^Plan rewritten after approval: recorded as a deviation from the approved plan ${planFp.slice(0, 16)} \\(steps, files, risks, proofs\\)`));
+  const current = {
+    steps: ["write hello.txt with bonjour", "add a README line"],
+    files: ["hello.txt", "README.md"],
+    risks: ["the README is shared"],
+    proofs: [{ criterion: 2, proof: "cat hello.txt" }, { criterion: 3, proof: "diff README.md" }],
+  };
+  assert.deepEqual(sess.agent.toolCtx.plan.content(), current, "the model works from its rewritten plan");
+
+  // Le plan approuvé reste celui de l'approbation.
+  const view = m.planView();
+  assert.equal(view.state, "approved");
+  assert.equal(view.fingerprint, planFp);
+  assert.deepEqual(view.content, CONTENT);
+  assert.equal(store.readContract(m.dir).record.approval.plan, planFp);
+  assert.deepEqual(view.current, current, "the rewritten version is rebuilt from the journal");
+  const plans = events(m).filter((e) => e.type === "plan");
+  assert.deepEqual(plans[0].content, CONTENT, "the approved proposal is never rewritten");
+  const devs = deviations(m);
+  assert.deepEqual(devs.map((d) => d.change), ["steps", "files", "risks", "proofs"]);
+  assert.deepEqual([devs[0].before, devs[0].after], [CONTENT.steps, current.steps]);
+  assert.deepEqual([devs[1].before, devs[1].after], [CONTENT.files, current.files]);
+  assert.deepEqual([devs[2].before, devs[2].after], [CONTENT.risks, current.risks]);
+  assert.deepEqual([devs[3].before, devs[3].after], [
+    ["1: hello.txt is listed by list_files", "2: read_file hello.txt shows bonjour", "3: git diff shows no README change"],
+    ["2: cat hello.txt", "3: diff README.md"],
+  ]);
+  for (const d of devs) assert.equal(d.reason, "the README needs a mention");
+
+  // /mission : le plan approuvé, puis la version courante, puis les écarts.
+  const shown = ui.lines.find((l) => /## Plan d'implémentation — approuvé avec le contrat/.test(l));
+  assert.ok(shown, "/mission shows the plan");
+  const approvedAt = shown.indexOf("read it back");
+  const currentAt = shown.indexOf("### Plan courant — réécrit après approbation");
+  assert.ok(approvedAt > 0 && currentAt > approvedAt && shown.indexOf("add a README line") > currentAt, "approved version first, then the current one");
+  assert.match(shown, /### Écarts au plan approuvé/);
+
+  const report = JSON.parse(fs.readFileSync(path.join(m.dir, "report.json"), "utf8"));
+  assert.equal(report.plan.fingerprint, planFp);
+  assert.deepEqual(report.plan.approved, CONTENT);
+  assert.deepEqual(report.plan.current, current);
+  assert.equal(report.plan.deviations.length, 4);
+  const md = fs.readFileSync(path.join(m.dir, "report.md"), "utf8");
+  assert.ok(md.includes("read it back") && md.includes("add a README line"), "report.md reads both versions");
+
+  // Une session suivante repart de la version courante ; l'approuvée reste lisible.
+  const fresh = new Plan();
+  m.seedPlan(fresh);
+  assert.deepEqual(fresh.content(), current);
+  assert.equal(m.planView().fingerprint, planFp);
+});

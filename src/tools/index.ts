@@ -3,7 +3,7 @@
 // every description (small models imitate better than they infer), and the
 // mode decides which schemas are sent. The agent rechecks mode at execution.
 
-import { Plan, PlanHooks, readProposal } from "../plan";
+import { Plan, PlanHooks, readProposal, splitFileList } from "../plan";
 import { ToolSpec } from "../providers/types";
 import { editFile, listFiles, readFile, renderRead, writeFile } from "./fs-tools";
 import { isFicheRef, readInstalledFiche } from "../fiches";
@@ -264,13 +264,22 @@ export async function executeTool(
           // l'hôte avant d'être posé sur la checklist.
           const read = readProposal(args);
           if ("error" in read) return `Error: ${read.error}`;
-          const out = hooks.propose(read.content, reasonOf(args));
+          const out = hooks.propose(read.content, reasonOf(args), ctx.plan.content());
           if (!out.ok) return `Error: ${out.message}`;
           ctx.plan.adopt(out.content);
           result = out.message;
           break;
         }
         const before = hooks ? ctx.plan.content() : null;
+        const snapshot = before ? ctx.plan.snapshot() : null;
+        // Profil mission (#29) : `add` peut ajouter au plan structuré les
+        // fichiers de l'étape, validés par l'hôte avant tout changement.
+        let extraFiles: string[] = [];
+        if (hooks && before && action === "add" && splitFileList(args.files).length) {
+          const f = hooks.files(splitFileList(args.files));
+          if (!f.ok) return `Error: ${f.message}`;
+          extraFiles = f.files;
+        }
         if (action === "set") result = ctx.plan.set(typeof args.steps === "string" ? args.steps : "");
         else if (action === "done")
           result = ctx.plan.markDone(args.step === undefined ? undefined : Number(args.step));
@@ -279,10 +288,16 @@ export async function executeTool(
         else if (action === "show") result = ctx.plan.modelView();
         else
           return 'Error: action must be one of "set", "done", "add", "show", "checkpoint". Example: {"action": "done"}';
-        // Profil mission (#29) : un plan structuré qui change, l'hôte le sait.
-        const after = before ? ctx.plan.content() : null;
-        if (hooks && before && after && (action === "set" || action === "add") && !result.startsWith("Error")) {
-          result += hooks.changed(before, after, reasonOf(args));
+        // Profil mission (#29) : un plan structuré qui change, l'hôte le sait ;
+        // un changement qu'il n'a pas pu enregistrer est annulé, jamais tu.
+        if (hooks && before && snapshot && (action === "set" || action === "add") && !result.startsWith("Error")) {
+          ctx.plan.addFiles(extraFiles);
+          const note = hooks.changed(before, ctx.plan.content()!, reasonOf(args));
+          if (note.startsWith("Error")) {
+            ctx.plan.restoreSnapshot(snapshot);
+            return note;
+          }
+          result += note;
         }
         break;
       }
@@ -293,6 +308,8 @@ export async function executeTool(
         if (!result.startsWith("Error")) {
           ctx.filesTouched.add(String(args.path));
           result += afterWrite(ctx.workspace, String(args.path));
+          // Profil mission (#29) : un fichier hors du plan approuvé, noté.
+          if (ctx.planHooks) result += ctx.planHooks.wrote(String(args.path));
         }
         break;
       case "edit_file":
@@ -302,6 +319,7 @@ export async function executeTool(
         if (!result.startsWith("Error")) {
           ctx.filesTouched.add(String(args.path));
           result += afterWrite(ctx.workspace, String(args.path));
+          if (ctx.planHooks) result += ctx.planHooks.wrote(String(args.path));
         }
         break;
       case "run_command":

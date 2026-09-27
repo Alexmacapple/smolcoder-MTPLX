@@ -30,12 +30,21 @@ export interface PlanDetails {
  * valider, le journaliser, le lier au contrat. Fixés par l'hôte, jamais par
  * un argument du modèle ; absents, l'outil plan est celui d'avant #29. */
 export interface PlanHooks {
-  /** Une proposition : rend le contenu normalisé et le message pour le
-   * modèle, ou le refus. Rien n'est posé sur la checklist en cas de refus. */
-  propose(content: PlanContent, reason: string | null): { ok: true; content: PlanContent; message: string } | { ok: false; message: string };
+  /** Une proposition (avant approbation) ou une réécriture (après, un écart) :
+   * rend le contenu normalisé et le message pour le modèle, ou le refus. Rien
+   * n'est posé sur la checklist en cas de refus. `current` : le plan
+   * structuré en cours, s'il y en a un. */
+  propose(content: PlanContent, reason: string | null, current: PlanContent | null): { ok: true; content: PlanContent; message: string } | { ok: false; message: string };
   /** Après set ou add sur un plan structuré : une note pour le modèle (vide
-   * si l'hôte n'a rien à en dire). */
+   * si l'hôte n'a rien à en dire) ; une note qui commence par « Error: »
+   * annule le changement, que l'hôte n'a pas pu enregistrer. */
   changed(before: PlanContent, after: PlanContent, reason: string | null): string;
+  /** Après une écriture réussie (write_file, edit_file) : une note pour le
+   * modèle, vide si le fichier est au plan ou sans plan approuvé. Jamais un
+   * refus : l'écriture a déjà eu lieu. */
+  wrote(path: string): string;
+  /** Les fichiers qu'`add` ajoute au plan : normalisés, ou le refus. */
+  files(list: string[]): { ok: true; files: string[] } | { ok: false; message: string };
 }
 
 /** Strip the bullets, numbering and checkboxes local models put on lines. */
@@ -52,6 +61,12 @@ function splitLines(text: string, singleLine: RegExp = /;\s*/): string[] {
 
 const PROOF_LINE = /^(?:(?:criterion|criteria|critère|ac|acceptance)\s*)?#?(\d{1,2})\s*[:.)\-–]\s*(.+)$/i;
 
+/** Profil mission (#29) : une liste de fichiers du modèle — un par ligne, ou
+ * séparés par des virgules, points-virgules ou espaces sur une seule ligne. */
+export function splitFileList(text: unknown): string[] {
+  return splitLines(typeof text === "string" ? text : "", /[;,]\s*|\s+/).map((f) => f.replace(/^`+|`+$/g, "").replace(/^\.\//, ""));
+}
+
 /** Profil mission (#29) : lit les champs plats d'une proposition (petits
  * modèles : ni objets ni listes imbriqués) — une étape, un fichier, un risque
  * ou une preuve par ligne. La grammaire du contenu (bornes, chemins, numéros
@@ -60,7 +75,7 @@ export function readProposal(args: Record<string, any>): { content: PlanContent 
   const str = (v: unknown) => (typeof v === "string" ? v : "");
   const steps = splitLines(str(args.steps));
   if (!steps.length) return { error: '"steps" needs at least one step, in the order of the work — one per line.' };
-  const files = splitLines(str(args.files), /[;,]\s*|\s+/).map((f) => f.replace(/^`+|`+$/g, "").replace(/^\.\//, ""));
+  const files = splitFileList(args.files);
   if (!files.length) return { error: '"files" needs at least one file to create or modify — one path per line, relative to the workspace ("src/" for a whole folder).' };
   const risks = splitLines(str(args.risks));
   const proofText = str(args.proofs);
@@ -122,6 +137,26 @@ export class Plan {
       return { text, done: old?.done ?? false, ...(old?.note !== undefined ? { note: old.note } : {}) };
     });
     this.details = { files: [...content.files], risks: [...content.risks], proofs: content.proofs.map((p) => ({ ...p })) };
+  }
+
+  /** Profil mission (#29) : des fichiers de plus au plan structuré. */
+  addFiles(files: string[]): void {
+    if (!this.details) return;
+    for (const f of files) if (!this.details.files.includes(f)) this.details.files.push(f);
+  }
+
+  /** Profil mission (#29) : l'état complet, pour annuler un changement que
+   * l'hôte n'a pas pu enregistrer. */
+  snapshot(): { steps: PlanStep[]; details: PlanDetails | null } {
+    return {
+      steps: this.steps.map((s) => ({ ...s })),
+      details: this.details ? { files: [...this.details.files], risks: [...this.details.risks], proofs: this.details.proofs.map((p) => ({ ...p })) } : null,
+    };
+  }
+
+  restoreSnapshot(s: { steps: PlanStep[]; details: PlanDetails | null }): void {
+    this.steps = s.steps;
+    this.details = s.details;
   }
 
   /** Replace the plan. Accept the semicolon lists local models often return

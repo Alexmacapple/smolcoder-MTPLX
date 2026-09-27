@@ -375,7 +375,10 @@ décide.
   `--approve-verifiers` les entrées du vérificateur (#9, sous un contrat déjà
   approuvé). La nouvelle approbation des entrées garde le plan approuvé tel
   quel ; un plan ne s'approuve jamais après coup, sous un contrat déjà
-  approuvé (`--approve-plan` ou `propose` sont alors refusés, avec ce motif).
+  approuvé : `--approve-plan` est alors refusé, avec ce motif, comme
+  `propose` sous un contrat approuvé sans plan ; sous un contrat approuvé
+  avec son plan, `propose` réécrit le plan courant, écart journalisé
+  (ci-dessous).
   `--propose-plan` ne se combine avec aucune approbation ni avec `--verify` :
   on approuve dans un run suivant, après avoir lu le plan.
 
@@ -391,14 +394,42 @@ sortie 3 avec la marche à suivre, `--propose-plan` d'abord), et le bloc du
 contrat demande au modèle de proposer le sien. Le champ absent n'entre pas
 dans l'empreinte : les contrats existants gardent la leur.
 
+### Après approbation : écarts journalisés, jamais bloquants
+
+Le plan approuvé guide, il n'enferme pas. Sous un contrat approuvé avec son
+plan, trois écarts laissent chacun un événement `plan` de nature `deviation`
+au journal, avec l'avant, l'après et le motif donné par l'agent (ou `null`) :
+
+- une écriture (`write_file`, `edit_file`) sur un fichier absent du plan :
+  l'écriture a lieu, le modèle reçoit une note qui l'invite à dire pourquoi
+  (`plan` `add` avec `files` et `reason`), l'écart est journalisé une fois par
+  chemin ; seule la politique d'accès de #11 refuse, comme avant ;
+- une étape ajoutée ou retirée (`add`, `set`), ou une rubrique réécrite
+  (`propose` après approbation : étapes, fichiers, risques, preuves) : un
+  événement par rubrique changée ; `add` accepte `files` et `reason` pour
+  ajouter au plan, avec son motif, les fichiers de l'étape ;
+- cocher une étape (`done`) ou noter un point d'étape (`checkpoint`) n'est
+  pas un écart.
+
+Le plan réécrit ne remplace jamais silencieusement le plan approuvé : la
+version approuvée reste dans le journal telle qu'approuvée, l'empreinte de
+l'approbation ne change pas, et la version courante se reconstruit en
+rejouant les écarts. Les deux restent lisibles : `/mission` montre le plan
+approuvé, puis le plan courant s'il diffère, puis la liste des écarts
+(« journalisés, jamais bloquants ») ; `report.json` porte une rubrique `plan`
+(`approved`, `current`, `deviations`, `missingProofs`) et `report.md` la même,
+après le bilan des critères. Un écart ne touche ni l'approbation du contrat,
+ni le budget, ni aucun statut de critère : c'est une trace pour la revue.
+
 ### Ce que voit le modèle
 
 Le bloc du contrat, relu dans le stockage hôte à chaque tour et après
 compaction, porte une ligne `Plan:` seulement quand un plan existe ou est
 exigé : proposé (en attente de l'hôte), approuvé (empreinte, fichiers, « un
-guide, pas une cage »), ou exigé. Une nouvelle session sous le même contrat
-repart du plan approuvé (ou de celui qui attend l'approbation), étapes non
-cochées ; `/clear` le rétablit, comme le contrat.
+guide, pas une cage », nombre d'écarts journalisés), ou exigé. La checklist
+de l'agent repart, à chaque session sous le même contrat, de la version
+courante du plan approuvé (ou de celui qui attend l'approbation), étapes non
+cochées ; `/clear` la rétablit, comme le contrat.
 
 ## Budget de pas
 
@@ -470,6 +501,11 @@ le reprend en tête, relu dans le stockage hôte au moment de la compaction
   de pas, le contrat n'étant pas approuvé ; il reste borné par le plafond de
   pas du headless et ne peut rien écrire. La progression du plan (étapes
   cochées) ne survit pas à la session : la reprise (#10) la persistera.
+- Les écarts au plan ne voient que les outils de fichiers du modèle : un
+  fichier créé ou modifié par une commande (`run_command`, tâche de fond,
+  script de build) n'est pas comparé au plan. Une session web reprise
+  retrouve ses étapes sauvegardées, qui peuvent différer de la version
+  courante du journal jusqu'au prochain changement.
 - Le run headless approuvé est testé par le CLI réel sur macOS (#18,
   `test/os/e2e.os.test.js`, dans `npm run test:os`), contre un faux serveur
   OpenAI-compatible local qui joue le modèle : `run_command`, `--verify`,

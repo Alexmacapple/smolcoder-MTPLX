@@ -8,8 +8,8 @@
 import * as fs from "fs";
 import * as path from "path";
 import type { Plan, PlanHooks } from "../plan";
-import type { PathRules } from "../sandbox";
-import { freezeVerifiers, PROJECT_COMMANDS, scanWorkspace, VerifierState, verifierChanges, WorkspaceScan } from "./proofs";
+import { PathRules, resolveInWorkspace } from "../sandbox";
+import { describeDeviation, freezeVerifiers, PlanDeviation, PlanReport, PROJECT_COMMANDS, scanWorkspace, VerifierState, verifierChanges, WorkspaceScan } from "./proofs";
 import {
   Approval,
   ApprovalAuthority,
@@ -22,9 +22,11 @@ import {
   DEFAULT_POLICY,
   harnessDir,
   HarnessStoreError,
+  isPlanFile,
   MissionContract,
   parseContractSource,
   parsePlanContent,
+  PlanChange,
   PlanContent,
   planFingerprint,
   PLAN_REQUIRED,
@@ -82,13 +84,44 @@ export interface PlanView {
   content: PlanContent | null;
   /** Date de la proposition. */
   at: string | null;
+  /** Plan approuvé : la version courante, reconstruite en rejouant les
+   * écarts journalisés sur la version approuvée (égale à elle sans écart). */
+  current: PlanContent | null;
+  /** Plan approuvé : les écarts journalisés depuis l'approbation. */
+  deviations: PlanDeviation[];
   reason?: string;
 }
 
 type PlanProposedEvent = Extract<ProofEvent, { kind: "proposed" }>;
+type PlanDeviationEvent = Extract<ProofEvent, { kind: "deviation" }>;
 
 /** Deux contenus identiques, clés comprises (forme canonique de l'empreinte). */
 const samePlan = (a: PlanContent, b: PlanContent) => planFingerprint("", a) === planFingerprint("", b);
+
+/** Les rubriques d'un plan qu'un écart peut réécrire. */
+const PLAN_FACETS = ["steps", "files", "risks", "proofs"] as const;
+type PlanFacet = (typeof PLAN_FACETS)[number];
+
+/** Une rubrique en lignes, les preuves en « N: preuve ». */
+function facetLines(c: PlanContent, f: PlanFacet): string[] {
+  return f === "proofs" ? c.proofs.map((p) => `${p.criterion}: ${p.proof}`) : [...c[f]];
+}
+
+/** Rejoue l'après d'un écart de rubrique sur un contenu. */
+function applyFacet(c: PlanContent, f: PlanChange, after: string[]): PlanContent {
+  if (f === "file") return c;
+  if (f !== "proofs") return { ...c, [f]: [...after] };
+  return {
+    ...c,
+    proofs: after.map((l) => {
+      const i = l.indexOf(": ");
+      return { criterion: Number(l.slice(0, i)), proof: l.slice(i + 2) };
+    }),
+  };
+}
+
+/** Un chemin écrit est-il au plan ? `dossier/` couvre tout ce qu'il contient. */
+const planCovers = (files: string[], rel: string) => files.some((f) => (f.endsWith("/") ? rel.startsWith(f) : rel === f));
 
 /** Outils sans effet sur le projet : disponibles avant approbation pour lire
  * et préparer le plan (la checklist du modèle n'accorde aucun droit). Liste
@@ -277,7 +310,7 @@ export class Mission {
    * attend son approbation. Un contrat approuvé sans plan n'en a aucun. */
   planView(): PlanView {
     const required = this.contract.plan === PLAN_REQUIRED;
-    const none: PlanView = { state: "none", required, fingerprint: null, content: null, at: null };
+    const none: PlanView = { state: "none", required, fingerprint: null, content: null, at: null, current: null, deviations: [] };
     const read = readContract(this.dir);
     const record = read.state === "ok" && read.record.fingerprint === this.fingerprint ? read.record : null;
     const approval = record?.approval?.fingerprint === this.fingerprint ? record.approval : null;
@@ -293,12 +326,44 @@ export class Mission {
     const proposals = events.filter((e: ProofEvent): e is PlanProposedEvent => e.type === "plan" && e.kind === "proposed" && e.fingerprint === this.fingerprint);
     if (approval?.plan) {
       const p = proposals.find((e) => e.plan === approval.plan);
-      return p
-        ? { state: "approved", required, fingerprint: p.plan, content: p.content, at: p.at }
-        : { ...none, state: "unreadable", fingerprint: approval.plan, reason: `the approved plan ${approval.plan.slice(0, 16)}… is missing from the proof journal` };
+      if (!p) return { ...none, state: "unreadable", fingerprint: approval.plan, reason: `the approved plan ${approval.plan.slice(0, 16)}… is missing from the proof journal` };
+      // La version approuvée ne bouge jamais ; la courante se reconstruit en
+      // rejouant les écarts, dans l'ordre du journal.
+      const devs = events.filter((e: ProofEvent): e is PlanDeviationEvent => e.type === "plan" && e.kind === "deviation" && e.fingerprint === this.fingerprint && e.plan === p.plan);
+      let current = p.content;
+      for (const d of devs) current = applyFacet(current, d.change, d.after);
+      const deviations = devs.map((d) => ({ at: d.at, change: d.change, before: d.before, after: d.after, reason: d.reason }));
+      return { state: "approved", required, fingerprint: p.plan, content: p.content, at: p.at, current, deviations };
     }
     const last = proposals.at(-1);
-    return last ? { state: "proposed", required, fingerprint: last.plan, content: last.content, at: last.at } : none;
+    return last ? { ...none, state: "proposed", fingerprint: last.plan, content: last.content, at: last.at } : none;
+  }
+
+  /** Journalise, rubrique par rubrique, ce qui change entre deux versions du
+   * plan après approbation. Rend les rubriques changées. */
+  private recordDeviations(before: PlanContent, after: PlanContent, reason: string | null, planFp: string): PlanChange[] {
+    const changed: PlanChange[] = [];
+    for (const f of PLAN_FACETS) {
+      const b = facetLines(before, f);
+      const a = facetLines(after, f);
+      if (JSON.stringify(a) === JSON.stringify(b)) continue;
+      appendProof(this.dir, { type: "plan", fingerprint: this.fingerprint, kind: "deviation", plan: planFp, change: f, before: b, after: a, reason });
+      changed.push(f);
+    }
+    return changed;
+  }
+
+  /** Le chemin relatif du workspace d'un fichier que l'agent vient d'écrire. */
+  private relativeOf(p: string): string | null {
+    try {
+      const abs = resolveInWorkspace(this.workspace, p);
+      let rel = path.relative(this.workspace, abs);
+      if (rel.startsWith("..") || path.isAbsolute(rel)) rel = path.relative(this.workspace, path.join(fs.realpathSync.native(path.dirname(abs)), path.basename(abs)));
+      rel = rel.split(path.sep).join("/");
+      return rel && !rel.startsWith("..") && !path.isAbsolute(rel) ? rel : null;
+    } catch {
+      return null;
+    }
   }
 
   /** Les critères d'acceptation (numéros à partir de 1) qu'aucun contrôle de
@@ -336,7 +401,7 @@ export class Mission {
     if (st.state !== "proposed") {
       throw new MissionError(
         st.state === "approved"
-          ? `the mission contract "${this.contract.id}" is already approved${this.planView().state === "approved" ? " with its plan" : " without a plan"}: a plan is approved only together with the contract`
+          ? `the mission contract "${this.contract.id}" is already approved${this.planView().state === "none" ? " without a plan" : " with its plan"}: a plan is approved only together with the contract`
           : `the mission contract "${this.contract.id}" is ${STATE_LABELS[st.state]}: no plan can be proposed for it`
       );
     }
@@ -367,13 +432,47 @@ export class Mission {
     });
   }
 
-  /** Ce que l'hôte fait de l'outil plan sous ce contrat : les propositions
-   * sont validées et journalisées ; avant approbation, une checklist
-   * structurée modifiée par set ou add devient la nouvelle proposition. */
+  /** Le plan approuvé avec ce contrat, s'il est en vigueur (#29). */
+  private approvedPlan(): PlanView | null {
+    if (this.status().state !== "approved") return null;
+    const v = this.planView();
+    return v.state === "approved" && v.content && v.current ? v : null;
+  }
+
+  /** Valide un contenu réécrit après approbation (même grammaire que la
+   * proposition) ; MissionError sinon. */
+  private checkedContent(raw: PlanContent): PlanContent {
+    try {
+      return parsePlanContent(this.normalizePlan(raw), this.contract.acceptance.length);
+    } catch (err: any) {
+      if (err instanceof ContractError) throw new MissionError(err.message.replace(/^plan field /, ""));
+      throw err;
+    }
+  }
+
+  /** Ce que l'hôte fait de l'outil plan sous ce contrat. Avant approbation,
+   * les propositions sont validées et journalisées, et une checklist
+   * structurée modifiée par set ou add devient la nouvelle proposition.
+   * Après approbation avec un plan, tout changement du plan et toute
+   * écriture hors du plan deviennent des écarts journalisés — jamais des
+   * refus, jamais un remplacement du plan approuvé. */
   planHooks(): PlanHooks {
+    const why = (reason: string | null) => (reason ? "" : ' Next time, say why with "reason".');
     return {
-      propose: (content) => {
+      propose: (content, reason, current) => {
         try {
+          const approved = this.approvedPlan();
+          if (approved) {
+            // Réécriture après approbation : un écart par rubrique changée,
+            // la version approuvée reste celle du journal.
+            const next = this.checkedContent(content);
+            const changed = this.recordDeviations(current ?? approved.current!, next, reason, approved.fingerprint!);
+            const fp = approved.fingerprint!.slice(0, 16);
+            const head = changed.length
+              ? `Plan rewritten after approval: recorded as a deviation from the approved plan ${fp} (${changed.join(", ")}) for the host's review, never blocked; the approved plan stays readable as it was approved.${why(reason)}`
+              : `Plan unchanged: it matches your current plan (approved plan ${fp}).`;
+            return { ok: true, content: next, message: [head, "Expected proof per acceptance criterion:", ...this.proofLines(next)].join("\n") };
+          }
           const r = this.proposePlan(content);
           const fp = r.fingerprint.slice(0, 16);
           const head = r.recorded
@@ -384,24 +483,76 @@ export class Mission {
           return { ok: false, message: String(err?.message ?? err) + (err instanceof MissionError && /already approved without a plan/.test(err.message) ? '. Keep your working checklist with {"action":"set","steps":"..."}.' : "") };
         }
       },
-      changed: (before, after) => {
-        if (samePlan(before, after) || this.planView().state !== "proposed") return "";
+      changed: (before, after, reason) => {
+        if (samePlan(before, after)) return "";
+        const approved = this.approvedPlan();
+        if (approved) {
+          try {
+            const next = this.checkedContent(after);
+            const changed = this.recordDeviations(before, next, reason, approved.fingerprint!);
+            return changed.length
+              ? `\n[Plan: changed after the host approved plan ${approved.fingerprint!.slice(0, 16)} — recorded as a deviation (${changed.join(", ")}) for the host's review, never blocked.${why(reason)}]`
+              : "";
+          } catch (err: any) {
+            return `Error: this plan change cannot be recorded for the host (${err?.message ?? err}); your plan was left as it was.`;
+          }
+        }
+        if (this.planView().state !== "proposed") return "";
         try {
           const r = this.proposePlan(after);
           return r.recorded ? `\nProposed plan updated (fingerprint ${r.fingerprint.slice(0, 16)}): the host approves this version with the contract.` : "";
         } catch (err: any) {
-          return `\n[The proposed plan could not be updated (${err?.message ?? err}); the host still sees the previous version.]`;
+          return `Error: the proposed plan cannot be updated (${err?.message ?? err}); your plan was left as it was.`;
         }
+      },
+      wrote: (p) => {
+        const approved = this.approvedPlan();
+        if (!approved) return "";
+        const rel = this.relativeOf(p);
+        if (!rel || planCovers(approved.content!.files, rel) || planCovers(approved.current!.files, rel)) return "";
+        if (approved.deviations.some((d) => d.change === "file" && d.after[0] === rel)) return "";
+        try {
+          appendProof(this.dir, { type: "plan", fingerprint: this.fingerprint, kind: "deviation", plan: approved.fingerprint!, change: "file", before: [], after: [rel], reason: null });
+        } catch (err: any) {
+          return `\n[Plan: "${rel}" is not among the files of the approved plan, and this deviation could not be recorded (${err?.message ?? err}).]`;
+        }
+        return `\n[Plan: "${rel}" is not among the files of the approved plan — recorded as a deviation for the host's review, never blocked. If it belongs to the work, say why: plan {"action":"add","text":"<step>","files":"${rel}","reason":"<why>"}.]`;
+      },
+      files: (list) => {
+        const files = this.normalizePlan({ steps: [], files: list, risks: [], proofs: [] }).files;
+        const bad = files.find((f) => !isPlanFile(f));
+        return bad === undefined ? { ok: true, files } : { ok: false, message: `"files" names ${JSON.stringify(bad)}, which is not a relative path inside the workspace (no "..", no leading "/")` };
       },
     };
   }
 
-  /** Pose sur une checklist vide le plan approuvé avec le contrat, sinon celui
-   * qui attend son approbation : la boussole du modèle suit le stockage hôte. */
+  /** Pose sur une checklist vide le plan en vigueur : la version courante du
+   * plan approuvé (l'approuvée, réécrite par les écarts journalisés), sinon
+   * celui qui attend son approbation. La boussole suit le stockage hôte. */
   seedPlan(plan: Plan): void {
     if (plan.exists) return;
     const v = this.planView();
-    if ((v.state === "approved" || v.state === "proposed") && v.content) plan.adopt(v.content);
+    if (v.state === "approved" && v.current) plan.adopt(v.current);
+    else if (v.state === "proposed" && v.content) plan.adopt(v.content);
+  }
+
+  /** Le plan pour le rapport de #9 (report.json, report.md) ; null sans plan
+   * ni exigence, pour que le rapport ne change pas alors. */
+  planReport(): PlanReport | null {
+    const v = this.planView();
+    if (v.state === "none" && !v.required) return null;
+    const content = v.state === "approved" ? v.current : v.state === "proposed" ? v.content : null;
+    return {
+      state: v.state,
+      required: v.required,
+      fingerprint: v.fingerprint,
+      approved: v.state === "approved" ? v.content : null,
+      proposed: v.state === "proposed" ? v.content : null,
+      current: v.state === "approved" && v.current && v.content && !samePlan(v.current, v.content) ? v.current : null,
+      missingProofs: this.missingProofs(content).map((n) => `acceptance-${n}`),
+      deviations: v.deviations,
+      note: "Declared by the agent and approved by the host: a guide, never evidence and never a cage — deviations are listed for review and change no status.",
+    };
   }
 
   /** Vue Markdown du plan pour l'humain, à côté de celle du contrat ; vide
@@ -423,6 +574,27 @@ export class Mission {
       return `${n}. ${a} — ${parts.length ? parts.join(" ; ") : "**aucune preuve prévue**"}`;
     });
     const missing = this.missingProofs(c);
+    // Après approbation : la version courante quand l'agent a réécrit son
+    // plan, puis les écarts — l'approuvée reste affichée telle quelle.
+    const cur = v.state === "approved" && v.current && !samePlan(v.current, c) ? v.current : null;
+    const after = v.state !== "approved" ? [] : [
+      ...(cur
+        ? [
+            "",
+            `### Plan courant — réécrit après approbation (empreinte \`${planFingerprint(this.fingerprint, cur)}\`)`,
+            "",
+            ...cur.steps.map((s, i) => `${i + 1}. ${s}`),
+            "",
+            `Fichiers : ${cur.files.map((f) => `\`${f}\``).join(", ")}.`,
+            ...(cur.risks.length ? [`Risques : ${cur.risks.join(" ; ")}.`] : []),
+            ...(cur.proofs.length ? [`Preuves prévues : ${cur.proofs.map((p) => `${p.criterion}: ${p.proof}`).join(" ; ")}.`] : []),
+          ]
+        : []),
+      "",
+      "### Écarts au plan approuvé (journalisés, jamais bloquants)",
+      "",
+      ...(v.deviations.length ? v.deviations.map((d) => `- ${d.at} — ${describeDeviation(d)}`) : ["_(aucun)_"]),
+    ];
     return [
       `## Plan d'implémentation — ${v.state === "proposed" ? "proposé, en attente d'approbation avec le contrat" : "approuvé avec le contrat"}`,
       "",
@@ -434,6 +606,7 @@ export class Mission {
       "### Risques et contraintes techniques", "", ...(c.risks.length ? c.risks.map((r) => `- ${r}`) : ["_(aucun déclaré)_"]), "",
       "### Preuve attendue par critère d'acceptation", "", ...criteria,
       ...(missing.length ? ["", `Critère(s) sans preuve prévue : ${missing.join(", ")}.`] : []),
+      ...after,
     ].join("\n");
   }
 
@@ -591,7 +764,10 @@ export class Mission {
     const fp = v.fingerprint?.slice(0, 16);
     if (v.state === "proposed") return [`Plan: proposed ${fp} (${v.content!.steps.length} steps, ${v.content!.files.length} files) — awaiting the host's approval with the contract.`];
     if (v.state === "approved") {
-      return [`Plan: approved ${fp} with the contract. It is a guide, not a cage: another file or a changed step is allowed and shown to the host — say why in "reason". Files: ${v.content!.files.join(", ")}.`];
+      return [
+        `Plan: approved ${fp} with the contract. It is a guide, not a cage: another file or a changed step is allowed and shown to the host — say why in "reason". Files: ${v.content!.files.join(", ")}.` +
+          (v.deviations.length ? ` Deviations recorded so far: ${v.deviations.length} (the host reviews them).` : ""),
+      ];
     }
     if (v.state === "unreadable") return [`Plan: the plan approved with the contract cannot be read from the host journal (${v.reason}).`];
     if (v.required && state !== "approved") return ['Plan: the host requires an implementation plan approved with the contract — propose it with the plan tool (action "propose") before approval.'];
