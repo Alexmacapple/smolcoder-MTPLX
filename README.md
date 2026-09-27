@@ -79,6 +79,16 @@ ce qu'il prouve, ce qu'il journalise.
   le plan approuvé reste lisible à côté du plan courant (`/mission`,
   rapport). Facultatif par défaut, exigible par le contrat. Mesure au
   banc à jouer : `docs/protocole-mesure-plan-approuve.md`.
+- **Reprise durable (`--mission`)** : chaque effet du modèle est
+  enregistré hors du workspace avant d'avoir lieu, puis son résultat ;
+  après une coupure, une action sans résultat est déclarée incertaine,
+  avec ce que les fichiers en disent, et rien ne s'écrit tant que
+  l'humain ne l'a pas résolue (`/resolve`, `--resolve`). Une seule
+  session écrit par workspace ; un commit humain, un fichier non suivi
+  ou une modification en cours sont préservés, jamais attribués à
+  l'agent. Une session web reprise garde sa version d'`AGENTS.md` et la
+  provenance de chaque message. Détail :
+  `docs/decision-reprise-durable.md`.
 - **Banc comportemental reproductible** (`bench/noyau-agents-md/`) :
   un dossier horodaté et un manifeste par run, statuts
   machine-lisibles (succès ≠ refus de sécurité ≠ panne serveur),
@@ -98,8 +108,8 @@ ce qu'il prouve, ce qu'il journalise.
 **Chantiers restants**, dans l'ordre : la mesure au banc des
 [retours d'outils exploitables](https://github.com/Alexmacapple/smolcoder-MTPLX/issues/19)
 (#19, livrés, protocole prêt) et du [plan d'implémentation approuvé avec le contrat](https://github.com/Alexmacapple/smolcoder-MTPLX/issues/29)
-(#29, livré, protocole prêt), puis [reprise durable](https://github.com/Alexmacapple/smolcoder-MTPLX/issues/10)
-(#10). À part, en attente de décision :
+(#29, livré, protocole prêt) ; la [reprise durable](https://github.com/Alexmacapple/smolcoder-MTPLX/issues/10)
+(#10) est livrée, sans mesure au banc prévue. À part, en attente de décision :
 [l'étude AH-00](https://github.com/Alexmacapple/smolcoder-MTPLX/issues/33)
 (une leçon de fiche améliore-t-elle Qwen ?), porte d'entrée du
 [chantier d'apprentissage](https://github.com/Alexmacapple/smolcoder-MTPLX/issues/34)

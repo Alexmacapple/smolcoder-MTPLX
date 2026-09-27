@@ -583,4 +583,7 @@ le reprend en tête, relu dans le stockage hôte au moment de la compaction
   OpenAI-compatible local qui joue le modèle : `run_command`, `--verify`,
   tâche de fond et écoute, dans le bac ; et le plan (#29, « H08 OS ») en
   deux runs, `--propose-plan` puis `--approve` avec `--approve-plan`, écart
-  journalisé compris. Aucun test ne le lance contre MTPLX.
+  journalisé compris ; et la reprise (#10, « H05 OS ») : processus tué par
+  `SIGKILL` entre une écriture et son reçu, run suivant qui reprend le verrou
+  mort et s'arrête sur l'action incertaine (sortie 6), puis `--resolve` et
+  run vérifié sans rejouer l'écriture. Aucun test ne le lance contre MTPLX.

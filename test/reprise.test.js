@@ -428,6 +428,9 @@ for (const [point, expected] of [
   test(`H05 C2/C3 cut ${point}: the action is recorded before its effect, the restart documents what the journal and the files say, and nothing is applied twice`, async () => {
     const f = missionFixture(`cut-${point}`);
     const saved = await crashAt(point, f);
+    // C1 : le snapshot v2 d'une session du profil référence l'état hôte, sans le recopier.
+    assert.equal(saved.schema, "smolcoder/session/v2");
+    assert.deepEqual(saved.mission, { contract: f.m.fingerprint, plan: null, steps: 1, policy: store.policyVersion(store.DEFAULT_POLICY) });
     const at = (p) => path.join(f.ws, p);
     const before = effects(f.m);
     assert.equal(before.filter((e) => e.kind === "intent").length, 1, "one intent, recorded before the effect");
@@ -666,18 +669,22 @@ test("H05 C5: a lock held by another live process is respected — terminal sess
   s.releaseWriter();
 });
 
-/** Un dépôt Git et une mission approuvée dessus. */
-function gitMission(tag) {
-  const f = missionFixture(tag);
+/** Un dépôt Git et une mission approuvée dessus (avec un plan si demandé). */
+function gitMission(tag, { plan = false } = {}) {
+  const f = missionFixture(tag, { approve: !plan });
   git(f.ws, "init", "-q", "-b", "main");
   for (const [p, c] of [["a.txt", "a0\n"], ["b.txt", "b0\n"], ["c.txt", "c0\n"]]) fs.writeFileSync(path.join(f.ws, p), c);
   git(f.ws, "add", ".");
   git(f.ws, "commit", "-q", "-m", "base");
+  if (plan) {
+    const { fingerprint } = f.m.proposePlan({ steps: ["edit the files", "finish"], files: ["a.txt", "b.txt", "c.txt", "notes.md"], risks: [], proofs: [{ criterion: 1, proof: "read_file" }] });
+    f.m.approve("terminal-human", f.m.fingerprint, { plan: fingerprint });
+  }
   return f;
 }
 
 test("H05 C4: a human commit, an untracked file and a concurrent uncommitted change made between two sessions are neither overwritten nor attributed to the agent — they are listed apart from its own write, and each first write to them is refused", async () => {
-  const f = gitMission("ext");
+  const f = gitMission("ext", { plan: true });
   const a = missionSession(terminalUi(["edit a"]), f.m, "terminal");
   a.agent.setProvider(scriptedProvider([call("w1", "write_file", { path: "a.txt", content: "agent a\n" }), { content: "done" }]));
   await a.run();
@@ -698,8 +705,10 @@ test("H05 C4: a human commit, an untracked file and a concurrent uncommitted cha
   assert.deepEqual(ext.files, [{ path: "b.txt", change: "modified" }, { path: "c.txt", change: "modified" }, { path: "notes.md", change: "added" }], "the agent's own a.txt is not among them");
   b.announce();
   assert.ok(ui.lines.some((l) => /workspace changed since the last session \(HEAD moved .*files changed outside the agent: b\.txt \(modified\), c\.txt \(modified\), notes\.md \(added\)\)\. These changes are preserved and are not the agent's/.test(l)), ui.lines.join("\n"));
+  assert.ok(b.toolCtx.plan.exists, "the approved plan is the session's compass");
   const provider = scriptedProvider([
-    call("p1", "plan", { action: "set", steps: "update notes\nfinish" }),
+    call("w1", "write_file", { path: "notes.md", content: "agent\n" }),
+    call("p1", "plan", { action: "show" }),
     call("w2", "write_file", { path: "notes.md", content: "agent\n" }),
     call("w3", "write_file", { path: "c.txt", content: "agent\n" }),
     call("w4", "edit_file", { path: "b.txt", old_text: "human commit", new_text: "agent" }),
@@ -707,7 +716,8 @@ test("H05 C4: a human commit, an untracked file and a concurrent uncommitted cha
   ]);
   b.agent.setProvider(provider);
   await b.run();
-  const [notes, c, bb] = lastToolResults(provider, 3);
+  const [reanchor, , notes, c, bb] = lastToolResults(provider, 5);
+  assert.match(reanchor, /^Error: The workspace changed since the last session under this contract \(HEAD moved.*Re-anchor your plan before the next write/s, "the plan is re-anchored before the next write");
   assert.match(notes, /^Error: "notes\.md" was changed on disk after you last read it: it was created on disk after this session's known state, not by you/);
   assert.match(c, /^Error: "c\.txt" was changed on disk .*changed since this session's known state and you have not read it since/);
   assert.match(bb, /^Error: "b\.txt" was changed on disk/);

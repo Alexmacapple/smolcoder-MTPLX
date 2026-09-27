@@ -9,7 +9,8 @@
 // son motif. Les noms « H03-4 OS ACn » renvoient aux critères du chapeau #12 ;
 // « H04 OS » (#9) prouve le contrôle décisif dans le bac et le verdict hors
 // de portée du modèle ; « H08 OS » (#29), le plan proposé puis approuvé en
-// deux runs headless et l'écart journalisé sans refus.
+// deux runs headless et l'écart journalisé sans refus ; « H05 OS » (#10), la
+// coupure réelle entre une écriture et son reçu, puis la reprise.
 const test = require("node:test");
 const assert = require("node:assert/strict");
 const fs = require("fs");
@@ -400,6 +401,56 @@ test("H08 OS (headless): the real smol binary proposes its plan in a read-only -
   assert.deepEqual([report.task.state, report.plan.state, report.plan.deviations.length], ["verified", "approved", 1], "a deviation changes no status");
   assert.match(fs.readFileSync(path.join(f.m.dir, "report.md"), "utf8"), /fichier hors plan : `notes\.md`/);
   assert.ok(!fs.readdirSync(f.ws).some((n) => /plan|report/i.test(n)), "neither the plan nor the report lands in the workspace");
+});
+
+// ---- reprise durable (#10, H05) ---------------------------------------------
+
+test("H05 OS (headless): the real smol binary killed between a write and its receipt leaves an intent without result; the next run takes the dead writer's lock, finds the action uncertain with the file's evidence and stops before any model (exit 6); --resolve lets the third run finish without replaying the write", { skip, timeout: 240000 }, async (t) => {
+  const f = fixture("h05-cut", { checks: [{ command: "sh check.sh", covers: [1] }] });
+  t.after(() => { for (const d of [f.ws, path.dirname(f.src), f.m.dir]) fs.rmSync(d, { recursive: true, force: true }); });
+  fs.writeFileSync(path.join(f.ws, "check.sh"), "grep -q bonjour hello.txt\n");
+  const model = await fakeModel([
+    call("w1", "write_file", { path: "hello.txt", content: "bonjour" }),
+    call("r1", "read_file", { path: "hello.txt" }),
+    { content: "hello.txt dit bonjour." },
+  ]);
+  t.after(() => model.close());
+  const effects = () => store.readProofs(f.m.dir).events.filter((e) => e.type === "effect");
+  const agentRequests = () => model.requests.filter((q) => q.body?.tools).length;
+
+  // 1. Coupure réelle : le processus est tué (SIGKILL) après l'écriture, avant son reçu.
+  const first = await smol([f.ws, "-p", "write hello.txt", "--mission", f.src, "--approve", f.m.fingerprint, "--model", MODEL], smolEnv(model, { SMOLCODER_TEST_CRASH_AT: "after-effect" }));
+  assert.equal(first.signal, "SIGKILL", first.all);
+  assert.equal(fs.readFileSync(path.join(f.ws, "hello.txt"), "utf8"), "bonjour", "the write happened");
+  const cut = effects();
+  assert.deepEqual(cut.map((e) => [e.kind, e.tool, e.path]), [["intent", "write_file", "hello.txt"]], "an intent, recorded before the write, and no result");
+  const dead = JSON.parse(fs.readFileSync(path.join(f.m.dir, "lock"), "utf8"));
+  assert.equal(dead.surface, "headless", "the killed run left its lock behind");
+  assert.throws(() => process.kill(dead.pid, 0), /ESRCH/, "its process is gone");
+  const before = agentRequests();
+
+  // 2. Reprise : verrou mort repris, action incertaine, suspension avant tout modèle.
+  const second = await smol([f.ws, "-p", "continue", "--mission", f.src, "--model", MODEL], smolEnv(model));
+  assert.equal(second.code, 6, second.all);
+  const resume = tagged(second.stderr, "resume");
+  assert.deepEqual(resume.uncertain, [{ id: cut[0].id, tool: "write_file", target: "hello.txt", evidence: "expected" }], "the file matches the intended write: it appears applied — never concluded");
+  assert.equal(resume.lock.state, "held");
+  assert.equal(resume.lock.tookOver.pid, dead.pid, "the dead writer's lock was taken over");
+  assert.match(second.all, /Nothing was run\. 1 action of an earlier session has no recorded result/);
+  assert.equal(agentRequests(), before, "the model was never asked");
+  assert.deepEqual(effects().map((e) => e.kind), ["intent", "uncertain"]);
+  assert.equal(fs.existsSync(path.join(f.m.dir, "lock")), false, "the suspended run released its lock");
+
+  // 3. L'appelant résout ; le run va au bout sans rejouer l'écriture.
+  const third = await smol([f.ws, "-p", "check hello.txt and finish", "--mission", f.src, "--model", MODEL, "--resolve", cut[0].id], smolEnv(model));
+  assert.equal(third.code, 0, third.all);
+  assert.deepEqual(tagged(third.stderr, "resume").resolved, [cut[0].id]);
+  const all = effects();
+  assert.deepEqual(all.filter((e) => e.kind === "resolved").map((e) => [e.id, e.by]), [[cut[0].id, "headless-flag"]]);
+  assert.equal(all.filter((e) => e.kind === "intent" && e.tool === "write_file").length, 1, "the write was never replayed");
+  assert.equal(tagged(third.stderr, "verdict").state, "verified");
+  assert.equal(fs.readFileSync(path.join(f.ws, "hello.txt"), "utf8"), "bonjour");
+  assert.equal(fs.existsSync(path.join(f.m.dir, "lock")), false, "the lock is released at the end of the run");
 });
 
 // ---- web ----------------------------------------------------------------------

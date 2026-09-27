@@ -1974,7 +1974,7 @@ l'identique sur l'arbre de base `e36f0b6` sous la même charge, sans rapport
 avec ce commit. `npm run test:os` 23/23. SHA `f7d3cd8` reporté sur l'entrée
 précédente.
 
-### (ce commit) — Politique liée à l'approbation — Réf #10
+### `d00c337` — Politique liée à l'approbation — Réf #10
 
 `src/harness/store.ts`, `src/harness/mission.ts`, `src/harness/policy.ts`,
 `src/harness/resume.ts`, `src/agent.ts`, `src/session.ts`,
@@ -2018,6 +2018,66 @@ l'arbre du commit précédent, construit à part : deux échecs (version absente
 de l'approbation). `npm test` en série 366/366 (364 et 2 nouveaux), aucun
 test sauté ; `npm run test:os` 23/23. SHA `df91965` reporté sur l'entrée
 précédente.
+
+### (ce commit) — Coupure réelle du vrai binaire — Closes #10
+
+`test/os/e2e.os.test.js`, `test/reprise.test.js`,
+`docs/decision-reprise-durable.md`, `docs/profil-mission.md`, `README.md`.
+Ticket #10 (H05), dernier commit : aucun code touché, la preuve sur le vrai
+binaire que `npm test` ne couvrait que par ses briques, et la documentation
+finale (limites connues de la décision, README).
+
+Test « H05 OS » (dans `npm run test:os`, macOS réel, faux serveur
+OpenAI-compatible local, faux dossier personnel ; aucun MTPLX). Premier run
+headless approuvé, `SMOLCODER_TEST_CRASH_AT=after-effect` : le processus est
+tué par `SIGKILL` après l'écriture de `hello.txt`, avant son reçu ; le journal
+garde l'intention seule, le verrou reste au PID disparu. Second run : verrou
+mort repris (`tookOver`), action incertaine avec l'indice « conforme à
+l'écriture », sortie 6, aucun appel au modèle, verrou rendu. Troisième run,
+`--resolve <id>` : résolution `headless-flag`, contrôle de l'hôte passé dans
+le bac, sortie 0 `verified`, l'écriture jamais rejouée (une seule intention),
+verrou rendu. Le test de reprise vérifie aussi que le snapshot v2 d'une
+session du profil référence l'état hôte (contrat, plan, pas, politique) sans
+le recopier, et le test des changements entre deux sessions part d'un plan
+approuvé pour prouver le réancrage avant la première écriture.
+
+Correspondance critère par critère, tests nommés :
+
+- C1 schéma de reprise versionné (contrat, politique et consignes chargées,
+  plan et écarts, compteurs, preuves, révision Git et empreintes,
+  approbations, provenance) : « H05 provenance » (deux tests), « H05 C6 »,
+  « H05 C1 » (approbations), « H05 C1 (mission) » (plan), « H05 C2/C3 cut »
+  (référence du snapshot), « H05 C3 budgets », « H05 policy » (deux tests).
+- C2 journal d'effets (intention avant l'effet, résultat, lignes
+  synchronisées, dernière ligne tronquée détectée) : « H05 C2/C3 cut
+  before-effect / after-effect / after-receipt », « H05 C3 truncated last
+  record », « H05 OS ».
+- C3 incertain au redémarrage, réconciliation par les fichiers, suspension,
+  le modèle ne l'efface pas : les trois « cut », « H05 C3 the model cannot
+  clear », « H05 C3 (headless) », « H05 C3 stale proofs », « H05 OS ».
+- C4 changements externes (commit humain, non suivi, non commité ; preuves
+  périmées ; plan réancré) : « H05 C4 (resumed web session) », « H05 C4 a
+  human commit, an untracked file… », « H05 C4 a commit made during a
+  session », « H05 C3 stale proofs ».
+- C5 un seul écrivain, revérification avant effet, jamais de reset, stash ni
+  clean : « H05 C5 double resume », « H05 C5 a lock held by another live
+  process », « H05 OS » (verrou mort repris) ; absence de reset, stash, clean
+  constatée par Git dans les tests C4.
+- C6 AGENTS.md sans rechargement silencieux : « H05 C6 », « H05 C6
+  (mission) ».
+- C7 même contrat pour le terminal, le headless et le web, migration
+  prudente : sessions terminal et web et vrai CLI dans les tests ci-dessus,
+  « H05 C7 migration » (deux tests).
+
+Rouge constaté sur le binaire de base `e36f0b6` (arbre extrait par `git
+archive`, construit à part, même fichier de test) : le processus n'est pas
+tué (aucun point d'injection), signal `null` au lieu de `SIGKILL`. `npm test`
+366/366 et `npm run test:os` 24/24 (23 et 1 nouveau), aucun test sauté, sous
+un HOME et un cache npm temporaires. SHA `d00c337` reporté sur l'entrée
+précédente.
+
+Non vérifié : aucun run contre MTPLX (occupé par l'étude #33) ; le lien de la
+politique par défaut, sans `policyRef`, reste une décision à prendre.
 
 ## Hors dépôt (machine locale)
 

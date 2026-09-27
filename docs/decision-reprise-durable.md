@@ -224,3 +224,28 @@ antérieur à #10 lit un journal qui contient un événement `effect` comme
 `unknown-schema` — ses verdicts ne comptent plus, son rapport n'est jamais
 `verified` —, comme le prévoient les règles de lecture ; il ne lit pas non
 plus un snapshot v2 autrement qu'un v1 (les champs ajoutés sont ignorés).
+
+## Limites connues
+
+- La réconciliation ne lit que les fichiers et la révision Git : une commande
+  interrompue n'a pas d'indice, et un effet hors du workspace (réseau, base
+  de données) n'est pas vu. Pour `edit_file`, le contenu attendu n'est pas
+  calculé d'avance : l'indice dit seulement « tel qu'avant » ou « changé ».
+- Les tâches de fond vivent en mémoire : un processus tué par `SIGKILL`
+  peut laisser des descendants détachés, que la reprise ne voit pas.
+- Le verrou tient par PID sur cette machine : un PID réutilisé fait croire le
+  verrou vivant (le retirer à la main). Deux sessions qui reprennent le même
+  verrou mort au même instant se départagent à la relecture, avant l'effet
+  suivant. Le budget de pas n'est pas sous le verrou.
+- L'état connu (`resume.json`) est écrit à l'ouverture, en fin de tour et à la
+  fin de la session : un fichier changé par quelqu'un d'autre pendant un tour,
+  sans écriture de l'agent sur lui, entre dans l'état connu à la fin du tour
+  sans être listé (il n'est pas écrasé pour autant : une écriture ultérieure
+  de l'agent passe par le suivi de lecture). Au-delà de 5 000 fichiers,
+  seule l'empreinte globale est comparée.
+- Le terminal et le headless ne rejouent aucun transcript : ils reprennent le
+  contrat, pas la conversation ; seul le hub web sauvegarde un transcript.
+- La politique n'est liée à l'approbation que sous `policyRef`.
+- Aucun test ne tourne contre MTPLX : fournisseur simulé et faux serveur
+  OpenAI-compatible local (`test/reprise.test.js`, « H05 OS » dans
+  `test/os/e2e.os.test.js`).
