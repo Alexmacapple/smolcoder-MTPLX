@@ -23,8 +23,9 @@ du workspace `~/Claude` (`AGENTS.md`).
   version.
 - Des fiches de méthode sont dans `docs/skills/` (sommaire :
   `docs/skills/index.md`). Avant de diagnostiquer un bug, écrire des tests,
-  relire un diff, implémenter une demande, concevoir une interface ou
-  résoudre un conflit git : lis la fiche correspondante.
+  relire un diff, vérifier un changement avant de le livrer, implémenter
+  une demande, concevoir une interface ou résoudre un conflit git : lis la
+  fiche correspondante.
 
 ## Langue
 
