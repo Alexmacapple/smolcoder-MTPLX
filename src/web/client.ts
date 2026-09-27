@@ -7,8 +7,24 @@
 // Every session keeps its own view (transcript DOM, status, draft input,
 // panel tabs) so switching is instant and background sessions keep streaming.
 
+/** La pastille d'isolation de la barre d'état (#18), sous le profil mission
+ * seulement ; sans elle, la barre d'état historique reste inchangée. Prête :
+ * verte, avec les écoutes accordées ; indisponible : rouge, avec son motif ;
+ * la ligne complète au survol. Pure et sans littéral de gabarit : sa source
+ * est insérée telle quelle dans CLIENT_JS (et testée hors du navigateur). */
+export function isolationChip(iso: any): { cls: string; text: string; title: string } | null {
+  if (!iso || typeof iso !== "object") return null;
+  const ready = iso.state === "ready";
+  return {
+    cls: "iso-chip " + (ready ? "ready" : "off"),
+    text: ready ? String(iso.label) : String(iso.label) + " — " + String(iso.reason),
+    title: String(iso.line),
+  };
+}
+
 export const CLIENT_JS = String.raw`
 "use strict";
+${isolationChip.toString()}
 const k = new URLSearchParams(location.search).get("k") || "";
 const $ = (id) => document.getElementById(id);
 const ls = {
@@ -302,6 +318,8 @@ function renderState(v) {
   const mode = el("button", "statusbtn mode " + s.mode, s.mode === "ro" ? "Read-only" : s.mode === "bypass" ? "Bypass" : "Edit");
   mode.title = "Permission mode"; mode.onclick = () => command("mode");
   st.appendChild(mode);
+  const iso = isolationChip(s.isolation);
+  if (iso) { const chip = el("span", iso.cls, iso.text); chip.title = iso.title; st.appendChild(chip); }
   const model = el("button", "statusbtn modelpick", s.model + (s.host ? " @ " + s.host : "") + " ▾"); model.title = s.backend + (s.host ? " on " + s.host : "") + " · Switch model or find models on another machine"; model.onclick = () => command("models"); st.appendChild(model);
   const effort = el("button", "statusbtn eff", s.effort || "Auto"); effort.title = "Reasoning effort"; effort.onclick = () => command("effort"); st.appendChild(effort);
   st.appendChild(el("span", "grow"));

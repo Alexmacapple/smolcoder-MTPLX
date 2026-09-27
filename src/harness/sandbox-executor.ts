@@ -368,3 +368,25 @@ export function isolationLine(s: IsolationStatus, listening: string[] = []): str
     ? `${base}; they may listen on ${listening.join(", ")}, which the local network can reach when the server listens on every interface (Seatbelt cannot keep a listener on the loopback)`
     : base;
 }
+
+/** Le libellé court de l'état permanent (#18) : ligne d'état du terminal et
+ * pastille de la page web. */
+export function isolationLabel(s: IsolationStatus, listening: string[] = []): string {
+  if (s.state !== "ready") return "isolation unavailable";
+  return listening.length ? `isolated · listens ${listening.join(", ")}` : "isolated";
+}
+
+/** L'état de l'isolation que l'interface garde visible toute la session
+ * (#18) : prêt ou indisponible, son motif, les écoutes que la politique
+ * accorde à cet instant (relue à chaque appel), le libellé court et la ligne
+ * d'ouverture complète. */
+export interface IsolationState extends IsolationStatus {
+  listen: string[];
+  label: string;
+  line: string;
+}
+
+export function isolationState(exec: IsolatedExecutor): IsolationState {
+  const listen = exec.listening();
+  return { ...exec.status, listen, label: isolationLabel(exec.status, listen), line: isolationLine(exec.status, listen) };
+}

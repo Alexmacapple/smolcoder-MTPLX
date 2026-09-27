@@ -42,6 +42,14 @@ ce qu'il prouve, ce qu'il journalise.
   vérifications automatiques), fail-closed, environnement minimal
   transmis aux sous-processus — les secrets de l'hôte n'atteignent
   plus les commandes.
+- **Isolation OS sous `--mission` (macOS, Seatbelt)** : commandes,
+  tâches de fond, terminal web et vérifications tournent dans un bac
+  généré depuis la politique — lecture du système et du workspace,
+  écriture du workspace et d'un dossier temporaire privé, réseau fermé
+  sauf destinations et écoutes nommées ; backend absent, rien ne tourne ;
+  état visible toute la session (ligne d'état, pastille web). Détail :
+  `docs/decision-backend-isole.md`, `docs/allowlist-outils.md`, preuves
+  `npm run test:os` et campagne archivée `docs/campagne-os-2026-09-27.md`.
 - **Verdicts sur résultats typés** : le succès d'une vérification est
   le code de sortie réel du processus, plus jamais une lecture du
   texte affiché.
@@ -62,8 +70,7 @@ ce qu'il prouve, ce qu'il journalise.
   défaut avec URL fraîche, session terminal, test de contrôle.
 
 **Chantiers restants**, dans l'ordre :
-[isolation OS en quatre étapes](https://github.com/Alexmacapple/smolcoder-MTPLX/issues/12)
-(#15 à #18), [retours d'outils exploitables](https://github.com/Alexmacapple/smolcoder-MTPLX/issues/19)
+[retours d'outils exploitables](https://github.com/Alexmacapple/smolcoder-MTPLX/issues/19)
 (#19), puis [reprise durable](https://github.com/Alexmacapple/smolcoder-MTPLX/issues/10)
 (#10). Chaque livraison passe par une pull request, des tests
 rouge/vert et une entrée dans `CHANGELOG-MTPLX.md`.

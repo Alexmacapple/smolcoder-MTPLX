@@ -207,6 +207,17 @@ session l'annonce à l'ouverture (`· isolation: macOS Seatbelt …`, avec les
 ports d'écoute accordés et leur limite) ; le headless écrit aussi une ligne
 `[isolation] {…}` sur stderr.
 
+L'état reste ensuite visible toute la session (#18), relu à chaque rafraîchi
+(les écoutes suivent la politique) : dans la ligne d'état du terminal, après
+l'état de la mission (`mission approved 3/50 · isolated · listens
+localhost:5173`, ou `isolation unavailable` en rouge) ; dans la page web, une
+pastille de la barre d'état à côté du mode (verte, « isolated », avec les
+écoutes accordées ; rouge, « isolation unavailable — <motif> »), la ligne
+d'ouverture complète au survol. Le hub l'expose dans l'état de la session
+(`isolation` : `backend`, `state`, `reason`, `listen`, `label`, `line`).
+Hors profil, ni l'état, ni la ligne d'état, ni la barre de la page ne
+changent : l'absence de pastille distingue le mode historique.
+
 Backend absent ou inopérant (autre système que macOS, `sandbox-exec`
 introuvable, sonde en échec, workspace qui contient le dossier personnel) :
 la ligne d'ouverture dit `· isolation unavailable (…)` et chaque commande
@@ -280,6 +291,7 @@ le reprend en tête, relu dans le stockage hôte au moment de la compaction
   d'une fiche installée côté hôte (`docs/decision-fiches-hote.md`).
 - La suspension headless (sortie 4) est testée par ses briques (agent non
   interactif, rapport de décision), pas par le CLI réel contre un backend.
-- Le run headless approuvé est testé par ses briques (autorisation, agent
-  non interactif, fournisseur simulé), pas par le CLI réel contre un
-  backend.
+- Le run headless approuvé est testé par le CLI réel sur macOS (#18,
+  `test/os/e2e.os.test.js`, dans `npm run test:os`), contre un faux serveur
+  OpenAI-compatible local qui joue le modèle : `run_command`, `--verify`,
+  tâche de fond et écoute, dans le bac. Aucun test ne le lance contre MTPLX.

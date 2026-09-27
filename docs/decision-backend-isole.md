@@ -126,6 +126,40 @@ hôte reste inchangé.
   demande un autre service Mach échoue. L'appelant ouvre git en lecture
   (`git: "read"`) et nomme les dossiers d'outils (`tools`).
 
+## Sondes internes de l'hôte (#18)
+
+Trois lancements restent hors de l'exécuteur, même sous `--mission` : le
+contrôle syntaxique qui suit chaque écriture (`src/tools/check.ts` :
+`node --check` sur une copie du fichier, compilation Python sans exécution)
+et la découverte des serveurs de modèles publiés par des conteneurs
+(`src/detect.ts` : `docker ps`, `podman ps`).
+
+Décision : ils restent sur l'hôte. Au regard du modèle de menace, ce ne sont
+pas des commandes du projet : leurs arguments sont fixes, jamais un texte du
+modèle ; `node --check` et `compile()` analysent sans exécuter (la copie du
+fichier vit hors du workspace, en `.cjs` ou `.mjs`, donc sans `package.json`
+du projet ; Python tourne en mode isolé `-I`, sans le dossier courant ni les
+variables `PYTHON*`) ; `docker ps` ne lit rien du workspace. Dans le bac, ils
+perdraient leur objet : `docker ps` joint le démon par une socket Unix que le
+bac refuse, et la détection des modèles précède toute session. Leur seule
+porte vers le workspace était la recherche du programme, mesurée ouverte :
+avec une entrée relative dans le PATH (`node_modules/.bin`, `.`, entrée vide)
+et le workspace pour dossier courant, un `python3` ou un `docker` déposé par
+l'agent tournait sur l'hôte, hors du bac, au prochain contrôle d'un `.py` ou à
+la prochaine détection. Désormais (`src/harness/host-probe.ts`) : programme
+cherché dans les seules entrées absolues du PATH, hors du workspace de la
+mission (inscrit par le point d'entrée sous `--mission`, et passé par le
+contrôle syntaxique), dossier courant neutre (le dossier temporaire du
+système). Preuve : `test/host-probes.test.js` (dans `npm test`), qui dépose
+des programmes piégés dans le workspace, des sources dont l'exécution laisse
+une trace, et vérifie qu'aucune trace n'apparaît tandis que les sondes
+tournent encore (erreur de syntaxe détectée, `docker` légitime lancé) ; le
+binaire réel est éprouvé par `test/os/` (campagne de #18).
+
+Limites : hors profil, une entrée absolue du PATH qui pointe dans le
+workspace reste le choix de l'utilisateur ; les sondes gardent le reste de
+l'environnement de l'hôte (elles ne lancent pas de code du projet).
+
 ## Alternatives écartées
 
 - Conteneur ou machine virtuelle (Docker Desktop, Lima, `container`
@@ -152,12 +186,15 @@ hôte reste inchangé.
   destination loopback nommée, écoute d'un serveur de développement
   (`listen`) ; chaque entrée justifiée et testée.
 - #18 : indication de l'isolation dans l'interface au-delà de la ligne
-  d'ouverture, campagne OS complète archivée au format du banc ; sort des
-  sondes internes `src/tools/check.ts` et `src/detect.ts`, restées hors de
-  l'exécuteur.
+  d'ouverture (ligne d'état du terminal, pastille de la page web), sondes
+  internes laissées sur l'hôte (section ci-dessus), vrai binaire éprouvé de
+  bout en bout, campagne OS archivée au format du banc : inventaire et
+  résultat dans `docs/campagne-os-2026-09-27.md`.
 
 ## Critère de validation
 
 Cette page est acceptée quand la pull request qui la porte est fusionnée
 par Alex. Les preuves sur macOS réel se rejouent par `npm run test:os`
-(`test/os/seatbelt.os.test.js`), hors de `npm test`.
+(`test/os/*.os.test.js` : le backend dans `seatbelt.os.test.js`, le vrai
+binaire en headless, web et terminal dans `e2e.os.test.js`, #18), hors de
+`npm test`.

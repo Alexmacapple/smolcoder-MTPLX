@@ -5,28 +5,37 @@
 // parsers we can trust are used: node's own for JS (and inline <script> in
 // HTML), JSON.parse, python's compiler when python is on PATH. Nothing runs
 // the code.
+//
+// Sondes de l'hôte (#18) : elles restent hors de l'exécuteur isolé, même sous
+// --mission, parce qu'elles n'exécutent rien du workspace ; leurs programmes
+// sont cherchés hors du workspace et du dossier courant (../harness/host-probe).
 
 import { spawnSync } from "child_process";
 import * as fs from "fs";
 import * as os from "os";
 import * as path from "path";
+import { hostProbeOptions } from "../harness/host-probe";
 
 const CHECK_TIMEOUT_MS = 8000;
 const MAX_CHECK_BYTES = 2 * 1024 * 1024;
 
-let pythonExe: string | null | undefined; // undefined = not probed yet
+/** Le python trouvé pour un PATH de sonde donné ; absent : pas encore cherché. */
+const pythonByPath = new Map<string, string | null>();
 
-function findPython(): string | null {
-  if (pythonExe !== undefined) return pythonExe;
-  pythonExe = null;
+function findPython(probe: ReturnType<typeof hostProbeOptions>): string | null {
+  const key = probe.env.PATH ?? "";
+  const known = pythonByPath.get(key);
+  if (known !== undefined) return known;
+  let found: string | null = null;
   for (const exe of process.platform === "win32" ? ["python", "py"] : ["python3", "python"]) {
-    const r = spawnSync(exe, ["-I", "-c", "print(1)"], { encoding: "utf8", timeout: 5000, windowsHide: true });
+    const r = spawnSync(exe, ["-I", "-c", "print(1)"], { encoding: "utf8", timeout: 5000, windowsHide: true, ...probe });
     if (r.status === 0 && r.stdout.trim() === "1") {
-      pythonExe = exe;
+      found = exe;
       break;
     }
   }
-  return pythonExe;
+  pythonByPath.set(key, found);
+  return found;
 }
 
 interface JsError {
@@ -49,7 +58,7 @@ function parseNodeError(stderr: string, tmpFile: string): JsError | null {
 
 /** Run `node --check` on a snippet, as a classic script first (non-strict,
  * matches a browser <script>), then as a module if it needs import/export. */
-function checkJs(source: string, forceModule = false): JsError | null {
+function checkJs(source: string, forceModule: boolean, probe: ReturnType<typeof hostProbeOptions>): JsError | null {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "smolcoder-check-"));
   try {
     const tryAs = (ext: string): JsError | null => {
@@ -59,6 +68,7 @@ function checkJs(source: string, forceModule = false): JsError | null {
         encoding: "utf8",
         timeout: CHECK_TIMEOUT_MS,
         windowsHide: true,
+        ...probe,
       });
       if (r.status === 0) return null;
       if (r.error) return null; // could not run the check — stay silent
@@ -80,7 +90,7 @@ function checkJs(source: string, forceModule = false): JsError | null {
   }
 }
 
-function checkHtml(source: string): string | null {
+function checkHtml(source: string, probe: ReturnType<typeof hostProbeOptions>): string | null {
   // Inline scripts only (no src=), skipping non-JS types (importmap, JSON, templates).
   const re = /<script\b([^>]*)>([\s\S]*?)<\/script>/gi;
   let m: RegExpExecArray | null;
@@ -91,7 +101,7 @@ function checkHtml(source: string): string | null {
     if (type && !["module", "text/javascript", "application/javascript"].includes(type)) continue;
     const body = m[2];
     if (!body.trim()) continue;
-    const err = checkJs(body, type === "module");
+    const err = checkJs(body, type === "module", probe);
     if (err) {
       const startLine = source.slice(0, m.index + m[0].indexOf(body)).split("\n").length;
       const at = err.line ? ` at line ${startLine + err.line - 1}` : "";
@@ -101,13 +111,14 @@ function checkHtml(source: string): string | null {
   return null;
 }
 
-function checkPython(abs: string): string | null {
-  const py = findPython();
+function checkPython(abs: string, probe: ReturnType<typeof hostProbeOptions>): string | null {
+  const py = findPython(probe);
   if (!py) return null;
   const r = spawnSync(py, ["-I", "-c", "import sys; compile(open(sys.argv[1], 'rb').read(), sys.argv[1], 'exec')", abs], {
     encoding: "utf8",
     timeout: CHECK_TIMEOUT_MS,
     windowsHide: true,
+    ...probe,
   });
   if (r.status === 0 || r.error) return null;
   const text = (r.stderr || r.stdout || "").trim().split(/\r?\n/);
@@ -119,14 +130,16 @@ function checkPython(abs: string): string | null {
 /**
  * Check a just-written file. Returns a short warning sentence, or null when
  * the file parses (or when we have no parser for it). Never throws.
+ * `workspace` : ses entrées du PATH sont écartées de la recherche des parseurs.
  */
-export function syntaxCheck(absPath: string, relPath: string): string | null {
+export function syntaxCheck(absPath: string, relPath: string, workspace?: string): string | null {
   try {
     const ext = path.extname(absPath).toLowerCase();
     if (![".js", ".mjs", ".cjs", ".json", ".html", ".htm", ".py"].includes(ext)) return null;
     const stat = fs.statSync(absPath);
     if (stat.size > MAX_CHECK_BYTES) return null;
-    if (ext === ".py") return checkPython(absPath);
+    const probe = hostProbeOptions(workspace ? [workspace] : []);
+    if (ext === ".py") return checkPython(absPath, probe);
     const source = fs.readFileSync(absPath, "utf8");
     if (ext === ".json") {
       try {
@@ -137,10 +150,10 @@ export function syntaxCheck(absPath: string, relPath: string): string | null {
       }
     }
     if (ext === ".html" || ext === ".htm") {
-      const msg = checkHtml(source);
+      const msg = checkHtml(source, probe);
       return msg ? `${relPath}: ${msg}` : null;
     }
-    const err = checkJs(source, ext === ".mjs");
+    const err = checkJs(source, ext === ".mjs", probe);
     if (!err) return null;
     return `${relPath} has a JavaScript syntax error${err.line ? ` at line ${err.line}` : ""}: ${err.message}`;
   } catch {

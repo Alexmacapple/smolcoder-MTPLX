@@ -14,6 +14,7 @@ import * as path from "path";
 import { Agent } from "./agent";
 import { loadConfig } from "./config";
 import { authorizeHeadless, Mission, MISSION_EXIT_CODE, MissionError, missionExitCode, missionReport } from "./harness/mission";
+import { keepHostProbesOutOf } from "./harness/host-probe";
 import { BYPASS_UNDER_MISSION, decisionReport, POLICY_SUSPENDED_EXIT_CODE, PolicySuspension } from "./harness/policy";
 import { isolationLine, missionExecutor } from "./harness/sandbox-executor";
 import { ContextManager } from "./context";
@@ -249,6 +250,9 @@ async function main(): Promise<void> {
     console.error(`Workspace folder does not exist: ${args.workspace}`);
     process.exit(1);
   }
+  // Profil mission (#18) : les sondes de l'hôte (détection des modèles,
+  // contrôle syntaxique) ne cherchent jamais un programme dans ce workspace.
+  if (args.mission) keepHostProbesOutOf(args.workspace);
   const mission = args.mission ? prepareMission(args) : null;
 
   if (args.print !== undefined) await runHeadless(args, mission);

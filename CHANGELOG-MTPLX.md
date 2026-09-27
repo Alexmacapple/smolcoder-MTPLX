@@ -974,7 +974,7 @@ sont installées ; le paquet npm ne publie pas `docs/skills/`, la commande
 y refuse ; la conduite de Qwen face à l'index n'est pas mesurée (aucun run
 MTPLX).
 
-### (ce commit) — Fiches génériques, servies sur tout projet
+### `e773c4b` — Fiches génériques, servies sur tout projet
 
 `docs/skills/index.md`, `implementer.md`, `tdd.md`,
 `verification-finale.md`, `conflits-git.md`, `revue-de-code.md`. Suite de
@@ -993,6 +993,185 @@ du fork, qui les portait déjà. Les sept renvois par chemin entre fiches
 qui se lisent `docs/skills/tdd.md` dans ce dépôt et `fiche:tdd` ailleurs ;
 le sommaire l'explique. Aucune modification de code ; SHA `3dde690` reporté
 sur l'entrée précédente.
+
+### `737106f` — Sondes de l'hôte hors du workspace — Réf #18
+
+`src/harness/host-probe.ts` (nouveau), `src/tools/check.ts`,
+`src/tools/index.ts`, `src/detect.ts`, `src/index.ts`,
+`docs/decision-backend-isole.md`, `test/host-probes.test.js` (nouveau).
+Ticket #18 (H03-4), quatrième sous-ticket du chapeau #12 : sort des sondes
+internes restées hors de l'exécuteur isolé.
+
+Décision : `node --check`, la compilation Python du contrôle syntaxique et
+`docker ps` / `podman ps` de la détection des modèles restent sur l'hôte,
+même sous `--mission` — arguments fixes, analyse sans exécution, rien du
+workspace lu par `docker ps`, qui perdrait sa socket dans le bac (section
+« Sondes internes de l'hôte » de `docs/decision-backend-isole.md`). Mesure
+qui a motivé le correctif : avec une entrée relative dans le PATH
+(`node_modules/.bin`) et le workspace pour dossier courant, un `python3` et un
+`docker` déposés dans le workspace tournaient sur l'hôte, hors du bac.
+Désormais le programme d'une sonde est cherché dans les seules entrées
+absolues du PATH, hors du workspace de la mission (inscrit par `main()` sous
+`--mission`, passé par le contrôle syntaxique), depuis le dossier temporaire
+du système.
+
+Écart déclaré : la règle vaut aussi hors profil (un python ou un docker que
+seule une entrée relative du PATH trouvait n'est plus trouvé par les sondes ;
+les commandes du projet, elles, gardent le PATH de l'utilisateur).
+`syntaxCheck` gagne un troisième argument facultatif, le workspace.
+
+Vérifications. Rouge d'abord : `test/host-probes.test.js` échoue sur la base
+(« workspace code ran on the host: nm-docker, nm-python3 », module absent),
+puis, après le seul filtrage des entrées relatives, sur « wsabs-docker » (une
+entrée absolue dans le workspace, que la détection ne connaissait pas). Après
+: 2/2, les sondes tournent encore (erreur de syntaxe Python et JS détectée,
+`docker` légitime lancé) ; `npm test` 266/266 (264 existants et 2 nouveaux).
+
+### `79ef236` — Isolation visible toute la session — Réf #18
+
+`src/harness/sandbox-executor.ts`, `src/session.ts`, `src/web/client.ts`,
+`src/web/styles.ts`, `docs/profil-mission.md`,
+`test/isolation-status.test.js` (nouveau). Ticket #18 : l'indication de
+l'isolation au-delà de la ligne d'ouverture.
+
+Sous `--mission`, l'état de l'isolation reste visible toute la session et
+se relit à chaque rafraîchi (les écoutes suivent la politique) : la ligne
+d'état du terminal ajoute, après l'état de la mission, `isolated` (avec
+`· listens localhost:<port>` quand la politique en accorde) ou `isolation
+unavailable` en rouge ; l'état de session exposé par le hub porte
+`isolation` (`backend`, `state`, `reason`, `listen`, `label`, `line`) ; la
+page web en fait une pastille de la barre d'état, à côté du mode — verte
+quand l'isolation est prête, rouge avec son motif sinon, la ligne
+d'ouverture complète au survol. La fonction de la pastille
+(`isolationChip`) est pure, exportée et insérée telle quelle dans le script
+de la page. Hors profil, rien ne change : ni l'état, ni la ligne d'état, ni
+la barre de la page (l'absence de pastille distingue le mode historique).
+
+Vérifications. Rouge d'abord : les quatre tests de
+`test/isolation-status.test.js` échouent avant le code (`isolation` absent
+de l'état, ligne d'état sans isolation, `isolationChip is not a function`).
+Après : 4/4 — état de session prêt et indisponible, ligne d'état du
+terminal, hub (premier état, état ultérieur après changement de politique,
+état rejoué à une page qui se reconnecte, rien pour une session hors
+profil), pastille et styles ; le script de la page se compile
+(`new Function(CLIENT_JS)`). `npm test` 270/270 (266 et 4 nouveaux). SHA
+`737106f` reporté sur l'entrée précédente.
+
+### `449e22f` — Bout en bout du vrai binaire sous --mission — Réf #18
+
+`test/os/e2e.os.test.js` (nouveau), `scripts/test-os.cjs` (nouveau),
+`package.json`, `docs/decision-backend-isole.md`, `docs/allowlist-outils.md`,
+`docs/profil-mission.md`. Ticket #18 : « même frontière pour terminal, web,
+headless et vérifications » n'était prouvé, pour le headless, que par la
+compilation (#16) ; le champ `listen` de la ligne `[isolation]` headless
+n'était couvert par aucun test (#17).
+
+Quatre tests OS lancent le vrai binaire (`dist/index.js`) sous `--mission`,
+piloté par un faux serveur OpenAI-compatible local qui joue le modèle
+(`OLLAMA_HOST` vers lui, faux dossier personnel : aucun MTPLX, ni vrai
+`~/.smolcoder`, ni `~/.npm`) :
+
+- headless : le `run_command` du modèle et la vérification `--verify` lisent
+  un témoin hors du workspace, le dossier personnel, la politique et `.env` :
+  refusés, workspace écrit ; le témoin est lisible par l'hôte, et le même run
+  sans `--mission` le lit (et échoue à la vérification) ; `bad.py` est
+  compilé par le python de l'hôte, aucun programme déposé dans le workspace
+  (entrée relative, vide ou interne du PATH) ne tourne ; `[isolation]` sans
+  écoute ;
+- headless, écoute : `npm run dev` en tâche de fond écoute sur le port que
+  nomme `listen` et répond à l'hôte pendant le run, un autre port rend
+  `EPERM`, `[isolation]` porte `listen` et la ligne d'état dit la limite du
+  réseau local ; la tâche meurt avec le run ;
+- web : `smol --web --mission` ; le terminal web de la session et le
+  `run_command` du modèle (message de la page) restent dans le bac ; l'état
+  de session exposé à la page porte l'isolation, encore après le tour ;
+- terminal : l'interface interactive sous un pseudo-terminal (`script`,
+  derrière un vrai tube) ; le `run_command` du modèle reste dans le bac, la
+  ligne d'état redessinée après le tour dit encore `isolated`.
+
+`npm run test:os` découvre désormais `test/os/*.os.test.js`
+(`scripts/test-os.cjs`, sur le modèle de `scripts/test.cjs`), fichiers joués
+l'un après l'autre, et transmet à `node --test` les arguments donnés après
+`--` (rapporteurs de la campagne).
+
+Vérifications. Le câblage existait (#16) : le rouge est montré par quatre
+mutations du code compilé, chacune rouge pour la bonne raison — headless
+sans exécuteur isolé (`read-witness=LEAK`, la commande non confinée écrit
+même dans `policy.json` ; « another port stays refused ») ; session sans
+exécuteur (état et ligne d'isolation absents) ; état affiché mais commandes
+et terminal web hors du bac (« web terminal: read-witness (LEAK) »,
+« terminal run_command: read-witness (LEAK) ») ; workspace non inscrit
+auprès des sondes (« no planted program ran on the host », `bin-docker`).
+`dist/` restauré (`cmp`). Après : `npm run test:os` 20/20 (16 existants et
+4 nouveaux), `npm test` 270/270 ; entrées de `~/.npm` et `~/.smolcoder`
+comptées avant et après : inchangées. SHA `79ef236` reporté sur l'entrée
+précédente.
+
+### `c74f005` — Harnais de la campagne OS — Réf #18
+
+`bench/campagne-os/campagne.sh`, `criteres.json`, `rapporteur.mjs`,
+`manifeste.cjs` (nouveaux), `scripts/test.cjs`,
+`docs/campagne-os-2026-09-27.md` (nouveau), `docs/decision-backend-isole.md`,
+`test/campagne-os.test.js` (nouveau). Ticket #18 : campagne OS réelle
+archivée au format du banc (#13).
+
+`campagne.sh` rejoue sur le Mac `npm test` puis `npm run test:os` sous le
+verrou de campagne du banc (même bibliothèque, fichier de verrou propre),
+dans un dossier horodaté `bench/campagne-os/resultats/<UTC>-campagne-os.*`
+qui garde les sorties lisibles, une ligne JSON par test (rapporteur
+`node:test`) et le manifeste `campagne-os/v1` : SHA et état du harnais,
+version de macOS, présence de `sandbox-exec`, statut de chacun des six
+critères du chapeau #12 avec ses tests et leurs durées, durées des suites,
+comptes d'entrées du vrai `~/.npm` et du vrai `~/.smolcoder` avant et
+après. Statuts du banc : `refus_securite_attendu` pour un critère de refus
+prouvé, `succes` pour un critère fonctionnel, `echec_test`,
+`blocage_harnais` (test absent, ambigu, sauté ou annulé ; verrou ;
+préconditions), jamais `mtplx_indisponible`. Les journaux de npm vont dans
+le dossier du run. Résultats ignorés par Git, comme ceux du banc (règle
+existante de `bench/.gitignore`). `scripts/test.cjs` transmet à `node --test`
+les arguments donnés après `npm test --`, comme `scripts/test-os.cjs`.
+`docs/campagne-os-2026-09-27.md` tient l'inventaire critère par critère (le
+test qui prouve chacun, les trous comblés par #18), les décisions et le
+protocole ; son résultat suit au commit suivant.
+
+Vérifications. Rouge d'abord : les cinq tests de `test/campagne-os.test.js`
+échouent (fichiers absents) ; puis deux restent rouges pour de vraies
+raisons, corrigées : le `node --test` imbriqué héritait de
+`NODE_TEST_CONTEXT` et sortait 0, et le script interrogeait npm avant de
+prendre le verrou. Après : 5/5 (correspondance des critères avec les tests
+OS existants, classement des statuts, rapporteur sur une fixture, verrou
+tenu sans rien lancer, chaîne complète avec un faux npm) ; `shellcheck`
+sans avertissement ; `npm test` 275/275 (270 et 5 nouveaux). SHA `449e22f`
+reporté sur l'entrée précédente.
+
+### `d24ec5d` — Campagne OS jouée sur macOS réel — Closes #18
+
+`docs/campagne-os-2026-09-27.md`, `README.md`. Ticket #18 (H03-4), dernier
+sous-ticket du chapeau #12 : critère de fin atteint — les six critères du
+chapeau rejoués sur macOS réel, résultats archivés au format du banc.
+
+Campagne jouée par `bench/campagne-os/campagne.sh` sur `c74f005`, arbre
+propre : run `20260927T115022Z-campagne-os.eici8E`, sortie 0, statut
+`succes` ; macOS 27.0 (26A428), arm64, `/usr/bin/sandbox-exec` présent ;
+`npm test` 275/275 en 10 s, `npm run test:os` 20/20 en 57 s ; AC1, AC2, AC5
+et AC6 `refus_securite_attendu`, AC3 et AC4 `succes`, chacun avec ses tests
+nommés ; 100 880 entrées dans le vrai `~/.npm` et 17 dans le vrai
+`~/.smolcoder`, avant comme après. Manifeste cité avec son SHA-256 dans
+`docs/campagne-os-2026-09-27.md`, qui ajoute le résultat et les limites
+(une seule machine, faux modèle scripté, interface terminal sous
+pseudo-terminal, page web par son état et sa pastille, sortie 4 headless par
+ses briques, écoute joignable du réseau local, pas de campagne Linux ou
+Windows) ; le dossier du run est local et ignoré par Git, à copier hors du
+dépôt avant de supprimer le worktree. Le README ajoute l'isolation OS aux
+fonctionnalités et la retire des chantiers restants.
+
+Vérification visuelle ponctuelle, hors campagne : le vrai binaire
+`--web --mission` (faux modèle, politique `listen`) rend, capturé par un
+Chrome headless jetable piloté par CDP, la pastille verte « isolated ·
+listens localhost:5173 » à côté du mode, la ligne complète au survol ; le
+même binaire hors profil garde la barre d'état historique, sans pastille.
+Documentation seule dans ce commit, `npm test` et `npm run test:os`
+inchangés depuis `c74f005`. SHA `c74f005` reporté sur l'entrée précédente.
 
 ## Hors dépôt (machine locale)
 
