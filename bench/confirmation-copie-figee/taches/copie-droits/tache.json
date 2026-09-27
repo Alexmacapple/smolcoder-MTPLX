@@ -1,0 +1,8 @@
+{
+  "lecon": "copie-figee",
+  "classe": "bug d'état qui ne suit pas l'état courant : copies en chaîne prises à l'ouverture de session (session.py : rôle de l'utilisateur, puis permissions de ce rôle), modifiées par deux modules (roles.py et users.change_role)",
+  "commande_documentee": "python3 -m unittest discover -s tests",
+  "autorises": ["^[^/]+\\.py$", "^tests/.+$"],
+  "tests_visibles": ["tests/test_session.py"],
+  "mutations": []
+}

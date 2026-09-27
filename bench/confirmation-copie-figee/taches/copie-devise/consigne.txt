@@ -1,0 +1,1 @@
+Les montants d'une note de frais ne suivent pas le taux de change publié : après rates.update, le total reste calculé à l'ancien taux, et le test tests/test_report.py échoue. Corrige le bug.

@@ -1,0 +1,1 @@
+Les sessions déjà ouvertes ne suivent pas les droits courants : une permission retirée à un rôle reste accordée, et le test tests/test_session.py échoue. Corrige le bug.

@@ -3,7 +3,10 @@
 # (main plus le correctif d'une leçon), servies par le chemin de production :
 # installées dans un dossier personnel de test jetable, lues par
 # read_file {"path": "fiche:<nom>"}. Le vrai ~/.smolcoder n'est que lu
-# (noyau et configuration copiés), jamais écrit.
+# (noyau et configuration copiés), jamais écrit. Une autre étude (#53) le
+# réutilise par ETUDE_PROTOCOLE : son protocole nomme ses tâches
+# (dossier_taches) et le commit de ses fiches A (fiches_a_ref) ; sans ces
+# champs, ceux de l'étude #33.
 # Usage : essai.sh <leçon> <tâche> <A|A2|B> [répétition]
 set -u
 
@@ -66,6 +69,8 @@ valeurs = {
     "CLE": protocole["cle_factice"],
     "PATH_OUTILS": protocole["path_outils"],
     "VERROUS_EXTERNES": " ".join(protocole.get("verrous_externes", [])),
+    "DOSSIER_TACHES": protocole.get("dossier_taches", "taches"),
+    "FICHES_REF": protocole.get("fiches_a_ref", "309c396"),
 }
 for nom, valeur in valeurs.items():
     print(f"{nom}={shlex.quote(valeur)}")
@@ -80,7 +85,7 @@ VERROUS_OVERRIDE="$(printenv ETUDE_VERROUS_EXTERNES 2>/dev/null || true)"
 DELAI="$DELAI_PROTOCOLE"
 DELAI_OVERRIDE="$(printenv ETUDE_DELAI_SECONDES 2>/dev/null || true)"
 case "$DELAI_OVERRIDE" in ''|*[!0-9]*) ;; *) [ "$DELAI_OVERRIDE" -gt 0 ] && DELAI="$DELAI_OVERRIDE" ;; esac
-TACHE_DIR="$B/taches/$TACHE"
+TACHE_DIR="$B/$DOSSIER_TACHES/$TACHE"
 PROMPT_FILE="$TACHE_DIR/consigne.txt"
 
 horodatage() { date -u +"%Y-%m-%dT%H:%M:%SZ"; }
@@ -200,10 +205,13 @@ fi
 [ -f "$DIST/fiches.js" ] || terminer blocage_harnais "fiches.js absent de $DIST" 4
 
 # Une autre campagne du banc tient son verrou : attendre, sans jamais le prendre.
+# Une entrée peut être un motif (développé ici) ; le verrou de cet essai, qu'un
+# motif peut désigner, n'est jamais celui d'une autre campagne.
 verrou_externe_actif() {
   local fichier pid
   for fichier in $VERROUS_EXTERNES; do
     [ -f "$fichier" ] || continue
+    [ "$fichier" -ef "$LOCK_FILE" ] && continue
     pid="$(sed -n '1p' "$fichier" 2>/dev/null || true)"
     case "$pid" in ''|*[!0-9]*) continue ;; esac
     kill -0 "$pid" 2>/dev/null && { echo "$fichier (PID $pid)"; return 0; }
@@ -266,7 +274,7 @@ export ESSAI_NOYAU_SHA ESSAI_CONFIG_SHA
 # Variante des fiches : les fiches A du protocole (docs/skills/ au commit de
 # pré-enregistrement, fiches-a.sh), plus le correctif figé en série B.
 SOURCE_FICHES="$(mktemp -d "$TMP_BASE/etude-fiches.XXXXXX")" || terminer blocage_harnais "Source des fiches impossible" 4
-"$B/fiches-a.sh" "$SOURCE_FICHES" || terminer blocage_harnais "Extraction des fiches A impossible" 4
+"$B/fiches-a.sh" "$SOURCE_FICHES" "$FICHES_REF" || terminer blocage_harnais "Extraction des fiches A impossible" 4
 python3 - "$PROTOCOLE" "$SOURCE_FICHES" <<'PY' || terminer blocage_harnais "Les fiches de main ne sont plus celles du protocole" 4
 import hashlib
 import json

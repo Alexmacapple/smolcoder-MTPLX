@@ -1,0 +1,8 @@
+{
+  "lecon": "copie-figee",
+  "classe": "bug d'état qui ne suit pas l'état courant : taux de change capturé par une fermeture à la création du déplacement (trip.py), lue par deux modules (report.py, où le symptôme apparaît, et refund.py) ; la copie est faite dans un autre module que celui du symptôme",
+  "commande_documentee": "python3 -m unittest discover -s tests",
+  "autorises": ["^[^/]+\\.py$", "^tests/.+$"],
+  "tests_visibles": ["tests/test_report.py"],
+  "mutations": []
+}

@@ -5,6 +5,11 @@ vérification de l'état final, mesures lues dans les traces, manifeste.
 Aucune fonction ne lit le récit du modèle pour décider d'une réussite : la
 réussite vient de l'état final (tests cachés, commande documentée, mutations,
 périmètre). Le récit ne sert qu'à classer une affirmation (faux succès).
+
+Réutilisé par l'étude #53 (ETUDE_PROTOCOLE) : les champs facultatifs
+dossier_taches et fiches_a_ref du protocole désignent ses tâches et le commit
+de ses fiches A ; absents, ce sont ceux de l'étude #33. Les chemins relatifs
+du protocole partent de ce dossier.
 """
 
 import hashlib
@@ -32,6 +37,14 @@ RAN = re.compile(r"Ran (\d+) tests?")
 def lire_protocole():
     chemin = Path(os.environ.get("ETUDE_PROTOCOLE") or ICI / "protocole.json")
     return json.loads(chemin.read_text(encoding="utf-8"))
+
+
+def dossier_taches(protocole):
+    return ICI / protocole.get("dossier_taches", "taches")
+
+
+def fiches_a_ref(protocole):
+    return protocole.get("fiches_a_ref", "309c396")
 
 
 def sha256_octets(donnees):
@@ -527,7 +540,9 @@ def manifeste(sortie_dir):
     mesures = None
     reponse = ""
     if (sortie_dir / "erreurs.txt").exists():
-        tache_json = optionnel_json(ICI / "taches" / tache / "tache.json") or {}
+        tache_json = (
+            optionnel_json(dossier_taches(protocole) / tache / "tache.json") or {}
+        )
         mesures = mesurer_trace(
             (sortie_dir / "erreurs.txt").read_text(encoding="utf-8", errors="replace"),
             tache_json.get("commande_documentee", ""),
@@ -585,7 +600,7 @@ def manifeste(sortie_dir):
             if isinstance(profil.get("sampler"), dict):
                 echantillonneur = profil["sampler"]
                 break
-    consigne = ICI / "taches" / tache / "consigne.txt"
+    consigne = dossier_taches(protocole) / tache / "consigne.txt"
     texte_consigne = consigne.read_text(encoding="utf-8") if consigne.exists() else ""
     donnees = {
         "format": "etude-lecons-fiches/v1",
@@ -686,10 +701,12 @@ def controler_protocole(depot):
     protocole = lire_protocole()
     depot = Path(depot)
     ecarts = []
-    # Les fiches A sont celles du commit de pré-enregistrement (fiches-a.sh),
+    # Les fiches A sont celles du commit de référence du protocole (fiches-a.sh),
     # pas le docs/skills/ vivant, que les tickets suivants modifient.
     with tempfile.TemporaryDirectory() as dossier:
-        subprocess.run([str(ICI / "fiches-a.sh"), dossier], check=True)
+        subprocess.run(
+            [str(ICI / "fiches-a.sh"), dossier, fiches_a_ref(protocole)], check=True
+        )
         fiches = {p.name: sha256_fichier(p) for p in sorted(Path(dossier).glob("*.md"))}
     if fiches != protocole["fiches_a"]:
         ecarts.append("les fiches A extraites diffèrent du protocole")
@@ -700,7 +717,8 @@ def controler_protocole(depot):
             ecarts.append(f"correctif modifié : {nom}")
         for tache in lecon["taches"]:
             attendu = protocole["taches"][tache]
-            if empreinte_arbre(ICI / "taches" / tache)[0] != attendu["empreinte_arbre"]:
+            empreinte = empreinte_arbre(dossier_taches(protocole) / tache)[0]
+            if empreinte != attendu["empreinte_arbre"]:
                 ecarts.append(f"tâche modifiée : {tache}")
             if attendu["lecon"] != nom:
                 ecarts.append(f"tâche rattachée à une autre leçon : {tache}")

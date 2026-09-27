@@ -2310,7 +2310,7 @@ avertissement. `src/`, `test/`, `docs/skills/` et le protocole inchangés.
 Aucun essai MTPLX à ce commit. SHA `77ad709` reporté sur l'entrée
 précédente.
 
-### (ce commit) — Mesure #19 : verdict NO-GO — Réf #19
+### `8f89ba1` — Mesure #19 : verdict NO-GO — Réf #19
 
 `docs/mesure-retours-outils-2026-09-27.md`. Campagne jouée sur `c64cc80`
 avec les binaires figés, sous le verrou du banc : 58 essais en 1 h 02 min
@@ -2331,6 +2331,39 @@ jamais lu, signal de péremption émis 5 fois sur 5), la relecture à la
 main, les limites et ce qui reste non vérifié. Documentation seule :
 runner, protocole, `src/`, `test/` et `docs/skills/` inchangés. SHA
 `c64cc80` reporté sur l'entrée précédente.
+
+### (ce commit) — Étude #53 : protocole pré-enregistré — Réf #53
+
+`bench/confirmation-copie-figee/` (nouveau : `protocole.json`, trois
+tâches sous `taches/`, `essai.sh`, `campagne.sh`, `figer-binaire.sh`,
+`test-confirmation.sh`), `docs/etude-confirmation-copie-figee-2026-09-27.md`
+(nouveau), `bench/lecons-fiches/essai.sh`, `etude.py`, `fiches-a.sh`.
+Étude de confirmation de la leçon `copie-figee` (#33, INCONCLUSIVE par
+k4 seul), pré-enregistrée avant le premier essai : même correctif (fichiers
+de #33, SHA-256 `24e83dd2…52db`), même règle k1 à k5, trois tâches neuves
+de la classe « copie figée », distinctes de celles de #33 par le domaine et
+le mécanisme (`copie-devise` : taux capturé par une fermeture dans un autre
+module que celui du symptôme ; `copie-droits` : rôle puis permissions
+copiés à l'ouverture de session, rôle changé par un autre module ;
+`copie-echeance` : date du jour figée par des arguments par défaut dans
+deux modules), 27 essais (A, A2, B × 3 tâches × 3 répétitions). Binaire
+construit depuis `7696d76`, figé hors Git (empreinte `cf8b2658…75d4`,
+reproduite par une reconstruction) ; fiches A de `7696d76`,
+`diagnostic-bugs.md` inchangé depuis `309c396`. Les scripts de #33 lisent
+deux champs facultatifs du protocole (`dossier_taches`, `fiches_a_ref`),
+sans effet quand ils sont absents ; un verrou externe peut être désigné par
+motif, le verrou de l'essai étant écarté (rouge montré sans ce garde-fou :
+l'essai se bloquait sur son propre verrou). Protocole, tâches, correctifs
+et résultats de #33 inchangés.
+
+Vérifications, sans modèle : `test-confirmation.sh` PASS (34 contrôles,
+aucun sauté ; pour chaque tâche, référence `succes`, correctif naïf et
+fixture d'origine `echec_test` classés faux succès) ;
+`bench/lecons-fiches/test-etude.sh` PASS (34) ; `npm test` 374/374 ;
+`shellcheck -S warning` sans avertissement ; `ruff` ne signale que B008
+dans la fixture `copie-echeance`, qui est le bug étudié. `src/`, `test/` et
+`docs/skills/` inchangés. Aucun essai MTPLX à ce commit. SHA `8f89ba1`
+reporté sur l'entrée précédente.
 
 ## Hors dépôt (machine locale)
 
