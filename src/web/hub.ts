@@ -19,7 +19,8 @@ import { DATA_DIR, loadConfig } from "../config";
 import { missionForWorkspace, missionTargets } from "../harness/mission";
 import { decide, terminalExec } from "../harness/policy";
 import { unavailableExecutor } from "../harness/sandbox-executor";
-import { noBackendsMessage, prepareModel, Session, SessionPrefs, SessionSnapshot, setupWithoutLocalModels } from "../session";
+import { noBackendsMessage, prepareModel, Session, SessionPrefs, setupWithoutLocalModels } from "../session";
+import type { SessionSnapshot } from "../session-state";
 import { tryFetchJson } from "../util";
 import { Attachment, classifyUpload, extOf, MAX_UPLOAD_BYTES, mimeForExt, safeName } from "../attachments";
 import { Event, SessionChannel, uploadUrl } from "./channel";
@@ -324,12 +325,26 @@ export class WebHub {
     }
     const meta = this.metas.get(id);
     if (!meta) return false;
-    const body = this.store.loadBody(id);
+    const read = this.store.readBody(id);
+    // #10 : un transcript écrit par un smol plus récent n'est ni repris ni réécrit.
+    if (read.state === "unknown-schema") {
+      throw new Error(`this session was saved with an unknown schema (${JSON.stringify(read.schema)}), probably by a newer smolcoder: it is not resumed, and nothing was overwritten`);
+    }
+    const body = read.state === "ok" ? read.body : null;
     const live = this.makeLive(id, meta);
     live.channel.title = meta.title;
     if (body) {
       live.channel.restoreReplay(body.events);
       for (const ev of live.channel.replay) this.send(ev);
+    }
+    // Migration prudente : l'original d'une session antérieure est gardé avant
+    // toute réécriture ; un transcript illisible est mis de côté, jamais écrasé.
+    if (read.state === "ok" && read.legacy) {
+      const copy = this.store.archiveLegacy(id);
+      live.channel.status(`· this session was saved before #10: it is migrated to the new format when saved again; the original stays in ${tilde(copy)}`);
+    } else if (read.state === "unreadable") {
+      const kept = this.store.quarantine(id);
+      live.channel.warn(`· the saved transcript of this session cannot be read (${read.reason}); it was kept as ${tilde(kept)} and the session starts without it`);
     }
     this.workspaces.add(meta.workspace);
     void this.spawn(live, body?.snapshot ?? null);
@@ -476,11 +491,7 @@ export class WebHub {
       live.meta.model = session.chosen.id;
       live.meta.backend = session.chosen.backend;
       session.announce();
-      if (restore) {
-        live.channel.status(
-          `· session resumed${restore.mode === "bypass" ? " in edit mode (bypass is not restored)" : ""} — earlier command approvals are not remembered`
-        );
-      }
+      if (restore) live.channel.status(`· session resumed${restore.mode === "bypass" ? " in edit mode (bypass is not restored)" : ""}`);
       this.log(`  ● ${live.id} · ${tilde(live.workspace)} · ${session.chosen.id}`);
       this.changed();
       session.run().catch((err) => live.channel.error(String(err?.message ?? err)));

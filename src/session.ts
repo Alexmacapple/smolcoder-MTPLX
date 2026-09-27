@@ -24,6 +24,23 @@ import { pickShell } from "./tools/shell";
 import { TaskManager } from "./tools/tasks";
 import { renderPlan, SelectOption, SessionUI, SlashCommand } from "./ui";
 import { c, truncateEnd } from "./util";
+import * as fs from "fs";
+import * as path from "path";
+import {
+  describeInstructionDrift,
+  instruction,
+  LEGACY_SESSION_SCHEMA,
+  readGitHead,
+  readSnapshot,
+  sameInstructions,
+  SESSION_SCHEMA,
+  SessionInstructions,
+  SessionSnapshot,
+  sha256,
+  shortRev,
+} from "./session-state";
+
+export type { SessionSnapshot } from "./session-state";
 
 /** Per-session preferences from the command line. `effort: null` means an
  * explicit "default"; undefined means "whatever the config remembers". */
@@ -56,6 +73,7 @@ export const SLASH_COMMANDS: SlashCommand[] = [
   { name: "logs", desc: "Show task output — /logs t1" },
   { name: "stop", desc: "Stop a background task — /stop t1" },
   { name: "clear", desc: "Reset the conversation" },
+  { name: "instructions", desc: "AGENTS.md: the version this session uses · switch explicitly" },
   { name: "help", desc: "Show help" },
   { name: "exit", desc: "Quit smolcoder (web: close this session)" },
 ];
@@ -290,22 +308,6 @@ export function cleanTitle(raw: string): string | null {
 
 // ---- the session -----------------------------------------------------------
 
-/** Everything needed to bring a session back after a restart. */
-export interface SessionSnapshot {
-  messages: Msg[]; // without the system message — rebuilt on restore
-  plan: PlanStep[];
-  filesTouched: string[];
-  commandsRun: string[];
-  originalRequest: string;
-  currentRequest: string;
-  mode: Mode;
-  effort: Effort | null;
-  model: string;
-  backend: string;
-  /** Server the model ran on (absent in sessions saved before network hosts). */
-  baseUrl?: string;
-}
-
 export interface SessionOptions {
   workspace: string;
   chosen: DetectedModel;
@@ -338,8 +340,10 @@ export class Session {
    * session after the first one). */
   onTurnDone: (() => void) | null = null;
 
-  private readonly globalAgentsMd: string | null;
-  private readonly workspaceAgentsMd: string | null;
+  /** Les consignes de la session (#10) : lues à l'ouverture, gardées à la
+   * reprise, changées seulement par une transition explicite (/instructions). */
+  private globalAgentsMd: string | null;
+  private workspaceAgentsMd: string | null;
   /** Index des fiches de méthode installées (#30) ; null sans installation. */
   private readonly fichesIndex: string | null;
   private readonly prefs: SessionPrefs;
@@ -597,8 +601,30 @@ export class Session {
     }
   }
 
+  /** Les consignes que cette session utilise (#10), texte et empreinte. */
+  instructions(): SessionInstructions {
+    return { global: instruction(this.globalAgentsMd), workspace: instruction(this.workspaceAgentsMd) };
+  }
+
+  /** Le chemin réel du workspace, pour ranger la vue de l'agent en relatif. */
+  private realWorkspace(): string {
+    try {
+      return fs.realpathSync.native(this.workspace);
+    } catch {
+      return path.resolve(this.workspace);
+    }
+  }
+
+  /** Le schéma de reprise v2 (#10, src/session-state.ts). */
   snapshot(): SessionSnapshot {
+    const ws = this.realWorkspace();
+    const views: Array<[string, string]> = [];
+    for (const [abs, hash] of this.toolCtx.reads?.entries() ?? []) {
+      const rel = path.relative(ws, abs);
+      if (rel && !rel.startsWith("..") && !path.isAbsolute(rel)) views.push([rel.split(path.sep).join("/"), hash]);
+    }
     return {
+      schema: SESSION_SCHEMA,
       messages: this.agent.messages.slice(1),
       plan: this.toolCtx.plan.steps.map((s) => ({ ...s })),
       filesTouched: [...this.toolCtx.filesTouched],
@@ -610,6 +636,11 @@ export class Session {
       model: this.chosen.id,
       backend: this.chosen.backend,
       baseUrl: this.chosen.baseUrl,
+      instructions: this.instructions(),
+      approvals: { alwaysAllowed: this.agent.alwaysAllowedList() },
+      views,
+      head: readGitHead(this.workspace),
+      savedAt: new Date().toISOString(),
     };
   }
 
@@ -618,14 +649,110 @@ export class Session {
     return suggestTitle(this.agent.messages, this.agent.provider);
   }
 
-  /** Bring a saved transcript back (the system message is rebuilt for the
-   * current mode/workspace; approvals are deliberately not restored). */
-  restore(s: SessionSnapshot): void {
+  /** Bring a saved session back (#10) : le transcript et sa provenance, le
+   * plan, les consignes que la session utilisait (jamais relues en silence),
+   * ses approbations de commandes, la vue que l'agent avait des fichiers et la
+   * révision Git. Une session antérieure (v1) se migre sans rien perdre ; un
+   * schéma inconnu est refusé. Ce qui a changé depuis la sauvegarde est dit,
+   * préservé, et le plan est réancré avant la prochaine écriture. */
+  restore(raw: SessionSnapshot): void {
+    const read = readSnapshot(raw);
+    if (read.state === "unknown-schema") throw new Error(`this session was saved with an unknown schema (${JSON.stringify(read.schema)}), probably by a newer smolcoder: it is not resumed, and nothing is overwritten`);
+    if (read.state === "unreadable") throw new Error(`this saved session cannot be read (${read.reason}): it is not resumed`);
+    const s = read.snapshot;
     this.agent.restoreTranscript(s.messages ?? [], s.originalRequest ?? "", s.currentRequest ?? "");
     this.toolCtx.plan.steps = (s.plan ?? []).map((p) => ({ text: String(p.text), done: !!p.done,
       ...(typeof p.note === "string" ? { note: p.note.slice(0, 1000) } : {}) }));
     for (const f of s.filesTouched ?? []) this.toolCtx.filesTouched.add(f);
     this.toolCtx.commandsRun.push(...(s.commandsRun ?? []));
+    if (read.dropped?.length) this.ui.warn(`· saved session fields could not be read and were left out: ${read.dropped.join(", ")}`);
+    this.restoreInstructions(s, read.schema === LEGACY_SESSION_SCHEMA);
+    // Approbations « always » (hors profil mission, où elles ne valent que pour l'appel).
+    const approvals = s.approvals?.alwaysAllowed ?? [];
+    if (!this.mission && approvals.length) {
+      this.agent.restoreApprovals(approvals);
+      this.ui.status(`· command approvals restored from the saved session: ${approvals.join(", ")} (always allowed)`);
+    }
+    this.restoreViews(s);
+  }
+
+  /** C6 : la version des consignes de la session est conservée ; un écart
+   * avec le disque est signalé, jamais rechargé en silence. */
+  private restoreInstructions(s: SessionSnapshot, legacy: boolean): void {
+    const disk = this.instructions();
+    const fps = (x: SessionInstructions) => `global ${x.global ? x.global.sha256.slice(0, 12) : "absent"}, workspace ${x.workspace ? x.workspace.sha256.slice(0, 12) : "absent"}`;
+    if (legacy || !s.instructions) {
+      this.ui.status(`· this session was saved before smolcoder recorded its instructions: the AGENTS.md version it used is unknown, so the files on disk are loaded (${fps(disk)})`);
+      return;
+    }
+    // L'opt-out du noyau global (SMOL_NO_GLOBAL_AGENTS) reste celui du lancement.
+    const optOut = process.env.SMOL_NO_GLOBAL_AGENTS === "1";
+    const kept: SessionInstructions = { global: optOut ? null : s.instructions.global, workspace: s.instructions.workspace };
+    if (sameInstructions(kept, disk)) return;
+    this.globalAgentsMd = kept.global?.text ?? null;
+    this.workspaceAgentsMd = kept.workspace?.text ?? null;
+    this.agent.setMode(this.agent.mode, this.sysPrompt(this.agent.mode));
+    this.ui.warn(
+      `· AGENTS.md changed since this session was saved (${describeInstructionDrift(kept, disk).join("; ")}): this session keeps the version it was using — nothing is reloaded silently. /instructions shows the difference and switches only when you choose.`
+    );
+  }
+
+  /** C4 : la vue de l'agent (#19) revient avec la session ; un fichier vu qui a
+   * changé depuis, comme un HEAD déplacé, est un changement externe — dit,
+   * préservé, jamais attribué à l'agent, et sa première écriture refusée. */
+  private restoreViews(s: SessionSnapshot): void {
+    const ws = this.realWorkspace();
+    const changed: string[] = [];
+    for (const [rel, hash] of s.views ?? []) {
+      const abs = path.join(ws, ...rel.split("/"));
+      if (!abs.startsWith(ws + path.sep)) continue;
+      this.toolCtx.reads?.noteHash(abs, hash);
+      let now: string | null;
+      try {
+        now = sha256(fs.readFileSync(abs));
+      } catch {
+        now = null;
+      }
+      if (now !== hash) changed.push(`${rel} (${now === null ? "deleted" : "modified"})`);
+    }
+    const head = s.head === undefined ? undefined : readGitHead(this.workspace);
+    const moved = s.head !== undefined && head !== s.head;
+    if (!changed.length && !moved) return;
+    const facts = [
+      ...(moved ? [`HEAD moved ${shortRev(s.head)} → ${shortRev(head)}`] : []),
+      ...(changed.length ? [`files this session had seen changed: ${changed.slice(0, 10).join(", ")}${changed.length > 10 ? ", …" : ""}`] : []),
+    ].join("; ");
+    this.ui.warn(`· the workspace changed since this session was saved (${facts}). These changes are preserved and are not the agent's; a file it had seen is re-checked before any write.`);
+    this.agent.requireReanchor(`The workspace changed outside this session since it was saved (${facts}); those changes are someone else's and must be preserved.`);
+  }
+
+  /** La transition explicite des consignes (#10, C6) : montrer la version de
+   * la session et celle du disque, et ne basculer que sur choix humain. */
+  private async reviewInstructions(): Promise<void> {
+    const { ui } = this;
+    const session = this.instructions();
+    const loaded = loadAgentsMdDetails(this.workspace);
+    const disk: SessionInstructions = { global: instruction(loaded.globalText), workspace: instruction(loaded.workspaceText) };
+    const fp = (x: SessionInstructions["global"]) => (x ? x.sha256.slice(0, 12) : "absent");
+    ui.status(`· instructions of this session: ~/.smolcoder/AGENTS.md ${fp(session.global)}, AGENTS.md ${fp(session.workspace)}`);
+    if (sameInstructions(session, disk)) {
+      ui.status("· the AGENTS.md files on disk are the ones this session uses");
+      return;
+    }
+    ui.warn(`· on disk now: ${describeInstructionDrift(session, disk).join("; ")}`);
+    for (const w of loaded.warnings) ui.status(`· ${w}`);
+    const pick = await ui.select("AGENTS.md changed on disk. Switch this session to the files on disk?", [
+      { label: "Reload from disk", hint: "explicit transition: the next request follows the new instructions" },
+      { label: "Keep the session version", hint: "nothing changes for this session" },
+    ]);
+    if (pick !== 0) {
+      ui.status("· instructions unchanged: this session keeps its version");
+      return;
+    }
+    this.globalAgentsMd = loaded.globalText;
+    this.workspaceAgentsMd = loaded.workspaceText;
+    this.agent.setMode(this.agent.mode, this.sysPrompt(this.agent.mode));
+    ui.status(`· instructions reloaded from disk (~/.smolcoder/AGENTS.md ${fp(disk.global)}, AGENTS.md ${fp(disk.workspace)})`);
   }
 
   /** The input loop. Returns after /exit (or after the host asked the UI to
@@ -684,6 +811,9 @@ export class Session {
             ui.status(
               `Context ${budget.prompt.toLocaleString()} / ${budget.window.toLocaleString()} tokens (${budget.source})\nReply reserve ${budget.reserve.toLocaleString()} · available ${budget.available.toLocaleString()} · ${agent.messages.length} messages · ${agent.tools.length} tools`
             );
+            break;
+          case "instructions":
+            await this.reviewInstructions();
             break;
           case "clear":
             agent.resetTranscript();

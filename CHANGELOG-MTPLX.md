@@ -1763,7 +1763,7 @@ blanc : l'étiquette Git `reference`, sans laquelle le diff du périmètre
 sur l'arbre final, aucun test sauté. SHA `ed4ba0b` reporté sur l'entrée
 précédente.
 
-### (ce commit) — Provenance des messages dans l'état — Réf #10
+### `f507022` — Provenance des messages dans l'état — Réf #10
 
 `src/providers/types.ts`, `src/agent.ts`, `src/context.ts`, `src/index.ts`,
 `test/reprise.test.js` (nouveau). Ticket #10 (H05), premier commit : le
@@ -1794,6 +1794,62 @@ relance d'acceptation, une note ajoutée par l'hôte et une note de compaction.
 Rouge constaté avant le code : provenance `undefined` pour les cinq messages.
 `npm test` 345/345 (343 et 2 nouveaux), aucun test sauté, sous un HOME et un
 cache npm temporaires.
+
+### (ce commit) — Schéma de session v2 et migration — Réf #10
+
+`src/session-state.ts` (nouveau), `src/session.ts`, `src/agent.ts`,
+`src/tools/index.ts`, `src/tools/read-tracker.ts`, `src/web/store.ts`,
+`src/web/hub.ts`, `test/reprise.test.js`, `docs/how-it-works.md`,
+`README.md`. Ticket #10 (H05), deuxième commit : le schéma de reprise des
+sessions, commun à toute session sauvegardée (le hub web est aujourd'hui le
+seul à sauvegarder un transcript) ; l'état hôte du profil mission vient au
+commit suivant.
+
+- Schéma versionné `smolcoder/session/v2` (`src/session-state.ts`, seul
+  propriétaire de sa grammaire) : transcript avec provenance, plan, consignes
+  réellement chargées (texte et empreinte de `~/.smolcoder/AGENTS.md` et de
+  l'`AGENTS.md` du workspace), approbations « always » (`alwaysAllowed`,
+  jamais restaurées jusqu'ici), vue de l'agent (#19 : chemin relatif vers
+  l'empreinte du contenu vu en dernier), révision Git lue dans `.git` sans
+  lancer `git` (worktrees et `packed-refs` compris). Un champ v2 mal formé
+  est écarté et dit, jamais inventé.
+- C6 : une session reprise garde sa version des consignes ; un écart avec le
+  disque est signalé (empreintes avant et après), jamais rechargé en
+  silence. `/instructions` (nouvelle commande, terminal et web) montre les
+  deux et ne bascule que sur choix explicite. Une nouvelle session lit le
+  disque, comme avant ; l'opt-out `SMOL_NO_GLOBAL_AGENTS` reste celui du
+  lancement, la phrase de précédence de `src/prompt.ts` n'est pas touchée.
+- C1 : les approbations « always » reviennent avec la session et la reprise
+  les nomme (hors profil mission, où « always » ne vaut que pour l'appel) ;
+  le message « earlier command approvals are not remembered » disparaît.
+- C4 (session reprise) : la vue de l'agent revient, et un fichier vu qui a
+  changé pendant l'arrêt reçoit le signal de #19 à sa première écriture,
+  plutôt qu'un second mécanisme ; un `HEAD` déplacé ou un tel fichier est
+  dit, préservé, jamais attribué à l'agent, et le plan doit être réancré
+  (appel de l'outil `plan`) avant la prochaine écriture ou commande
+  (`Agent.requireReanchor`, sans effet sans plan).
+- C7 : une session au format d'avant #10 se reprend sans rien perdre ;
+  l'original est copié en `sessions/<id>.v1.json` avant toute réécriture,
+  jamais écrasé ; la provenance de ses messages reste inconnue. Un transcript
+  d'un schéma inconnu (smol plus récent) n'est ni repris ni réécrit ; un
+  transcript illisible est mis de côté sous un autre nom au lieu d'être
+  écrasé par la session qui repart vide (il l'était jusqu'ici).
+
+Vérifications. Cinq tests « H05 » de plus dans `test/reprise.test.js`,
+fournisseur simulé, faux dossier personnel : C6 (écart signalé, version de
+session dans le prompt et la requête suivante, `/instructions` qui garde puis
+bascule), C1 (approbation « always » restaurée, personne n'est redemandé),
+C4 (dépôt Git réel, commit humain pendant l'arrêt : `HEAD` et fichier signalés,
+réancrage puis signal de #19, contenu humain intact, aucun reset, stash ni
+commit), C7 (transcript v1 repris par le hub avec une vraie session : archive
+identique à l'octet, messages et plan identiques, réécriture en v2 à
+l'arrêt ; schéma inconnu refusé et intact, transcript illisible mis de côté).
+Rouge constaté sur l'arbre du commit précédent, construit à part avec le même
+fichier de test : cinq échecs (schéma absent, `alwaysAllowedList` absente,
+révision Git absente, archive absente, schéma inconnu accepté), les deux
+tests de provenance verts. `npm test` 350/350 (345 et 5 nouveaux), aucun test
+sauté, sous un HOME et un cache npm temporaires. SHA `f507022` reporté sur
+l'entrée précédente.
 
 ## Hors dépôt (machine locale)
 

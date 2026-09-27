@@ -383,6 +383,13 @@ Warning: ${warning} Fix this before moving on (use edit_file).` : "";
   }
 }
 
+/** #10 : un appel qui a un effet sur le projet — une écriture de fichier,
+ * une commande, une tâche de fond lancée. Les lectures, la recherche, le plan
+ * et la lecture des tâches n'en ont pas. */
+export function isEffectCall(name: string, args: Record<string, any>): boolean {
+  return name === "write_file" || name === "edit_file" || name === "run_command" || (name === "task" && args?.action === "start");
+}
+
 /** The command a call would run, if it is an exec call (edit mode may gate it;
  * bypass never asks; in ro mode the tool does not exist). */
 export function commandOf(name: string, args: Record<string, any>): string | null {

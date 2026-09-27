@@ -13,6 +13,7 @@ import {
   Mode,
   MODE_LABELS,
   commandOf,
+  isEffectCall,
   ToolContext,
 } from "./tools/index";
 import { AgentUI } from "./ui";
@@ -75,6 +76,8 @@ export class Agent {
   messages: Msg[] = [];
   tools: ToolSpec[];
   private alwaysAllowed = new Set<string>();
+  /** #10 : motif d'un réancrage du plan attendu avant la prochaine écriture. */
+  private reanchor: string | null = null;
   originalRequest = "";
   currentRequest = "";
   private planNudged = false;
@@ -962,7 +965,46 @@ export class Agent {
     }
   }
 
+  /** #10 : après un changement externe constaté (reprise, HEAD déplacé,
+   * fichiers modifiés par quelqu'un d'autre), le plan est réancré avant la
+   * prochaine écriture ou commande : la première est refusée, sans effet,
+   * jusqu'à un appel de l'outil plan. Sans plan, il n'y a rien à réancrer. */
+  requireReanchor(reason: string): void {
+    this.reanchor = reason;
+  }
+
+  /** Le motif du réancrage attendu, ou null. */
+  get pendingReanchor(): string | null {
+    return this.reanchor;
+  }
+
+  /** Les programmes approuvés « always » par l'humain (hors profil mission). */
+  alwaysAllowedList(): string[] {
+    return [...this.alwaysAllowed];
+  }
+
+  /** Reprise (#10) : les approbations « always » de la session sauvegardée. */
+  restoreApprovals(programs: string[]): void {
+    for (const p of programs) if (typeof p === "string" && /^[A-Za-z0-9._+-]{1,64}$/.test(p)) this.alwaysAllowed.add(p);
+  }
+
   private async gateAndExecute(
+    name: string,
+    args: Record<string, any>,
+    signal?: AbortSignal
+  ): Promise<string> {
+    if (this.reanchor && isEffectCall(name, args)) {
+      if (this.toolCtx.plan.exists) {
+        return `Error: ${this.reanchor} Re-anchor your plan before the next write or command: review it with plan {"action":"show"} and update it if the work changed, then retry. Nothing was changed.`;
+      }
+      this.reanchor = null;
+    }
+    const out = await this.runGated(name, args, signal);
+    if (name === "plan" && !out.startsWith("Error")) this.reanchor = null;
+    return out;
+  }
+
+  private async runGated(
     name: string,
     args: Record<string, any>,
     signal?: AbortSignal

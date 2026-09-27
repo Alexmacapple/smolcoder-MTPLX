@@ -122,6 +122,25 @@ export class ReadTracker {
     this.files.clear();
   }
 
+  /** La vue de l'agent, pour une sauvegarde de session (#10) : chemin réel du
+   * fichier vers l'empreinte de ce qu'il a vu en dernier. */
+  entries(): Array<[string, string]> {
+    return [...this.files].map(([abs, s]) => [abs, s.hash]);
+  }
+
+  /** Reprise (#10) : l'agent avait vu ce contenu, dont seule l'empreinte est
+   * gardée ; le disque qui en diffère donnera le même signal qu'en cours de
+   * session, sans la région (le contenu vu n'est plus là). */
+  noteHash(abs: string, hash: string): void {
+    const key = keyOf(abs);
+    this.files.delete(key);
+    this.files.set(key, { hash, content: null });
+    for (const old of this.files.keys()) {
+      if (this.files.size <= MAX_FILES) break;
+      this.files.delete(old);
+    }
+  }
+
   /** Les crochets que les outils de fichiers appellent (lecture, écriture). */
   hooks(): FileHooks {
     return {

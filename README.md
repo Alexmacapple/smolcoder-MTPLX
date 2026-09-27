@@ -329,7 +329,7 @@ smolcoder sends your code and prompts to the server you choose, and runs the too
 `smol --web` opens a browser UI and prints a private link. The server only listens on your machine, and the link carries a random key.
 
 - **Workspaces and sessions.** The sidebar lists your project folders, each with its own sessions. Run several at once and switch between them while they work.
-- **Sessions survive restarts.** Past sessions stay in the sidebar and resume with a click. Transcripts live under `~/.smolcoder/sessions/`.
+- **Sessions survive restarts.** Past sessions stay in the sidebar and resume with a click. Transcripts live under `~/.smolcoder/sessions/`. A resumed session keeps the `AGENTS.md` version it was using and says what changed while it was stored ([how it works](docs/how-it-works.md#local-apis-and-failure-recovery)).
 - **Paste screenshots and files.** Paste an image with `ctrl+v` or right-click and choose Paste, drop files onto the chat, or click the paperclip. Images go to the model when it can see them, and the chip warns you when it cannot. Text files are added to your message.
 - **Browser and terminal panels.** Preview the dev server the agent started, or open a shell in the workspace, next to the chat.
 - **One server for everything.** Running `smol --web` in another folder adds it to the UI that is already open.
