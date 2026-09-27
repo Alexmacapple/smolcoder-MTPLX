@@ -21,16 +21,35 @@ import { commandEscapesWorkspace } from "./sandbox";
 import { abortableDelay } from "./providers/transport";
 import { truncateMiddle } from "./util";
 import { createHash } from "crypto";
-import { commandPassed, ExecOptions, renderCommandResult, runCommandResult } from "./tools/shell";
+import * as os from "os";
+import { commandPassed, CommandResult, ExecOptions, renderCommandResult, runCommandResult } from "./tools/shell";
 import { failureSignature, projectVerification } from "./verification";
 import type { Mission } from "./harness/mission";
 import { AccessRequest, decide, Decision, PolicySuspension } from "./harness/policy";
+import {
+  buildReport,
+  callerChecks,
+  CheckOutcome,
+  classify,
+  MissionCheck,
+  missionCriteria,
+  npmPrecheck,
+  projectChecks,
+  renderReportMarkdown,
+  RunInfo,
+  VerdictReport,
+  verifierChanges,
+  verifierStamps,
+} from "./harness/proofs";
+import { appendProof, writeReportFiles } from "./harness/store";
 
 /** Supplied by the caller, never generated or changed by a model tool. */
 export interface Verification {
   command: string;
   maxAttempts?: number;
   source?: "project";
+  /** Délai de chaque contrôle d'acceptation ; absent : 120 s. */
+  timeoutMs?: number;
 }
 
 const TRANSIENT_ERROR = /fetch failed|econn|socket|network|timed?.?out|429|50[0-4]|stream ended|malformed JSON|stream error/i;
@@ -68,6 +87,12 @@ export class Agent {
   private progressFailure = "";
   private sameVerificationFailures = 0;
   private canRefreshVerification = false;
+  /** Profil mission (#9) : les contrôles décisifs de ce tour, un par commande. */
+  private missionChecks: MissionCheck[] = [];
+  /** Profil mission (#9) : le rapport du dernier tour et ses fichiers dans le
+   * stockage hôte (null : non écrits). Le headless en tire sa sortie. */
+  missionVerdict: { report: VerdictReport; files: { json: string; markdown: string } | null } | null = null;
+  private suspended = false;
 
   constructor(
     public provider: Provider,
@@ -87,6 +112,7 @@ export class Agent {
   ) {
     this.verification = callerVerification;
     if (callerVerification && (!callerVerification.command.trim() || (callerVerification.maxAttempts !== undefined && (!Number.isSafeInteger(callerVerification.maxAttempts) || callerVerification.maxAttempts < 1)))) throw new Error("Verification needs a command and a positive attempt limit.");
+    if (callerVerification?.timeoutMs !== undefined && (!Number.isSafeInteger(callerVerification.timeoutMs) || callerVerification.timeoutMs < 1)) throw new Error("Verification timeout must be a positive number of milliseconds.");
     this.messages = [{ role: "system", content: systemPrompt }];
     this.tools = buildToolSpecs(mode);
     this.ctxMgr.setReplayThinking(provider.replaysThinking !== false);
@@ -178,6 +204,178 @@ export class Agent {
     return { passed: commandPassed(result), output: renderCommandResult(result) };
   }
 
+  /** Profil mission (#9) : les contrôles décisifs, un par commande, dans
+   * l'ordre ; le premier qui n'est pas `passed` arrête la tentative (les
+   * suivants restent `not_run`). Chacun passe par la décision d'accès, ne
+   * tourne que si les entrées du vérificateur sont celles que l'hôte a
+   * figées, seulement par l'exécuteur isolé. Les verdicts d'une tentative
+   * sont journalisés ensemble à sa fin, datés par les empreintes du contrat,
+   * du vérificateur et des fichiers tels que la séquence les laisse : un
+   * contrôle suivant qui écrit (les tests après le build) ne périme pas le
+   * précédent. */
+  private async runMissionChecks(signal: AbortSignal, attempt: number): Promise<{ passed: boolean; output: string } | { blocked: string }> {
+    const mission = this.mission!;
+    // Aucun contrôle, aucune preuve : une liste vide ne vaut jamais réussite.
+    if (!this.missionChecks.length) return { passed: false, output: "Error: no acceptance check is defined for this turn, so nothing can be verified." };
+    const ws = mission.workspace;
+    const commands = mission.verifierCommands(this.callerVerification ? [this.callerVerification.command] : []);
+    const start = mission.scan();
+    const verifier = mission.verifierState(commands, start);
+    const frozen = mission.frozenVerifierFiles();
+    const watched = Object.keys(frozen);
+    let files: string | null = start.ok ? start.digest : null;
+    const pending: { check: MissionCheck; v: CheckOutcome; exit?: CommandResult; changes?: string[] }[] = [];
+    /** Journalise les verdicts de la tentative ; rend le statut de chacun
+     * (un verdict sans trace au journal ne compte pas comme réussite). */
+    const flush = (): CheckOutcome[] => pending.splice(0).map(({ check, v, exit, changes }) => {
+      try {
+        appendProof(mission.dir, {
+          type: "verdict", fingerprint: mission.fingerprint, criteria: check.criteria, command: check.command, owner: check.owner,
+          status: v.status, cause: v.cause, attempt,
+          exit: exit ? { status: exit.status, code: exit.exitCode, signal: exit.signal, durationMs: Math.max(0, Math.round(exit.durationMs)) } : null,
+          tests: v.tests, verifiers: verifier.frozen, files,
+          ...(changes?.length ? { changes: changes.slice(0, 50) } : {}),
+        });
+        return v;
+      } catch (err: any) {
+        this.ui.warn(`· verdict not recorded (${err?.message ?? err}): it cannot count as a pass`);
+        return v.status === "passed" ? { status: "error" as const, cause: "journal-unwritable" as const, tests: v.tests } : v;
+      }
+    });
+    const verdictNote = (v: CheckOutcome) => (v.status === "passed" ? "" : `\n[harness verdict: ${v.status}${v.cause ? ` (${v.cause})` : ""} — not accepted]`);
+    const lead = (check: MissionCheck) => (check.owner === "project" ? `Command: ${check.command}\n` : "");
+    /** Fin de tentative sur un contrôle non réussi : son verdict, sa sortie. */
+    const stop = (check: MissionCheck, v: CheckOutcome, body: string, extra: { exit?: CommandResult; changes?: string[] } = {}) => {
+      pending.push({ check, v, ...extra });
+      const last = flush().at(-1)!;
+      const out = body + verdictNote(last);
+      this.ui.toolResult(out);
+      return { passed: false, output: lead(check) + out };
+    };
+    const outputs: string[] = [];
+    for (const check of this.missionChecks) {
+      if (signal.aborted) throw abortError();
+      this.ui.toolCall("verification", { command: check.command });
+      // 1. La décision d'accès, avant tout effet (#11).
+      let auth: { ok: true; decision: Decision } | { ok: false; message: string };
+      try {
+        auth = await this.authorize({ surface: "check", tool: "verification", args: { command: check.command } });
+      } catch (err) {
+        if (err instanceof PolicySuspension) {
+          pending.push({ check, v: { status: "not_run", cause: "policy", tests: null } });
+          flush();
+        }
+        throw err;
+      }
+      if (!auth.ok) {
+        this.ui.toolResult(auth.message);
+        pending.push({ check, v: { status: "not_run", cause: "policy", tests: null } });
+        flush();
+        return { blocked: auth.message.replace(/^Error: /, "") };
+      }
+      // 2. Le vérificateur est-il celui que l'hôte a approuvé ? Sinon aucun
+      // contrôle ne tourne : son résultat ne prouverait rien.
+      if (verifier.state !== "frozen") {
+        const cause = verifier.state === "changed" ? "verifier-changed" : "verifier-unfrozen";
+        for (const c of this.missionChecks) pending.push({ check: c, v: { status: "not_run", cause, tests: null }, changes: verifier.changes });
+        flush();
+        const message = verifier.state === "changed"
+          ? `Error: acceptance was not run — the verifier inputs changed since the host approved them: ${verifier.changes.join(", ")}${verifier.reason ? ` (${verifier.reason})` : ""}. Tests, their configuration and the scripts that run them are frozen at approval: restore them exactly, or stop and tell the user — only the host can approve new ones.`
+          : `Error: acceptance was not run — the verifier inputs are not frozen (${verifier.reason}). Only the host can approve them.`;
+        this.ui.toolResult(message);
+        return { passed: false, output: message };
+      }
+      // 3. Un script npm absent, vide ou par défaut ne teste rien.
+      const pre = npmPrecheck(ws, check.command);
+      if (pre) return stop(check, pre.outcome, `Error: ${pre.message}`);
+      // 4. Sous --mission, un contrôle décisif ne tourne que dans le bac.
+      if (!this.toolCtx.executor) {
+        return stop(check, { status: "error", cause: "no-isolation", tests: null }, "Error: acceptance check not run — no isolated executor was provided by the host; under the mission profile a decisive check never runs unconfined.");
+      }
+      // 5. Avant : l'empreinte et les tampons du noyau des entrées figées.
+      const before = outputs.length ? mission.scan() : start;
+      if (!before.ok) {
+        files = null;
+        return stop(check, { status: "error", cause: "fingerprint-unavailable", tests: null }, `Error: acceptance check not run — the workspace cannot be fingerprinted (${before.reason}).`);
+      }
+      const stamps = verifierStamps(ws, before, watched);
+      // 6. Le contrôle, par l'exécuteur isolé, avec le contexte de la décision.
+      const result = await runCommandResult(check.command, this.toolCtx.workspace, signal, check.timeoutMs, auth.decision.exec, this.toolCtx.executor, "check");
+      if (signal.aborted) throw abortError();
+      // 7. Après : les entrées figées n'ont pas bougé pendant le contrôle ;
+      // l'empreinte des fichiers est celle que la séquence laisse.
+      const after = mission.scan();
+      files = after.ok ? after.digest : null;
+      let v = classify(result);
+      let changes: string[] | undefined;
+      if (!after.ok) v = { status: "error", cause: "fingerprint-unavailable", tests: v.tests };
+      else {
+        const now = verifierStamps(ws, after, watched);
+        const written = watched.filter((p) => now.get(p) !== stamps.get(p)).map((p) => `${p} (written during the check)`);
+        const altered = verifierChanges(ws, after, frozen, commands);
+        if (written.length || altered.length) {
+          changes = [...new Set([...altered, ...written])];
+          v = { status: "error", cause: "verifier-changed-during-check", tests: v.tests };
+        }
+      }
+      const body = renderCommandResult(result) + (changes ? `\n[the verifier inputs were written during the check: ${changes.join(", ")}]` : "");
+      if (v.status !== "passed") return stop(check, v, body, { exit: result, changes });
+      pending.push({ check, v, exit: result });
+      this.ui.toolResult(body);
+      outputs.push(body);
+    }
+    // Toute la séquence a réussi : ses verdicts, datés par l'état final.
+    const recorded = flush();
+    const failed = recorded.findIndex((v) => v.status !== "passed");
+    if (failed >= 0) return { passed: false, output: `${outputs[failed]}${verdictNote(recorded[failed])}` };
+    return { passed: true, output: outputs.join("\n") };
+  }
+
+  /** Profil mission (#9) : les contrôles de l'hôte pour ce tour — ceux du
+   * contrat, puis --verify. Sans eux, la découverte du projet prend le relais
+   * après une écriture, comme hors profil. */
+  private setupMissionChecks(): void {
+    const cv = this.callerVerification;
+    this.missionChecks = callerChecks(this.mission!.contract, cv ? { command: cv.command, ...(cv.timeoutMs ? { timeoutMs: cv.timeoutMs } : {}) } : undefined);
+    this.verification = this.missionChecks.length
+      ? { command: this.missionChecks.map((c) => c.command).join(" && "), ...(cv?.maxAttempts ? { maxAttempts: cv.maxAttempts } : {}) }
+      : undefined;
+  }
+
+  /** Profil mission (#9) : regénère report.json et report.md dans le stockage
+   * hôte, depuis le journal et l'état constaté maintenant. Au début d'un tour,
+   * l'état `running` remplace tout vert du tour précédent. */
+  private writeMissionReport(outcome: RunInfo["outcome"]): void {
+    const mission = this.mission!;
+    try {
+      const commands = mission.verifierCommands(this.callerVerification ? [this.callerVerification.command] : []);
+      const scan = mission.scan();
+      const verifier = mission.verifierState(commands, scan);
+      const plan = this.toolCtx.plan;
+      const report = buildReport({
+        mission,
+        criteria: missionCriteria(mission.contract, this.missionChecks),
+        verifier,
+        scan,
+        run: { outcome, suspended: this.suspended, error: outcome === "running" ? null : this.lastError, attempts: this.verificationResult?.attempts ?? null },
+        plan: plan.exists ? { done: plan.doneCount, total: plan.steps.length } : null,
+      });
+      let files: { json: string; markdown: string } | null = null;
+      try {
+        files = writeReportFiles(mission.dir, JSON.stringify(report, null, 2) + "\n", renderReportMarkdown(report));
+      } catch (err: any) {
+        this.ui.warn(`· verdict report not written (${err?.message ?? err})`);
+      }
+      this.missionVerdict = { report, files };
+      if (outcome === "running") return;
+      const n = report.counts;
+      this.ui.status(`· verdict: ${report.task.state} — ${n.passed} passed, ${n.failed} failed, ${n.not_run} not run, ${n.error} error${files ? ` · report ${files.markdown.replace(os.homedir(), "~")}` : ""}`);
+    } catch (err: any) {
+      this.missionVerdict = null;
+      this.ui.warn(`· verdict report unavailable (${err?.message ?? err})`);
+    }
+  }
+
   /** Profil mission : la décision d'accès, prise avant l'effet. « ask »
    * devient la question à l'humain en session interactive, une suspension
    * explicite en headless — jamais un oui par défaut. */
@@ -235,6 +433,8 @@ export class Agent {
         // required earlier in this turn (deleting one must not bypass it).
         const commands = new Set([...(this.verification?.command.split(" && ") ?? []), ...command.split(" && ")]);
         this.verification = { command: [...commands].join(" && "), source: "project" };
+        // Profil mission (#9) : un contrôle, donc un verdict, par script.
+        if (this.mission) this.missionChecks = projectChecks([...commands]);
       }
     }
   }
@@ -245,20 +445,25 @@ export class Agent {
     const attempts = (this.verificationResult?.attempts ?? 0) + 1;
     if (attempts > (check.maxAttempts ?? 6)) throw new Error("Acceptance attempt limit reached before the agent finished. The task is incomplete.");
     this.ui.status(`· checking acceptance (${attempts}/${check.maxAttempts ?? 6})`);
-    this.ui.toolCall("verification", { command: check.command });
-    const checked = await this.runCheck(check.command, signal);
+    let checked: { passed: boolean; output: string } | { blocked: string };
+    if (this.mission) checked = await this.runMissionChecks(signal, attempts);
+    else {
+      this.ui.toolCall("verification", { command: check.command });
+      checked = await this.runCheck(check.command, signal);
+    }
     if ("blocked" in checked) throw new Error(`Acceptance checks could not run — ${checked.blocked} The task is incomplete.`);
     const { passed, output } = checked;
     this.sameVerificationFailures = passed ? 0
       : this.verificationResult && !this.verificationResult.passed && failureSignature(this.verificationResult.output) === failureSignature(output)
         ? this.sameVerificationFailures + 1 : 1;
     this.verificationResult = { attempts, passed, output };
-    this.ui.toolResult(output);
+    // Profil mission : chaque contrôle a déjà affiché sa sortie.
+    if (!this.mission) this.ui.toolResult(output);
     await this.bus.emit("post_verify", this.verificationResult);
     if (passed) { this.ui.status("· acceptance checks passed"); return true; }
     if (attempts >= (check.maxAttempts ?? 6)) throw new Error(`Acceptance checks still fail after ${attempts} attempts. The task is incomplete.\n${truncateMiddle(output, 1600)}`);
     this.ui.status("· acceptance failed — continuing repairs automatically");
-    this.messages.push({ role: "user", content: `[Acceptance failed; the task is not complete. Repair the first failing behavior. The harness will rerun acceptance automatically. Do not skip tests or report success.${check.source === "project" ? `\nCommand: ${check.command}` : ""}\n${truncateMiddle(output, this.ctxMgr.toolResultCharLimit())}]` });
+    this.messages.push({ role: "user", content: `[Acceptance failed; the task is not complete. Repair the first failing behavior. The harness will rerun acceptance automatically. Do not skip tests or report success.${check.source === "project" && !this.mission ? `\nCommand: ${check.command}` : ""}\n${truncateMiddle(output, this.ctxMgr.toolResultCharLimit())}]` });
     if (this.sameVerificationFailures === 2 && this.canRefreshVerification) {
       this.ui.status("· same check failed again — refreshing working context");
       // Repeating an unchanged hypothesis in a larger transcript is not
@@ -303,6 +508,13 @@ export class Agent {
     this.verification = this.callerVerification;
     this.progressFailure = "";
     this.sameVerificationFailures = 0;
+    this.suspended = false;
+    if (this.mission) {
+      // #9 : contrôles de l'hôte, puis rapport « en cours » : aucun vert du
+      // tour précédent ne reste affiché pendant que le modèle travaille.
+      this.setupMissionChecks();
+      this.writeMissionReport("running");
+    }
     // Earlier user decisions may exist only in a previous turn's summary.
     // Only a fresh conversation can safely discard every old narrative.
     this.canRefreshVerification = !this.originalRequest && this.messages.length === 1;
@@ -628,12 +840,15 @@ export class Agent {
       }
       this.outcome = "error";
       this.lastError = String(err?.message ?? err);
+      if (err instanceof PolicySuspension) this.suspended = true;
       this.repairTranscript("[Tool did not run because the turn stopped after an error. Inspect the preceding error before continuing.]");
       throw err;
     } finally {
       await this.ctxMgr.foreground();
       this.abort = null;
       stats.durationMs = Date.now() - t0;
+      // #9 : le verdict du tour, constaté maintenant, quelle que soit l'issue.
+      if (this.mission) this.writeMissionReport(this.outcome === "running" ? "error" : this.outcome);
       if (completed) {
         this.ui.turnEnd(
           `${fmtDuration(stats.durationMs)}${describeStats(stats)}`

@@ -50,9 +50,17 @@ ce qu'il prouve, ce qu'il journalise.
   état visible toute la session (ligne d'état, pastille web). Détail :
   `docs/decision-backend-isole.md`, `docs/allowlist-outils.md`, preuves
   `npm run test:os` et campagne archivée `docs/campagne-os-2026-09-27.md`.
-- **Verdicts sur résultats typés** : le succès d'une vérification est
-  le code de sortie réel du processus, plus jamais une lecture du
-  texte affiché.
+- **Verdicts structurés et preuves protégées sous `--mission`** : chaque
+  critère du contrat est `passed`, `failed`, `not_run` ou `error`, depuis
+  le code de sortie réel, jamais depuis un récit du modèle ; zéro test,
+  contrôle sauté, délai ou plantage ne passent jamais. Les tests, leur
+  configuration et les scripts qui les exécutent sont figés à
+  l'approbation : les modifier bloque l'acceptation jusqu'à une nouvelle
+  approbation humaine. Chaque verdict porte les empreintes du contrat, du
+  vérificateur et des fichiers vérifiés, périme à la première édition, et
+  le rapport (`report.json`, `report.md`, hors du workspace) n'affiche
+  jamais un vert périmé ; un run headless non vérifié sort 5. Détail :
+  `docs/decision-preuves-acceptation.md`.
 - **Banc comportemental reproductible** (`bench/noyau-agents-md/`) :
   un dossier horodaté et un manifeste par run, statuts
   machine-lisibles (succès ≠ refus de sécurité ≠ panne serveur),
@@ -70,8 +78,6 @@ ce qu'il prouve, ce qu'il journalise.
   défaut avec URL fraîche, session terminal, test de contrôle.
 
 **Chantiers restants**, dans l'ordre :
-[preuves d'acceptation protégées](https://github.com/Alexmacapple/smolcoder-MTPLX/issues/9)
-(#9, socle des verdicts typés déjà livré),
 [retours d'outils exploitables](https://github.com/Alexmacapple/smolcoder-MTPLX/issues/19)
 (#19), [plan d'implémentation approuvé avec le contrat](https://github.com/Alexmacapple/smolcoder-MTPLX/issues/29)
 (#29), puis [reprise durable](https://github.com/Alexmacapple/smolcoder-MTPLX/issues/10)

@@ -7,6 +7,8 @@
 
 import * as fs from "fs";
 import * as path from "path";
+import type { PathRules } from "../sandbox";
+import { freezeVerifiers, PROJECT_COMMANDS, scanWorkspace, VerifierState, verifierChanges, WorkspaceScan } from "./proofs";
 import {
   Approval,
   ApprovalAuthority,
@@ -23,6 +25,7 @@ import {
   parseContractSource,
   readContract,
   readPolicy,
+  VerifierFreeze,
   writeContract,
   writePolicy,
 } from "./store";
@@ -183,8 +186,11 @@ export class Mission {
 
   /** Enregistre l'approbation de l'hôte pour ce contrat exact : l'événement
    * au journal d'abord, puis contract.json (une approbation effective a
-   * toujours sa trace). */
-  approve(by: ApprovalAuthority, fingerprint: string = this.fingerprint): MissionStatus {
+   * toujours sa trace). Elle fige aussi les entrées du vérificateur (#9) :
+   * tests, configuration et scripts qui les exécutent, tels que l'hôte les
+   * voit en approuvant ; `commands` ajoute une commande de l'appelant
+   * (--verify) à celles du contrat. */
+  approve(by: ApprovalAuthority, fingerprint: string = this.fingerprint, opts: { commands?: string[] } = {}): MissionStatus {
     if (!APPROVAL_AUTHORITIES.includes(by)) throw new MissionError(`approval "by" must be one of ${APPROVAL_AUTHORITIES.join(", ")}`);
     if (fingerprint !== this.fingerprint) {
       throw new MissionError(`approval fingerprint ${fingerprint.slice(0, 16)}… does not match the contract fingerprint ${this.fingerprint}`);
@@ -200,10 +206,81 @@ export class Mission {
     if (current.steps >= current.maxSteps) {
       throw new MissionError(`the step budget of "${this.contract.id}" is already spent (${current.steps}/${current.maxSteps}): widen budgets.maxSteps before approving`);
     }
-    const approval: Approval = { fingerprint: this.fingerprint, by, at: new Date().toISOString() };
-    appendProof(this.dir, { type: "approval", fingerprint: this.fingerprint, by });
+    const frozen = this.freeze(this.verifierCommands(opts.commands));
+    const approval: Approval = { fingerprint: this.fingerprint, by, at: new Date().toISOString(), verifiers: frozen };
+    appendProof(this.dir, { type: "approval", fingerprint: this.fingerprint, by, verifiers: frozen?.digest ?? null });
     writeContract(this.dir, createRecord(this.contract, { status: "approved", approval, steps: read.record.usage.steps }));
     return this.status();
+  }
+
+  /** Les entrées figées par l'approbation en vigueur ; {} sans elle. */
+  frozenVerifierFiles(): Record<string, string | null> {
+    const read = readContract(this.dir);
+    if (read.state !== "ok" || read.record.fingerprint !== this.fingerprint || approvalState(read.record) !== "approved") return {};
+    return { ...(read.record.approval?.verifiers?.files ?? {}) };
+  }
+
+  /** Les noms protégés de la politique : jamais lus pour une empreinte. */
+  pathRules(): PathRules {
+    const p = readPolicy(this.dir);
+    return p.state === "ok" ? p.policy.paths : DEFAULT_POLICY.paths;
+  }
+
+  /** Les commandes dont les scripts nommés sont figés : les contrôles du
+   * contrat, celles de l'appelant, et les contrôles découvrables du projet. */
+  verifierCommands(extra: string[] = []): string[] {
+    return [...new Set([...(this.contract.checks ?? []).map((c) => c.command), ...extra.map((c) => c.trim()).filter(Boolean), ...PROJECT_COMMANDS])];
+  }
+
+  /** Empreinte actuelle du workspace (noms protégés exclus). */
+  scan(): WorkspaceScan {
+    return scanWorkspace(this.workspace, this.pathRules());
+  }
+
+  private freeze(commands: string[], scan: WorkspaceScan = this.scan()): VerifierFreeze | null {
+    const r = freezeVerifiers(this.workspace, scan, commands);
+    return "freeze" in r ? r.freeze : null;
+  }
+
+  /** L'état des entrées du vérificateur au regard de l'approbation en
+   * vigueur : figées et intactes, modifiées (avec la liste), ou non figées. */
+  verifierState(commands: string[] = this.verifierCommands(), scan?: WorkspaceScan): VerifierState {
+    const read = readContract(this.dir);
+    const record = read.state === "ok" && read.record.fingerprint === this.fingerprint ? read.record : null;
+    const frozen = record && approvalState(record) === "approved" ? record.approval?.verifiers ?? null : null;
+    if (!record || approvalState(record) !== "approved") return { state: "unfrozen", frozen: null, current: null, changes: [], reason: "the contract is not approved" };
+    const s = scan ?? this.scan();
+    const now = freezeVerifiers(this.workspace, s, commands);
+    const current = "freeze" in now ? now.freeze.digest : null;
+    if (!frozen) return { state: "unfrozen", frozen: null, current, changes: [], reason: "approved before verifier inputs were frozen, or they exceeded the bounds at approval" + ("reason" in now ? ` (${now.reason})` : "") };
+    if (!s.ok) return { state: "changed", frozen: frozen.digest, current: null, changes: [], reason: `the workspace cannot be fingerprinted (${s.reason})` };
+    const changes = verifierChanges(this.workspace, s, frozen.files, commands);
+    return changes.length ? { state: "changed", frozen: frozen.digest, current, changes } : { state: "frozen", frozen: frozen.digest, current, changes: [] };
+  }
+
+  /** Nouvelle approbation des entrées du vérificateur, par l'hôte, sous un
+   * contrat déjà approuvé : `digest` nomme exactement ce qui sera figé (tel
+   * que l'affiche l'état du vérificateur). Un événement `approval` au
+   * journal d'abord, puis contract.json. */
+  approveVerifiers(by: ApprovalAuthority, digest: string, opts: { commands?: string[] } = {}): VerifierState {
+    if (!APPROVAL_AUTHORITIES.includes(by)) throw new MissionError(`approval "by" must be one of ${APPROVAL_AUTHORITIES.join(", ")}`);
+    const read = readContract(this.dir);
+    if (read.state !== "ok" || read.record.fingerprint !== this.fingerprint || approvalState(read.record) !== "approved") {
+      throw new MissionError(`the mission contract "${this.contract.id}" is not approved: approve the contract itself first`);
+    }
+    const commands = this.verifierCommands(opts.commands);
+    const scan = this.scan();
+    const now = freezeVerifiers(this.workspace, scan, commands);
+    if (!("freeze" in now)) throw new MissionError(`the verifier inputs cannot be frozen (${now.reason}): nothing was approved`);
+    if (now.freeze.digest !== digest) {
+      throw new MissionError(`verifier fingerprint ${digest.slice(0, 16)}… does not match the current verifier inputs ${now.freeze.digest}: they changed, or another state was named. Review them and approve the current fingerprint.`);
+    }
+    const state = this.verifierState(commands, scan);
+    if (state.state === "frozen") return state;
+    const approval: Approval = { fingerprint: this.fingerprint, by, at: new Date().toISOString(), verifiers: now.freeze };
+    appendProof(this.dir, { type: "approval", fingerprint: this.fingerprint, by, verifiers: now.freeze.digest });
+    writeContract(this.dir, { ...read.record, approval, updatedAt: new Date().toISOString() });
+    return this.verifierState(commands);
   }
 
   /** Débite un pas du budget persistant, avant chaque appel au modèle. Hors
@@ -272,6 +349,10 @@ export class Mission {
       ...(c.constraints.length ? [`Constraints: ${c.constraints.join("; ")}`] : []),
       `Out of scope: ${c.outOfScope.length ? c.outOfScope.join("; ") : "(none stated)"}`,
       `Acceptance: ${c.acceptance.join("; ")}`,
+      c.checks?.length
+        ? `Host checks: acceptance criteria ${c.checks.flatMap((k) => k.covers).sort((a, b) => a - b).join(", ")} are checked by the host itself; the others are not covered by any check.`
+        : "Host checks: none — no acceptance criterion is covered by a host check.",
+      "Verification: the host runs the decisive checks itself. The tests, their configuration and the scripts that run them are frozen when the host approves; changing them never earns acceptance — it blocks it until the host approves them again.",
       ...(c.openQuestions.length ? [`Open questions: ${c.openQuestions.join("; ")}`] : []),
     ].join("\n");
   }
@@ -282,6 +363,11 @@ export class Mission {
     const s = this.status();
     const c = this.contract;
     const items = (xs: string[]) => (xs.length ? xs.map((x) => `- ${x}`).join("\n") : "_(néant)_");
+    const checkOf = (i: number) => c.checks?.find((k) => k.covers.includes(i + 1));
+    const criteria = c.acceptance.map((a, i) => {
+      const k = checkOf(i);
+      return `${i + 1}. ${a} — ${k ? `contrôle de l'hôte : \`${k.command}\`` : "non couvert par un contrôle de l'hôte"}`;
+    });
     const refs = [
       c.baseRevision ? ` · révision de base \`${c.baseRevision}\`` : "",
       c.policyRef ? ` · politique \`${c.policyRef}\`` : "",
@@ -298,7 +384,7 @@ export class Mission {
       "## Utilisateurs concernés", "", c.users ?? "_(non précisé)_", "",
       "## Contraintes", "", items(c.constraints), "",
       "## Hors périmètre", "", items(c.outOfScope), "",
-      "## Critère observable", "", items(c.acceptance), "",
+      "## Critère observable", "", criteria.join("\n"), "",
       "## Questions ouvertes", "", items(c.openQuestions),
     ].join("\n");
   }
@@ -306,7 +392,7 @@ export class Mission {
 
 /** Rapport lisible par machine : ligne `[mission]` du headless et stats.
  * `policy` : version de la politique d'accès, ou l'état qui empêche de la lire. */
-export function missionReport(mission: Mission, status: MissionStatus = mission.status()) {
+export function missionReport(mission: Mission, status: MissionStatus = mission.status(), verifiers?: VerifierState) {
   const policy = readPolicy(mission.dir);
   return {
     state: status.state,
@@ -318,6 +404,9 @@ export function missionReport(mission: Mission, status: MissionStatus = mission.
     store: mission.dir,
     policy: policy.state === "ok" ? policy.version : policy.state,
     ...(status.reason ? { reason: status.reason } : {}),
+    // #9 : l'état des entrées du vérificateur et l'empreinte qu'une nouvelle
+    // approbation figerait (--approve-verifiers).
+    ...(verifiers ? { verifiers: { state: verifiers.state, frozen: verifiers.frozen, current: verifiers.current, ...(verifiers.changes.length ? { changes: verifiers.changes.slice(0, 20) } : {}) } } : {}),
   };
 }
 
@@ -331,9 +420,14 @@ export function missionExitCode(status: MissionStatus): number | null {
  * `approve` est le drapeau explicite de l'appelant : l'empreinte exacte du
  * contrat. Sans approbation valable, le run s'arrête avec un état explicite ;
  * aucune question n'est posée, rien n'attend. */
-export function authorizeHeadless(mission: Mission, approve?: string): { ok: boolean; message: string; report: ReturnType<typeof missionReport> } {
+export function authorizeHeadless(
+  mission: Mission,
+  approve?: string,
+  opts: { verify?: string; approveVerifiers?: string } = {}
+): { ok: boolean; message: string; report: ReturnType<typeof missionReport>; verifiers?: VerifierState } {
   const { id } = mission.contract;
   const fp = mission.fingerprint;
+  const commands = opts.verify ? [opts.verify] : [];
   const refuse = (message: string) => ({ ok: false, message: `Nothing was run. ${message}`, report: missionReport(mission) });
   if (approve !== undefined && approve !== fp) {
     return refuse(`--approve ${approve.slice(0, 16)}… does not match the contract fingerprint ${fp}: the contract changed or another one was named. Review it and approve its current fingerprint.`);
@@ -356,18 +450,30 @@ export function authorizeHeadless(mission: Mission, approve?: string): { ok: boo
   }
   if (approve !== undefined && status.state === "proposed") {
     try {
-      status = mission.approve("headless-flag", approve);
+      status = mission.approve("headless-flag", approve, { commands });
     } catch (err: any) {
       return refuse(`${err?.message ?? err}.`);
     }
   }
   if (status.state === "approved") {
+    // #9 : nouvelle approbation des entrées du vérificateur, seulement quand
+    // l'appelant nomme exactement l'empreinte de ce qui sera figé.
+    if (opts.approveVerifiers !== undefined) {
+      try {
+        mission.approveVerifiers("headless-flag", opts.approveVerifiers, { commands });
+      } catch (err: any) {
+        return refuse(`${err?.message ?? err}.`);
+      }
+    }
+    const verifiers = mission.verifierState(mission.verifierCommands(commands));
     return {
       ok: true,
       message: `mission "${id}" approved (${fp.slice(0, 16)}, by ${status.approval?.by}); ${status.maxSteps - status.steps} of ${status.maxSteps} model steps left`,
-      report: missionReport(mission, status),
+      report: missionReport(mission, status, verifiers),
+      verifiers,
     };
   }
+  if (opts.approveVerifiers !== undefined) return refuse(`--approve-verifiers needs an approved contract; mission contract "${id}" is ${STATE_LABELS[status.state]}.`);
   if (status.state === "proposed") return refuse(`Mission contract "${id}" is proposed, not approved. Review it, then rerun with --approve ${fp}`);
   if (status.state === "expired") return refuse(`Mission contract "${id}" is expired. Widen it (for example budgets.maxSteps) and approve the new fingerprint.`);
   return refuse(`Mission contract "${id}" is ${STATE_LABELS[status.state]}${status.reason ? ` (${status.reason})` : ""}.`);

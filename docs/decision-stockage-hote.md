@@ -25,7 +25,8 @@ sans collision pratique, lisible dans un `ls`.
 ### Contenu
 
 Trois fichiers par workspace, pas plus (le troisième ajouté par #11,
-conformément à la rubrique « conséquences » ci-dessous) :
+conformément à la rubrique « conséquences » ci-dessous ; #9 y ajoute deux
+projections, `report.json` et `report.md`, voir « Amendements ») :
 
 - `contract.json` — le contrat de mission approuvé (motif A, plein).
   Schéma versionné (`smolcoder/contract/v1`), statuts fermés
@@ -38,7 +39,8 @@ conformément à la rubrique « conséquences » ci-dessous) :
   ajouté par #30, voir « Amendements ») — `contract`
   (création ou changement d'état d'un contrat), `approval` (qui, quand,
   quelle empreinte), `verdict` (résultat d'une vérification, avec
-  l'empreinte des fichiers vérifiés au moment du verdict), `fiche`
+  l'empreinte des fichiers vérifiés au moment du verdict ; champs fixés
+  par #9, voir « Amendements »), `fiche`
   (lecture d'une fiche de méthode installée : son nom, l'empreinte du
   contenu servi et celle du contrat). Un verdict dont
   les fichiers ont changé depuis est périmé par construction : la
@@ -148,3 +150,54 @@ politique, ni preuve) ; sa grammaire appartient à `src/fiches.ts`. Comme
 tout `~/.smolcoder`, le dossier reste refusé aux commandes isolées.
 
 Cet amendement est accepté par la fusion de la pull request du ticket #30.
+
+### 2026-09-27 — ticket #9 : verdicts, vérificateurs figés, rapport
+
+Écarts déclarés, tous dans le module propriétaire `src/harness/store.ts`,
+même grammaire, schémas inchangés (`smolcoder/contract/v1`,
+`smolcoder/proof/v1`) : les champs ajoutés sont facultatifs et un lecteur
+antérieur refuse un champ inconnu (fail-closed), comme le prévoient les
+règles de lecture. Définitions et mécanisme :
+`docs/decision-preuves-acceptation.md`.
+
+- `contract.json`, le contrat : champ facultatif `checks`, liste de
+  `{"command", "covers": [numéros de critères], "timeoutSeconds"?}` — les
+  contrôles de l'hôte qui couvrent des critères `acceptance`, chaque critère
+  couvert une fois au plus. Absent, il n'entre pas dans la forme canonique :
+  l'empreinte des contrats existants ne change pas.
+- `contract.json`, l'approbation : champ facultatif `verifiers`,
+  `{"digest", "files": {chemin relatif: SHA-256 ou null}, "commands": […]}`
+  — les entrées du vérificateur figées par cette approbation, 1 000 chemins
+  au plus pour tenir sous la borne de 256 Kio ; `digest` est l'empreinte de
+  `files` et se vérifie à la lecture. Absent ou `null` : entrées non figées
+  (approbation antérieure à #9, ou bornes dépassées), aucun contrôle décisif
+  ne peut alors passer. Une nouvelle approbation des seules entrées, sous un
+  contrat déjà approuvé, remplace ce champ.
+- Événement `approval` : champ facultatif `verifiers`, l'empreinte figée
+  (ou `null`). Chaque nouvelle approbation des entrées ajoute un événement
+  `approval`.
+- Événement `verdict` : champs fermés `fingerprint` (le contrat),
+  `criteria` (identifiants des critères couverts), `command`, `owner`
+  (`contract`, `caller` ou `project`), `status` (`passed`, `failed`,
+  `not_run`, `error`), `cause` (motif fermé, `null` pour `passed`
+  seulement), `attempt`, `exit` (`{status, code, signal, durationMs}` de
+  l'exécuteur, ou `null` sans processus), `tests` (nombre exécuté, ou
+  `null`), `verifiers` (empreinte figée), `files` (empreinte des fichiers
+  vérifiés) et `changes` facultatif (entrées changées, 50 au plus). Précision
+  sur « au moment du verdict » : l'empreinte des fichiers est celle que laisse
+  la séquence de contrôles de la tentative, portée par tous ses verdicts.
+- Deux fichiers de plus, des projections et non des sources : `report.json`
+  (schéma `smolcoder/report/v1`) et `report.md`, rendus du même objet,
+  regénérés par l'hôte au début et à la fin de chaque tour du profil, écrits
+  atomiquement, jamais relus par le code. Les statuts des critères se
+  regénèrent depuis `proofs.jsonl`, le contrat et l'état constaté du
+  workspace ; l'issue du tour (annulé, suspendu, erreur) n'est portée que
+  par le rapport.
+
+Pourquoi ces lieux plutôt qu'un fichier de plus pour les entrées figées :
+elles appartiennent à l'approbation, qu'elles qualifient, et l'écriture
+atomique de `contract.json` les garde cohérentes avec elle ; un fichier
+séparé exigerait de réconcilier deux écritures. Écarté : écrire le rapport
+dans le workspace, où l'agent qu'il juge pourrait le modifier.
+
+Cet amendement est accepté par la fusion de la pull request du ticket #9.

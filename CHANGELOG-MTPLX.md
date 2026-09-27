@@ -1186,13 +1186,168 @@ de tourner sans `SMOL_NO_FICHES=1`, et le test rendait `statut
 blocage_harnais au lieu de succes` (sortie 1) ; avec le correctif, PASS
 (sortie 0). Mesurer l'effet des fiches elles-mêmes relève de l'étude #33.
 
-### (ce commit) — README : chantiers restants à jour
+### `91f8cd6` — README : chantiers restants à jour
 
 `README.md`. La liste « Chantiers restants » ne citait plus que #19 et #10
 depuis la fermeture du chapeau #12. Elle suit l'ordre acté : #9 (preuves
 d'acceptation protégées, socle déjà livré), #19, #29 (plan approuvé avec le
 contrat), puis #10 ; l'étude #33, porte d'entrée du chantier
 d'apprentissage #34, est mise à part, en attente de décision. SHA `83fc9be`
+reporté sur l'entrée précédente.
+
+### `8d5108a` — Décision et briques des preuves d'acceptation — Réf #9
+
+`docs/decision-preuves-acceptation.md` (nouveau),
+`docs/decision-stockage-hote.md`, `src/harness/store.ts`,
+`src/harness/proofs.ts` (nouveau), `test/proofs.test.js` (nouveau). Ticket
+#9 (H04), premier de trois commits : la décision et les briques, sans
+câblage ; aucun comportement ne change.
+
+La décision fixe les définitions — statuts `passed / failed / not_run /
+error` et leurs motifs fermés, zéro test, contrôle sauté, état de la tâche
+distinct de la décision humaine d'accepter, identité du vérificateur,
+fichiers vérifiés, preuve périmée — et le mécanisme anti-altération retenu :
+les entrées du vérificateur (tests, configuration, scripts qui les exécutent)
+figées à l'approbation de l'hôte, trois gardes (comparaison avant chaque
+tentative, tampons du noyau pendant le contrôle, état constaté à chaque
+rapport) et une nouvelle approbation humaine qui nomme l'empreinte exacte
+pour toute modification légitime. Alternatives écartées : copie de
+confiance, protection par la politique, révision Git de base, signature,
+juge LLM, suspension des tâches de fond. Limites nommées.
+
+Grammaire (`store.ts`), amendée explicitement dans
+`docs/decision-stockage-hote.md` (section du 2026-09-27, ticket #9) : champ
+facultatif `checks` du contrat (absent, l'empreinte des contrats existants
+ne change pas), `verifiers` de l'approbation (carte figée, 1 000 chemins au
+plus, empreinte vérifiée à la lecture) et de l'événement `approval`, champs
+fermés de l'événement `verdict`, deux projections `report.json` et
+`report.md` (écriture atomique, jamais relues par le code). Briques
+(`proofs.ts`) : empreinte bornée du workspace (hors `node_modules`, `.git`
+et noms protégés, liens non suivis), sélection des entrées du vérificateur
+(conventions des lanceurs, scripts nommés par les commandes et par les
+scripts npm qu'elles atteignent, sorties de build et dossiers temporaires
+exclus), écarts et tampons, lecture des résumés de tests (node:test, TAP,
+Jest, Mocha, Vitest, pytest), statut d'un contrôle depuis `CommandResult`,
+constat npm avant exécution, critères d'une mission, rapport et son rendu
+Markdown, code de sortie 5.
+
+Vérifications. Quatre tests (« H04 store » ×2, « H04 zero tests », « H04
+verifier identity ») ; le rouge est montré par mutation du code compilé,
+chacune rouge pour sa raison : grammaire du verdict ouverte (« Missing
+expected exception » sur un statut `green`), double couverture d'un critère
+acceptée, résumés de tests ignorés (`ℹ tests 0` lu comme inconnu), cible de
+redirection prise pour un script — cette dernière mutation est d'abord
+restée verte, faute d'un cas qui l'exerce : `2> err.log node x.js` a été
+ajouté, puis rouge. `dist/` restauré (empreintes SHA-256 comparées).
+`npm test` 296/296 (292 et 4 nouveaux) et `npm run test:os` 21/21, aucun
+test sauté. SHA `91f8cd6` reporté sur l'entrée précédente.
+
+### `e71311e` — Verdicts par critère dans la boucle mission — Réf #9
+
+`src/agent.ts`, `src/harness/mission.ts`, `src/index.ts`, `src/session.ts`,
+`test/proofs.test.js`, `test/os/e2e.os.test.js`,
+`test/os/seatbelt.os.test.js`, `docs/profil-mission.md`,
+`docs/skills/verification-finale.md`. Ticket #9 (H04), deuxième commit : le
+câblage des briques de `8d5108a` dans la boucle existante, sans seconde
+boucle de réparation. Hors `--mission`, rien ne change.
+
+Sous `--mission`, l'approbation de l'hôte fige les entrées du vérificateur
+(`Mission.approve`, avec la commande `--verify` quand elle l'accompagne) ;
+`--approve-verifiers <empreinte>` (headless) et `/approve` (terminal, web)
+les approuvent à nouveau après une modification légitime, en nommant
+l'empreinte exacte ; `--approve` seul ne refige rien. Les contrôles décisifs
+— `checks` du contrat, `--verify`, à défaut contrôles découverts du projet,
+un par script — tournent chacun séparément, dans l'ordre, par la décision
+d'accès puis l'exécuteur isolé seulement (`error (no-isolation)` sans lui) ;
+avant chaque tentative, des entrées modifiées empêchent tout contrôle
+(`not_run (verifier-changed)`, fichiers nommés au modèle) ; pendant, les
+tampons du noyau des entrées figées détectent une écriture même rétablie ;
+les verdicts d'une tentative sont journalisés ensemble, datés par
+l'empreinte des fichiers que laisse la séquence. Le rapport (`report.json`,
+`report.md`, stockage hôte) est regénéré au début de chaque tour (état
+`running`) et à sa fin ; ligne `· verdict: …` en session, `[verdict] {…}` en
+headless, `[stats]` sans vert périmé. Sortie headless : 0 seulement pour une
+tâche `verified` ; 5 sinon (4 et 3 priment). Un critère du contrat qu'aucun
+contrôle ne couvre reste `not_run` : écart déclaré, un run `--mission` qui
+sortait 0 sans rien prouver sur ses critères sort désormais 5, et un run en
+échec sort 5 au lieu de 1. Budget d'essais, annulation et contrôles
+progressifs inchangés ; une liste de contrôles vide ne vaut jamais réussite.
+
+Défaut trouvé en cours de route et corrigé avant ce commit : les verdicts
+étaient d'abord datés contrôle par contrôle, si bien que les tests, en
+écrivant leurs fichiers, périmaient aussitôt le verdict du build (« turn 1:
+the files changed after acceptance-1 was verified », `uncertain` au lieu de
+`verified`) ; et les sorties de build (`dist/x.test.js`) comme les données
+qu'un test écrit sous `test/` auraient bloqué un projet honnête. Test « H04
+AC4 (no false alarm) » à l'appui.
+
+Tests adaptés, déclarés : les deux runs headless de `test/os/e2e.os.test.js`
+lient leur critère « a » au contrôle `sh verify.sh` (sans quoi ils sortent
+5, critère non couvert) ; dans « H03-2 OS AC5 » de
+`test/os/seatbelt.os.test.js`, l'hôte approuve explicitement les scripts de
+la commande de vérification ajoutée après l'approbation (`probe.sh`), que le
+mécanisme refusait à juste titre (« probe.sh (added) »). Rouge constaté
+avant adaptation : sorties 5 au lieu de 0, et ce refus.
+
+Vérifications. Dix-sept tests « H04 AC1 » à « H04 AC6 » avec le fournisseur
+simulé, l'adaptateur hôte tenant lieu du bac et un faux dossier personnel ;
+le rouge de chaque garde est montré par 22 mutations du code compilé, toutes
+rouges pour leur raison, `dist/` restauré à l'octet près (SHA-256) : la
+réponse « terminé » qui clôt le tour sans acceptation, la sortie qui ignore
+le verdict, un critère non couvert ou sauté compté `passed`, zéro test
+accepté, script npm absent lancé tel quel, délai dépassé accepté, enfant tué
+(137) lu comme simple échec, repli hors de l'exécuteur isolé, texte « exit
+code 0 » décisif, vérificateur non comparé à l'approbation (trois tests
+rouges), écriture pendant le contrôle ignorée, fichier de test ajouté
+ignoré, contrôle hors de l'exécuteur fourni, nouvelle approbation sans
+empreinte exacte, sorties de build figées, preuve jamais périmée, pas de
+rapport `running`, budget dépassé d'un essai, annulation lue comme un
+verdict (une première version de cette mutation cassait la syntaxe ; elle a
+été refaite), contrôles du projet sans verdict propre, profil appliqué hors
+`--mission`. `npm test` 313/313 (296 et 17 nouveaux) et `npm run test:os`
+21/21, aucun test sauté. SHA `8d5108a` reporté sur l'entrée précédente.
+
+### (ce commit) — Preuve sur le vrai binaire, README — Closes #9
+
+`test/os/e2e.os.test.js`, `README.md`. Ticket #9 (H04), dernier commit :
+les six critères d'acceptation sont prouvés par des tests nommés, sur le
+socle de `3b3febb` et les commits `8d5108a` et `e71311e`.
+
+Nouveau test « H04 OS (headless) » dans `npm run test:os` : le vrai binaire
+`dist/index.js` sous `--mission`, piloté par le faux serveur
+OpenAI-compatible local (faux dossier personnel, aucun MTPLX). Premier run :
+le modèle remplace le script de test par `exit 0` puis tente d'écrire
+`report.json` du stockage hôte par un chemin lu dans un fichier — sortie 5,
+`[verdict]` `blocked`, zéro `passed`, un seul verdict `not_run
+(verifier-changed)`, écriture refusée par le bac (`forge=denied`), rapport de
+l'hôte intact ; `npm test` lancé directement sur ce workspace sort pourtant 0.
+Second run : le modèle corrige le code — le contrôle `npm test` tourne dans
+le bac (le test approuvé exige lui-même d'y être : il échoue hors du bac, où
+le témoin se lit), sortie 0, `[verdict]` `verified`, deux critères
+`passed`, verdict `exit 0, 2 tests` au journal ; aucun rapport dans le
+workspace. Le README passe #9 des chantiers restants aux fonctionnalités.
+
+Correspondance des critères du ticket : AC1 (Qwen annonce « terminé », un
+critère requis échoue) « H04 AC1 » et « H04 OS » ; AC2 (zéro test, contrôle
+sauté, délai, plantage) les quatre « H04 AC2 » ; AC3 (« exit code 0 »
+imprimé) « H04 AC3 » ; AC4 (test, configuration ou script altérés) les six
+« H04 AC4 » et « H04 OS » ; AC5 (preuve périmée, aucun vert affiché) « H04
+AC5 » ; AC6 (budget, annulation, contrôles progressifs) les quatre « H04
+AC6 » et `test/verification.test.js` inchangé et vert.
+
+Vérifications. Rouge montré par mutation du binaire compilé : la
+comparaison initiale du vérificateur retirée, le test rougit sur le motif
+(`error (verifier-changed-during-check)` au lieu de `not_run
+(verifier-changed)`, la garde pendant le contrôle rattrapant l'altération) ;
+les deux gardes retirées, il rougit sur deux `passed` indus (le rapport,
+troisième garde, restait `blocked`) ; `dist/` restauré (SHA-256). `npm
+test` 313/313 et `npm run test:os` 22/22 (21 et 1 nouveau), aucun test
+sauté. Le vrai `~/.smolcoder` n'a reçu aucune écriture depuis la création
+du worktree ; dans le vrai `~/.npm/_logs`, seuls les journaux de débogage
+de npm des commandes lancées à la main et du test existant
+`test/verification.test.js` (hors mission, dossier personnel réel, fuite
+antérieure à #9, non corrigée ici) ; aucun des nouveaux tests. Non vérifié :
+aucun run contre MTPLX ni Qwen réel ; une seule machine. SHA `e71311e`
 reporté sur l'entrée précédente.
 
 ## Hors dépôt (machine locale)

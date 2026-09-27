@@ -1,9 +1,11 @@
 // Stockage hôte du harnais — seul module propriétaire de la grammaire de
 // ~/.smolcoder/harness/<empreinte-du-workspace>/ (docs/decision-stockage-hote.md) :
-// contract.json (le contrat de mission), proofs.jsonl (journal en ajout
+// contract.json (le contrat de mission, et depuis #9 les entrées du
+// vérificateur figées par l'approbation), proofs.jsonl (journal en ajout
 // seul, quatre types d'événements, `fiche` ajouté par #30 en amendement de
-// la décision) et policy.json (la politique d'accès du
-// profil, ticket #11). Schéma versionné, statuts fermés,
+// la décision, champs de `verdict` fixés par #9), policy.json (la politique
+// d'accès du profil, ticket #11), et report.json / report.md (#9), deux
+// projections regénérées à chaque tour, jamais relues par le code. Schéma versionné, statuts fermés,
 // validation et bornes de lecture vivent ici ; tout consommateur passe par
 // ce module pour que les portes ne dérivent pas vers des lectures
 // différentes. Fail-closed : un fichier illisible, un schéma inconnu ou une
@@ -34,6 +36,49 @@ export const APPROVAL_AUTHORITIES = ["headless-flag", "terminal-human", "web-hum
 export type ApprovalAuthority = (typeof APPROVAL_AUTHORITIES)[number];
 export const PROOF_TYPES = ["contract", "approval", "verdict", "fiche"] as const;
 
+/** Statut d'un critère d'acceptation (#9, docs/decision-preuves-acceptation.md).
+ * `passed` : contrôle exécuté, sorti de lui-même avec 0, au moins un test
+ * exécuté s'il le dit, vérificateur intact ; `failed` : exécuté, sorti avec un
+ * code non nul ; `not_run` : non exécuté, sauté, zéro test ; `error` : le
+ * vérificateur lui-même a échoué (délai, arrêt par un signal, lancement
+ * impossible). Aucun autre cas ne donne `passed`. */
+export const CRITERION_STATUSES = ["passed", "failed", "not_run", "error"] as const;
+export type CriterionStatus = (typeof CRITERION_STATUSES)[number];
+/** Motifs fermés d'un statut. Ceux du journal décrivent un contrôle ; le
+ * rapport ajoute `not-covered`, `not-run` et `stale`, qui décrivent une
+ * absence ou une péremption constatée à sa génération. */
+export const VERDICT_CAUSES = [
+  "exit-code", "zero-tests", "missing-script", "policy", "verifier-changed", "verifier-unfrozen",
+  "timeout", "crashed", "spawn-error", "no-isolation", "verifier-changed-during-check", "fingerprint-unavailable",
+  "journal-unwritable", "not-covered", "not-run", "stale", "cancelled",
+] as const;
+export type VerdictCause = (typeof VERDICT_CAUSES)[number];
+/** Qui fournit la commande d'un contrôle : le contrat, l'appelant (--verify)
+ * ou la découverte des scripts du projet. */
+export const CHECK_OWNERS = ["contract", "caller", "project"] as const;
+export type CheckOwner = (typeof CHECK_OWNERS)[number];
+const EXEC_STATUSES = ["exited", "signaled", "timeout", "cancelled", "spawn_error"];
+export const CRITERION_ID_RE = /^[a-z0-9][a-z0-9:_-]{0,63}$/;
+
+/** Un contrôle de l'hôte qui couvre des critères du contrat (numéros à partir
+ * de 1 dans `acceptance`). Chaque critère est couvert par un contrôle au plus. */
+export interface ContractCheck {
+  command: string;
+  covers: number[];
+  /** Délai du contrôle ; absent : celui des vérifications (120 s). */
+  timeoutSeconds?: number;
+}
+
+/** Les entrées du vérificateur figées à l'approbation (#9) : chemin relatif
+ * vers l'empreinte SHA-256 de son contenu, null pour un script nommé absent.
+ * `digest` est l'empreinte de `files` ; `commands`, les commandes dont les
+ * scripts nommés ont été suivis. */
+export interface VerifierFreeze {
+  digest: string;
+  files: Record<string, string | null>;
+  commands: string[];
+}
+
 /** Le contrat de mission : les sept rubriques du format d'intention, plus
  * l'identité, le workspace, la révision de base, la référence de politique
  * (#11) et les budgets. Tout ce qui est ici entre dans l'empreinte. */
@@ -53,12 +98,18 @@ export interface MissionContract {
   openQuestions: string[];
   /** Budget de pas du modèle. Aucun plafond global de contexte (décision #4). */
   budgets: { maxSteps: number };
+  /** Contrôles de l'hôte qui couvrent des critères (#9). Absent : aucun
+   * critère n'est couvert, et l'empreinte des contrats antérieurs ne change pas. */
+  checks?: ContractCheck[];
 }
 
 export interface Approval {
   fingerprint: string;
   by: ApprovalAuthority;
   at: string;
+  /** Entrées du vérificateur figées par cette approbation (#9). Absent ou
+   * null : non figées (approbation antérieure à #9, ou bornes dépassées). */
+  verifiers?: VerifierFreeze | null;
 }
 
 export interface ContractRecord {
@@ -78,15 +129,37 @@ export type ReadFailure =
 
 export type ContractRead = { state: "absent" } | ReadFailure | { state: "ok"; record: ContractRecord };
 
+/** Le verdict d'un contrôle décisif (#9), champs fermés : l'empreinte du
+ * contrat, les critères couverts, la commande et son origine, le statut et
+ * son motif, l'issue réelle du processus, le nombre de tests exécutés quand
+ * le lanceur le dit, l'empreinte des entrées du vérificateur (figées à
+ * l'approbation) et celle des fichiers vérifiés, constatée après le contrôle. */
+export interface VerdictInput {
+  type: "verdict";
+  fingerprint: string;
+  criteria: string[];
+  command: string;
+  owner: CheckOwner;
+  status: CriterionStatus;
+  cause: VerdictCause | null;
+  attempt: number;
+  exit: { status: string; code: number | null; signal: string | null; durationMs: number } | null;
+  tests: number | null;
+  verifiers: string | null;
+  files: string | null;
+  /** Entrées du vérificateur changées (motifs verifier-changed…), 50 au plus. */
+  changes?: string[];
+}
+
 export type ProofInput =
   | { type: "contract"; fingerprint: string; id: string; status: ContractStatus; reason?: string }
-  | { type: "approval"; fingerprint: string; by: ApprovalAuthority }
+  // `verifiers` (#9) : l'empreinte des entrées du vérificateur figées par
+  // cette approbation ; null quand elles n'ont pas pu l'être.
+  | { type: "approval"; fingerprint: string; by: ApprovalAuthority; verifiers?: string | null }
   // Lecture d'une fiche de méthode installée (#30) : son nom et l'empreinte
   // du contenu servi, liés à l'empreinte du contrat de la session.
   | { type: "fiche"; fingerprint: string; name: string; sha256: string }
-  // Les champs d'un verdict sont fixés par #9 ; seule l'enveloppe est
-  // contrôlée ici.
-  | { type: "verdict"; [key: string]: unknown };
+  | VerdictInput;
 
 export type ProofEvent = ProofInput & { schema: typeof PROOF_SCHEMA; at: string };
 
@@ -113,8 +186,15 @@ const ITEM_MAX = 500;
 const ITEMS_MAX = 20;
 const REF_MAX = 200;
 const MAX_STEPS = 100_000;
-const BODY_FIELDS = ["id", "title", "workspace", "baseRevision", "policyRef", "problem", "outcome", "users", "constraints", "outOfScope", "acceptance", "openQuestions", "budgets"];
+const BODY_FIELDS = ["id", "title", "workspace", "baseRevision", "policyRef", "problem", "outcome", "users", "constraints", "outOfScope", "acceptance", "openQuestions", "budgets", "checks"];
 const RECORD_FIELDS = ["schema", "status", "fingerprint", "contract", "approval", "usage", "updatedAt"];
+const MAX_CHECK_SECONDS = 3600;
+/** Bornes des entrées figées : elles tiennent dans contract.json (256 Kio). */
+export const MAX_VERIFIER_FILES = 1000;
+const VERIFIER_PATH_MAX = 1024;
+const VERIFIER_COMMANDS_MAX = 30;
+const CHANGES_MAX = 50;
+const CRITERIA_MAX = 50;
 
 const sha256 = (s: string) => createHash("sha256").update(s).digest("hex");
 const isObject = (v: unknown): v is Record<string, unknown> => !!v && typeof v === "object" && !Array.isArray(v);
@@ -192,6 +272,8 @@ function parseBody(raw: unknown, workspaceReal: string | null): MissionContract 
   if (typeof maxSteps !== "number" || !Number.isSafeInteger(maxSteps) || maxSteps < 1 || maxSteps > MAX_STEPS) {
     throw new ContractError(`field "budgets.maxSteps" must be a whole number from 1 to ${MAX_STEPS}`);
   }
+  const acceptance = list(raw, "acceptance", true);
+  const checks = raw.checks === undefined ? undefined : parseChecks(raw.checks, acceptance.length);
   return {
     id,
     title: text(raw, "title", true, REF_MAX)!,
@@ -203,10 +285,41 @@ function parseBody(raw: unknown, workspaceReal: string | null): MissionContract 
     users: text(raw, "users", false),
     constraints: list(raw, "constraints", false),
     outOfScope: list(raw, "outOfScope", false),
-    acceptance: list(raw, "acceptance", true),
+    acceptance,
     openQuestions: list(raw, "openQuestions", false),
     budgets: { maxSteps },
+    // Absent : absent aussi du résultat, pour que l'empreinte ne change pas.
+    ...(checks ? { checks } : {}),
   };
+}
+
+/** Les contrôles de l'hôte (#9) : une commande, les critères qu'elle couvre
+ * (numéros de `acceptance`, chacun couvert une fois au plus), un délai
+ * facultatif. La commande est celle de l'appelant, jamais celle du modèle. */
+function parseChecks(raw: unknown, criteria: number): ContractCheck[] {
+  if (!Array.isArray(raw) || !raw.length || raw.length > ITEMS_MAX) throw new ContractError(`field "checks" must be a list of 1 to ${ITEMS_MAX} checks`);
+  const covered = new Set<number>();
+  return raw.map((item, i) => {
+    const where = `field "checks" item ${i + 1}`;
+    if (!isObject(item)) throw new ContractError(`${where} must be {"command": "...", "covers": [1, ...]}`);
+    onlyFields(item, ["command", "covers", "timeoutSeconds"], `checks[${i}].`);
+    const command = item.command;
+    if (typeof command !== "string" || !command.trim() || command.length > TEXT_MAX || /[\x00\r]/.test(command)) {
+      throw new ContractError(`${where}: "command" must be a non-empty command of at most ${TEXT_MAX} characters`);
+    }
+    const covers = item.covers;
+    if (!Array.isArray(covers) || !covers.length || covers.length > ITEMS_MAX) throw new ContractError(`${where}: "covers" must list the acceptance criteria it checks (numbers from 1)`);
+    for (const n of covers) {
+      if (typeof n !== "number" || !Number.isSafeInteger(n) || n < 1 || n > criteria) throw new ContractError(`${where}: "covers" names criterion ${JSON.stringify(n)}, but acceptance has ${criteria}`);
+      if (covered.has(n)) throw new ContractError(`${where}: criterion ${n} is already covered by another check`);
+      covered.add(n);
+    }
+    const t = item.timeoutSeconds;
+    if (t !== undefined && (typeof t !== "number" || !Number.isSafeInteger(t) || t < 1 || t > MAX_CHECK_SECONDS)) {
+      throw new ContractError(`${where}: "timeoutSeconds" must be a whole number from 1 to ${MAX_CHECK_SECONDS}`);
+    }
+    return { command: command.trim(), covers: [...covers] as number[], ...(t !== undefined ? { timeoutSeconds: t as number } : {}) };
+  });
 }
 
 /** Contrat soumis par l'appelant (déjà lu depuis son fichier). */
@@ -243,14 +356,45 @@ export function createRecord(
   };
 }
 
+/** Empreinte des entrées figées : SHA-256 de leur forme canonique. */
+export function verifierDigest(files: Record<string, string | null>): string {
+  return sha256(canonical(files));
+}
+
+/** Un chemin relatif du workspace, écrit à la façon POSIX, sans `..`. */
+export function isRelativeWorkspacePath(p: unknown): p is string {
+  return typeof p === "string" && p.length > 0 && p.length <= VERIFIER_PATH_MAX && !p.startsWith("/") && !/[\x00-\x1f\x7f\\]/.test(p) &&
+    p.split("/").every((seg) => seg !== "" && seg !== "." && seg !== "..");
+}
+
+function parseVerifiers(raw: unknown): VerifierFreeze | null {
+  if (raw === null) return null;
+  if (!isObject(raw)) throw new ContractError('field "approval.verifiers" must be null or an object');
+  onlyFields(raw, ["digest", "files", "commands"], "approval.verifiers.");
+  const { digest, files, commands } = raw;
+  if (!isObject(files) || Object.keys(files).length > MAX_VERIFIER_FILES) throw new ContractError(`field "approval.verifiers.files" must map at most ${MAX_VERIFIER_FILES} workspace paths`);
+  for (const [p, v] of Object.entries(files)) {
+    if (!isRelativeWorkspacePath(p)) throw new ContractError(`field "approval.verifiers.files" holds an invalid path ${JSON.stringify(p)}`);
+    if (v !== null && (typeof v !== "string" || !HEX64.test(v))) throw new ContractError(`field "approval.verifiers.files" must map each path to a SHA-256 or null`);
+  }
+  if (!Array.isArray(commands) || commands.length > VERIFIER_COMMANDS_MAX || !commands.every((c) => typeof c === "string" && c.length <= TEXT_MAX)) {
+    throw new ContractError('field "approval.verifiers.commands" must be a list of commands');
+  }
+  const map = files as Record<string, string | null>;
+  if (typeof digest !== "string" || digest !== verifierDigest(map)) throw new ContractError('field "approval.verifiers.digest" does not match its files');
+  return { digest, files: { ...map }, commands: [...(commands as string[])] };
+}
+
 function parseApproval(raw: unknown): Approval | null {
   if (raw === null) return null;
   if (!isObject(raw)) throw new ContractError('field "approval" must be null or an object');
-  onlyFields(raw, ["fingerprint", "by", "at"], "approval.");
+  onlyFields(raw, ["fingerprint", "by", "at", "verifiers"], "approval.");
   if (typeof raw.fingerprint !== "string" || !HEX64.test(raw.fingerprint)) throw new ContractError('field "approval.fingerprint" must be 64 hexadecimal characters');
   if (!APPROVAL_AUTHORITIES.includes(raw.by as ApprovalAuthority)) throw new ContractError(`field "approval.by" must be one of ${APPROVAL_AUTHORITIES.join(", ")}`);
   if (typeof raw.at !== "string" || Number.isNaN(Date.parse(raw.at))) throw new ContractError('field "approval.at" must be a date');
-  return { fingerprint: raw.fingerprint, by: raw.by as ApprovalAuthority, at: raw.at };
+  const approval: Approval = { fingerprint: raw.fingerprint, by: raw.by as ApprovalAuthority, at: raw.at };
+  if (raw.verifiers !== undefined) approval.verifiers = parseVerifiers(raw.verifiers);
+  return approval;
 }
 
 function parseRecord(raw: Record<string, unknown>): ContractRecord {
@@ -337,11 +481,40 @@ export function approvalState(record: ContractRecord): "approved" | "proposed" |
   return record.approval?.fingerprint === actual ? "approved" : "stale";
 }
 
+const hexOrNull = (v: unknown) => v === null || (typeof v === "string" && HEX64.test(v));
+const wholeOrNull = (v: unknown) => v === null || (typeof v === "number" && Number.isSafeInteger(v) && v >= 0);
+
+/** Champs fermés d'un verdict (#9) : voir VerdictInput. */
+function checkVerdict(event: Record<string, unknown>): void {
+  onlyFields(event, ["schema", "type", "at", "fingerprint", "criteria", "command", "owner", "status", "cause", "attempt", "exit", "tests", "verifiers", "files", "changes"]);
+  const bad = (field: string) => new ContractError(`proof field "${field}" of a verdict is invalid`);
+  const { criteria, command, owner, status, cause, attempt, exit, tests, verifiers, files, changes } = event;
+  if (!Array.isArray(criteria) || !criteria.length || criteria.length > CRITERIA_MAX || !criteria.every((c) => typeof c === "string" && CRITERION_ID_RE.test(c))) throw bad("criteria");
+  if (typeof command !== "string" || !command.trim() || command.length > TEXT_MAX) throw bad("command");
+  if (!CHECK_OWNERS.includes(owner as CheckOwner)) throw bad("owner");
+  if (!CRITERION_STATUSES.includes(status as CriterionStatus)) throw bad("status");
+  if (cause !== null && !VERDICT_CAUSES.includes(cause as VerdictCause)) throw bad("cause");
+  if ((status === "passed") !== (cause === null)) throw bad("cause");
+  if (typeof attempt !== "number" || !Number.isSafeInteger(attempt) || attempt < 1) throw bad("attempt");
+  if (exit !== null) {
+    if (!isObject(exit)) throw bad("exit");
+    onlyFields(exit, ["status", "code", "signal", "durationMs"], "exit.");
+    if (!EXEC_STATUSES.includes(exit.status as string)) throw bad("exit.status");
+    if (exit.code !== null && (typeof exit.code !== "number" || !Number.isSafeInteger(exit.code))) throw bad("exit.code");
+    if (exit.signal !== null && (typeof exit.signal !== "string" || !/^[A-Z0-9]{1,16}$/.test(exit.signal))) throw bad("exit.signal");
+    if (!wholeOrNull(exit.durationMs) || exit.durationMs === null) throw bad("exit.durationMs");
+  }
+  if (!wholeOrNull(tests)) throw bad("tests");
+  if (!hexOrNull(verifiers)) throw bad("verifiers");
+  if (!hexOrNull(files)) throw bad("files");
+  if (changes !== undefined && (!Array.isArray(changes) || changes.length > CHANGES_MAX || !changes.every((c) => typeof c === "string" && c.length <= VERIFIER_PATH_MAX + 20))) throw bad("changes");
+}
+
 function checkEvent(event: Record<string, unknown>): void {
   if (!PROOF_TYPES.includes(event.type as (typeof PROOF_TYPES)[number])) throw new ContractError(`unknown proof event type ${JSON.stringify(event.type)}`);
   if (typeof event.at !== "string" || Number.isNaN(Date.parse(event.at))) throw new ContractError('proof field "at" must be a date');
-  if (event.type === "verdict") return;
   if (typeof event.fingerprint !== "string" || !HEX64.test(event.fingerprint)) throw new ContractError('proof field "fingerprint" must be 64 hexadecimal characters');
+  if (event.type === "verdict") return checkVerdict(event);
   if (event.type === "contract") {
     onlyFields(event, ["schema", "type", "at", "fingerprint", "id", "status", "reason"]);
     if (typeof event.id !== "string" || !ID_RE.test(event.id)) throw new ContractError('proof field "id" is invalid');
@@ -352,8 +525,9 @@ function checkEvent(event: Record<string, unknown>): void {
     if (typeof event.name !== "string" || !FICHE_NAME_RE.test(event.name)) throw new ContractError('proof field "name" must be a method sheet name');
     if (typeof event.sha256 !== "string" || !HEX64.test(event.sha256)) throw new ContractError('proof field "sha256" must be 64 hexadecimal characters');
   } else {
-    onlyFields(event, ["schema", "type", "at", "fingerprint", "by"]);
+    onlyFields(event, ["schema", "type", "at", "fingerprint", "by", "verifiers"]);
     if (!APPROVAL_AUTHORITIES.includes(event.by as ApprovalAuthority)) throw new ContractError(`proof field "by" must be one of ${APPROVAL_AUTHORITIES.join(", ")}`);
+    if (event.verifiers !== undefined && !hexOrNull(event.verifiers)) throw new ContractError('proof field "verifiers" must be 64 hexadecimal characters or null');
   }
 }
 
@@ -555,6 +729,26 @@ export function writePolicy(dir: string, policy: AccessPolicy): void {
   const checked = parsePolicyBody({ schema: POLICY_SCHEMA, ...JSON.parse(JSON.stringify(policy)) });
   fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
   writeAtomic(path.join(dir, POLICY_FILE), JSON.stringify({ schema: POLICY_SCHEMA, ...checked }, null, 2) + "\n");
+}
+
+// ---- report.json et report.md : projections du verdict (ticket #9) ----
+//
+// Regénérés par l'hôte au début et à la fin de chaque tour du profil, depuis
+// le journal, le contrat et l'état constaté du workspace ; les deux fichiers
+// viennent du même objet. Aucune décision ne les relit : la source reste
+// proofs.jsonl. Hors d'atteinte des outils du modèle comme tout ce dossier.
+
+export const REPORT_SCHEMA = "smolcoder/report/v1";
+export const REPORT_FILE = "report.json";
+export const REPORT_MD_FILE = "report.md";
+
+/** Écrit les deux projections, chacune atomiquement. */
+export function writeReportFiles(dir: string, json: string, markdown: string): { json: string; markdown: string } {
+  fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
+  const files = { json: path.join(dir, REPORT_FILE), markdown: path.join(dir, REPORT_MD_FILE) };
+  writeAtomic(files.json, json);
+  writeAtomic(files.markdown, markdown);
+  return files;
 }
 
 export function readProofs(dir: string): ProofsRead {

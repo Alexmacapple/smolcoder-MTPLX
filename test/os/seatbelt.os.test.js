@@ -272,6 +272,10 @@ test("H03-2 OS AC5: the same boundary for run_command, background task, automati
   t.after(() => taskManager.killAll());
   const toolCtx = { workspace: f.ws, taskManager, plan: new Plan(), filesTouched: new Set(), commandsRun: [], executor: f.iso };
   // 3. Vérification automatique : la commande d'acceptation, même décision.
+  // #9 : cette commande de l'appelant n'était pas connue à l'approbation ;
+  // l'hôte approuve explicitement les scripts qu'elle exécute (probe.sh).
+  const commands = [line("check")];
+  f.m.approveVerifiers("terminal-human", f.m.verifierState(f.m.verifierCommands(commands)).current, { commands });
   const agent = new Agent(provider, "bypass", "sys", toolCtx, new ContextManager(32000, 2000), new EventBus(), ui, false, 30, { command: line("check"), maxAttempts: 1 }, f.m);
   await agent.runTurn("probe the boundary");
   // 4. Terminal web : la garde du hub (décision, environnement) et l'exécuteur isolé.
