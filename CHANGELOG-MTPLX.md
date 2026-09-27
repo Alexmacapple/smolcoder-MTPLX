@@ -1195,7 +1195,7 @@ contrat), puis #10 ; l'étude #33, porte d'entrée du chantier
 d'apprentissage #34, est mise à part, en attente de décision. SHA `83fc9be`
 reporté sur l'entrée précédente.
 
-### (ce commit) — Décision et briques des preuves d'acceptation — Réf #9
+### `8d5108a` — Décision et briques des preuves d'acceptation — Réf #9
 
 `docs/decision-preuves-acceptation.md` (nouveau),
 `docs/decision-stockage-hote.md`, `src/harness/store.ts`,
@@ -1241,6 +1241,71 @@ restée verte, faute d'un cas qui l'exerce : `2> err.log node x.js` a été
 ajouté, puis rouge. `dist/` restauré (empreintes SHA-256 comparées).
 `npm test` 296/296 (292 et 4 nouveaux) et `npm run test:os` 21/21, aucun
 test sauté. SHA `91f8cd6` reporté sur l'entrée précédente.
+
+### (ce commit) — Verdicts par critère dans la boucle mission — Réf #9
+
+`src/agent.ts`, `src/harness/mission.ts`, `src/index.ts`, `src/session.ts`,
+`test/proofs.test.js`, `test/os/e2e.os.test.js`,
+`test/os/seatbelt.os.test.js`, `docs/profil-mission.md`,
+`docs/skills/verification-finale.md`. Ticket #9 (H04), deuxième commit : le
+câblage des briques de `8d5108a` dans la boucle existante, sans seconde
+boucle de réparation. Hors `--mission`, rien ne change.
+
+Sous `--mission`, l'approbation de l'hôte fige les entrées du vérificateur
+(`Mission.approve`, avec la commande `--verify` quand elle l'accompagne) ;
+`--approve-verifiers <empreinte>` (headless) et `/approve` (terminal, web)
+les approuvent à nouveau après une modification légitime, en nommant
+l'empreinte exacte ; `--approve` seul ne refige rien. Les contrôles décisifs
+— `checks` du contrat, `--verify`, à défaut contrôles découverts du projet,
+un par script — tournent chacun séparément, dans l'ordre, par la décision
+d'accès puis l'exécuteur isolé seulement (`error (no-isolation)` sans lui) ;
+avant chaque tentative, des entrées modifiées empêchent tout contrôle
+(`not_run (verifier-changed)`, fichiers nommés au modèle) ; pendant, les
+tampons du noyau des entrées figées détectent une écriture même rétablie ;
+les verdicts d'une tentative sont journalisés ensemble, datés par
+l'empreinte des fichiers que laisse la séquence. Le rapport (`report.json`,
+`report.md`, stockage hôte) est regénéré au début de chaque tour (état
+`running`) et à sa fin ; ligne `· verdict: …` en session, `[verdict] {…}` en
+headless, `[stats]` sans vert périmé. Sortie headless : 0 seulement pour une
+tâche `verified` ; 5 sinon (4 et 3 priment). Un critère du contrat qu'aucun
+contrôle ne couvre reste `not_run` : écart déclaré, un run `--mission` qui
+sortait 0 sans rien prouver sur ses critères sort désormais 5, et un run en
+échec sort 5 au lieu de 1. Budget d'essais, annulation et contrôles
+progressifs inchangés ; une liste de contrôles vide ne vaut jamais réussite.
+
+Défaut trouvé en cours de route et corrigé avant ce commit : les verdicts
+étaient d'abord datés contrôle par contrôle, si bien que les tests, en
+écrivant leurs fichiers, périmaient aussitôt le verdict du build (« turn 1:
+the files changed after acceptance-1 was verified », `uncertain` au lieu de
+`verified`) ; et les sorties de build (`dist/x.test.js`) comme les données
+qu'un test écrit sous `test/` auraient bloqué un projet honnête. Test « H04
+AC4 (no false alarm) » à l'appui.
+
+Tests adaptés, déclarés : les deux runs headless de `test/os/e2e.os.test.js`
+lient leur critère « a » au contrôle `sh verify.sh` (sans quoi ils sortent
+5, critère non couvert) ; dans « H03-2 OS AC5 » de
+`test/os/seatbelt.os.test.js`, l'hôte approuve explicitement les scripts de
+la commande de vérification ajoutée après l'approbation (`probe.sh`), que le
+mécanisme refusait à juste titre (« probe.sh (added) »). Rouge constaté
+avant adaptation : sorties 5 au lieu de 0, et ce refus.
+
+Vérifications. Dix-sept tests « H04 AC1 » à « H04 AC6 » avec le fournisseur
+simulé, l'adaptateur hôte tenant lieu du bac et un faux dossier personnel ;
+le rouge de chaque garde est montré par 22 mutations du code compilé, toutes
+rouges pour leur raison, `dist/` restauré à l'octet près (SHA-256) : la
+réponse « terminé » qui clôt le tour sans acceptation, la sortie qui ignore
+le verdict, un critère non couvert ou sauté compté `passed`, zéro test
+accepté, script npm absent lancé tel quel, délai dépassé accepté, enfant tué
+(137) lu comme simple échec, repli hors de l'exécuteur isolé, texte « exit
+code 0 » décisif, vérificateur non comparé à l'approbation (trois tests
+rouges), écriture pendant le contrôle ignorée, fichier de test ajouté
+ignoré, contrôle hors de l'exécuteur fourni, nouvelle approbation sans
+empreinte exacte, sorties de build figées, preuve jamais périmée, pas de
+rapport `running`, budget dépassé d'un essai, annulation lue comme un
+verdict (une première version de cette mutation cassait la syntaxe ; elle a
+été refaite), contrôles du projet sans verdict propre, profil appliqué hors
+`--mission`. `npm test` 313/313 (296 et 17 nouveaux) et `npm run test:os`
+21/21, aucun test sauté. SHA `8d5108a` reporté sur l'entrée précédente.
 
 ## Hors dépôt (machine locale)
 

@@ -59,6 +59,12 @@ Un critère non exercé est `not_run`, jamais `passed` : ni un test vert qui ne
 l'exerce pas, ni la lecture du code, ni « ça devrait marcher » n'en tiennent
 lieu. Un test vert ne prouve que ses assertions.
 
+Sous le profil mission, le harnais applique la même grille à ses propres
+contrôles, depuis le code de sortie réel (`docs/decision-preuves-acceptation.md`).
+Faute de voir qui a planté, il lit un contrôle arrêté par un signal comme
+`error`, et un contrôle impossible à lancer, bac indisponible compris, aussi ;
+un contrôle refusé par la politique d'accès y est `not_run`.
+
 ## Rapport
 
 Sans rien corriger : les commandes lancées ; attendu contre observé pour le

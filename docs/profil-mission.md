@@ -41,6 +41,7 @@ un champ inconnu est refusé.
   "constraints": ["pas de nouvelle dépendance"],
   "outOfScope": ["refonte du formulaire"],
   "acceptance": ["npm test passe", "un test couvre la redirection"],
+  "checks": [{ "command": "npm test", "covers": [1] }],
   "openQuestions": [],
   "baseRevision": null,
   "policyRef": null,
@@ -54,6 +55,15 @@ d'intention s'y retrouvent (problème, résultat attendu, utilisateurs,
 contraintes, hors périmètre, critère observable, questions ouvertes).
 `workspace` est rempli par l'hôte (chemin réel) ; s'il est fourni, il doit
 désigner le même dossier. `policyRef` est réservé à #11.
+
+`checks` (facultatif, #9) : les contrôles de l'hôte, chacun une commande
+lancée par le harnais dans le bac et les critères qu'elle couvre (numéros de
+`acceptance`, à partir de 1 ; un critère est couvert une fois au plus),
+avec un délai facultatif `timeoutSeconds` (120 s par défaut). Un critère
+qu'aucun contrôle ne couvre reste `not_run (not-covered)` : un run headless
+ne sort 0 que si chaque critère est couvert par un contrôle qui passe. Dans
+l'exemple, le second critère n'est pas couvert ; le rapport le dit. La
+commande n'est pas montrée au modèle, seulement les critères couverts.
 
 L'empreinte du contrat est le SHA-256 de sa forme canonique (clés triées),
 workspace compris. Toute modification du contrat change l'empreinte : la
@@ -69,10 +79,20 @@ n'est qu'une proposition.
   --approve <empreinte>`. Une empreinte différente est refusée (sortie 3,
   rien d'enregistré). L'approbation vaut pour cette version exacte du
   contrat : un run suivant sans `--approve` s'exécute tant qu'elle tient.
+  Elle fige aussi les entrées du vérificateur (#9) : tests, configuration et
+  scripts qui les exécutent, y compris ceux de la commande `--verify` donnée
+  avec elle.
+- Headless, approuver à nouveau les entrées du vérificateur après une
+  modification légitime : `--approve-verifiers <empreinte>`, l'empreinte
+  exacte de l'état actuel (champ `verifiers.current` de la ligne `[mission]`,
+  qui liste aussi les fichiers changés). Une autre empreinte est refusée
+  (sortie 3) ; repasser `--approve` seul ne refige rien.
 - Terminal et web : la session affiche le contrat ; l'agent lit et planifie,
   toute écriture et toute commande sont refusées à l'exécution. `/approve`
   montre le contrat puis demande une confirmation humaine liée à
-  l'empreinte ; `/mission` réaffiche le contrat et son état. En web, le
+  l'empreinte ; sous un contrat déjà approuvé dont les entrées du
+  vérificateur ont changé, il liste les fichiers changés et demande de les
+  approuver telles qu'elles sont. `/mission` réaffiche le contrat et son état. En web, le
   contrat ne s'applique qu'aux sessions du workspace visé (`smol --web
   <workspace> --mission contrat.json`) ; un hub déjà lancé ne peut pas le
   recevoir et l'option est refusée.
@@ -238,6 +258,25 @@ Preuves sur macOS réel : `npm run test:os`.
   hors du workspace ; aucun outil du modèle n'en crée : elles restent hors
   décision.
 
+## Verdicts et preuves d'acceptation (ticket #9)
+
+Sous le profil, chaque contrôle décisif (contrôles `checks` du contrat,
+`--verify`, à défaut contrôles découverts du projet) passe par la décision
+d'accès, puis ne tourne que si les entrées du vérificateur sont celles que
+l'hôte a figées, et seulement par l'exécuteur isolé. Il laisse au journal un
+verdict `passed`, `failed`, `not_run` ou `error`, avec l'empreinte du contrat,
+celle des entrées figées et celle des fichiers vérifiés. L'état de la tâche
+(`running`, `verified`, `incomplete`, `blocked`, `cancelled`, `uncertain`) en
+est dérivé ; la décision humaine d'accepter reste à part, toujours en attente.
+Une édition postérieure rend la preuve périmée : elle s'affiche `not_run`,
+jamais `passed`.
+
+Le rapport, `report.json` et `report.md` à côté du contrat, est regénéré au
+début (état `running`) et à la fin de chaque tour ; chaque session l'annonce
+par une ligne `· verdict: …`, le headless par une ligne `[verdict] {…}` sur
+stderr. Définitions, mécanisme anti-altération, alternatives et limites :
+`docs/decision-preuves-acceptation.md`.
+
 ## Budget de pas
 
 `budgets.maxSteps` compte les appels au modèle effectués sous un contrat
@@ -258,14 +297,20 @@ le reprend en tête, relu dans le stockage hôte au moment de la compaction
 
 ## Codes de sortie headless
 
-- 0 : run terminé sous un contrat toujours approuvé ;
-- 1 : erreur d'usage (options, contrat invalide) ou run en échec ;
+- 0 : run terminé sous un contrat toujours approuvé, tâche `verified` (chaque
+  critère requis `passed` sur les fichiers actuels, rapport écrit) ;
+- 1 : erreur d'usage (options, contrat invalide) ou aucun modèle joignable,
+  avant tout tour ;
 - 3 : le contrat n'autorise pas l'exécution (proposé, expiré, périmé,
   empreinte refusée, stockage hôte illisible ou de schéma inconnu, journal
-  tronqué, politique d'accès illisible) ; il prime sur 4 quand le contrat
-  n'est plus approuvé en fin de run ;
+  tronqué, politique d'accès illisible, `--approve-verifiers` refusé) ; il
+  prime sur 4 et 5 quand le contrat n'est plus approuvé en fin de run ;
 - 4 : suspendu sur une décision « ask » de la politique d'accès, rien n'a été
-  exécuté pour cette action.
+  exécuté pour cette action ; il prime sur 5 ;
+- 5 (#9) : le run est allé à son terme ou s'est arrêté, mais la tâche n'est
+  pas `verified` — critère en échec, non couvert, non exécuté, en erreur,
+  preuve périmée, vérificateur modifié, ou rapport non écrit. Avant #9, un
+  run en échec sortait 1.
 
 ## Limites connues
 
@@ -286,9 +331,12 @@ le reprend en tête, relu dans le stockage hôte au moment de la compaction
   l'appelant peut l'ajouter à `paths.protect`.
 - Pas de verrou : deux sessions simultanées sous le même contrat peuvent
   perdre un débit de pas (verrou mono-écrivain : #10).
-- Les événements `verdict` sont reconnus par la grammaire mais pas encore
-  produits (#9). Les événements `fiche` (#30) le sont à chaque lecture
-  d'une fiche installée côté hôte (`docs/decision-fiches-hote.md`).
+- Les événements `verdict` sont produits par chaque contrôle décisif (#9) ;
+  leurs limites (ensemble des entrées du vérificateur par convention, zéro
+  test reconnu par les résumés des lanceurs courants…) sont dans
+  `docs/decision-preuves-acceptation.md`. Les événements `fiche` (#30) le
+  sont à chaque lecture d'une fiche installée côté hôte
+  (`docs/decision-fiches-hote.md`).
 - La suspension headless (sortie 4) est testée par ses briques (agent non
   interactif, rapport de décision), pas par le CLI réel contre un backend.
 - Le run headless approuvé est testé par le CLI réel sur macOS (#18,

@@ -519,7 +519,28 @@ export class Session {
     ui.println(mission.markdown());
     const st = mission.status();
     if (st.state === "approved") {
-      ui.status("· this contract is already approved");
+      // #9 : les entrées du vérificateur ont changé (ou n'ont jamais été
+      // figées) : les approuver telles quelles est un nouvel acte humain.
+      const v = mission.verifierState();
+      if (v.state === "frozen" || !v.current) {
+        ui.status(v.state === "frozen" ? "· this contract is already approved; its verifier inputs are unchanged" : `· this contract is already approved; its verifier inputs cannot be frozen (${v.reason})`);
+        return;
+      }
+      ui.status(v.state === "changed" ? `· verifier inputs changed since approval: ${v.changes.join(", ")}` : `· verifier inputs not frozen (${v.reason})`);
+      const pick = await ui.select(`Approve the verifier inputs as they are now (${v.current.slice(0, 16)})? Acceptance checks then trust these tests, configuration and scripts.`, [
+        { label: "Approve", hint: "freeze the current tests, configuration and scripts" },
+        { label: "Cancel", hint: "acceptance stays blocked until they are restored" },
+      ]);
+      if (pick !== 0) {
+        ui.status("· verifier inputs not approved — acceptance stays blocked");
+        return;
+      }
+      try {
+        mission.approveVerifiers(this.surface === "web" ? "web-human" : "terminal-human", v.current);
+        ui.status(`· verifier inputs approved (${v.current.slice(0, 16)})`);
+      } catch (err: any) {
+        ui.error(String(err?.message ?? err));
+      }
       return;
     }
     const pick = await ui.select(`Approve mission contract ${mission.fingerprint.slice(0, 16)}? Writes and commands are then allowed within ${st.maxSteps - st.steps} model steps.`, [

@@ -16,6 +16,7 @@ import { loadConfig } from "./config";
 import { authorizeHeadless, Mission, MISSION_EXIT_CODE, MissionError, missionExitCode, missionReport } from "./harness/mission";
 import { keepHostProbesOutOf } from "./harness/host-probe";
 import { BYPASS_UNDER_MISSION, decisionReport, POLICY_SUSPENDED_EXIT_CODE, PolicySuspension } from "./harness/policy";
+import { VERDICT_EXIT_CODE, verdictExitCode, verdictSummary } from "./harness/proofs";
 import { isolationLine, missionExecutor } from "./harness/sandbox-executor";
 import { ContextManager } from "./context";
 import { EventBus } from "./events";
@@ -60,6 +61,9 @@ interface CliArgs {
   mission?: string;
   /** Approbation headless de l'appelant : l'empreinte exacte du contrat. */
   approve?: string;
+  /** Nouvelle approbation headless des entrées du vérificateur (#9) :
+   * l'empreinte exacte de ce qui sera figé. */
+  approveVerifiers?: string;
   effort?: Effort | null; // null = explicit "default"
   web?: boolean;
   webPort?: number;
@@ -120,6 +124,12 @@ function parseArgs(argv: string[]): CliArgs {
         console.error("--approve needs the contract fingerprint: 64 hexadecimal characters, as printed by smol --mission.");
         process.exit(1);
       }
+    } else if (a === "--approve-verifiers") {
+      args.approveVerifiers = argv[++i];
+      if (!/^[0-9a-f]{64}$/.test(args.approveVerifiers ?? "")) {
+        console.error("--approve-verifiers needs the verifier fingerprint: 64 hexadecimal characters, as printed in the [mission] line (verifiers.current).");
+        process.exit(1);
+      }
     } else if (a === "--install-fiches") args.installFiches = true;
     else if (a === "--print" || a === "-p") args.print = argv[++i];
     else if (a === "--web") {
@@ -160,6 +170,11 @@ ${c.bold("Options:")}
   --approve <fingerprint>      headless approval of that exact contract (requires -p and
                                --mission); in the terminal or web UI, type /approve.
                                Without approval a -p run stops with exit code 3.
+                               Approval also freezes the verifier inputs (tests, their
+                               configuration, the scripts that run them); a -p run
+                               whose required criteria are not all verified exits 5
+  --approve-verifiers <fp>     headless approval of the verifier inputs as they are now
+                               (fingerprint from the [mission] line), after they changed
                                The profile's access policy (policy.json, next to the
                                contract in ~/.smolcoder/harness/) decides every tool,
                                check and web-terminal line; a -p run whose next step
@@ -246,6 +261,10 @@ async function main(): Promise<void> {
     console.error("--approve is the headless caller's approval: it requires a -p run. In the terminal or web UI, type /approve.");
     process.exit(1);
   }
+  if (args.approveVerifiers !== undefined && (!args.mission || args.print === undefined || args.web)) {
+    console.error("--approve-verifiers is the headless caller's approval of the verifier inputs: it requires -p and --mission. In the terminal or web UI, type /approve.");
+    process.exit(1);
+  }
   if (!fs.existsSync(args.workspace) || !fs.statSync(args.workspace).isDirectory()) {
     console.error(`Workspace folder does not exist: ${args.workspace}`);
     process.exit(1);
@@ -300,7 +319,7 @@ async function runHeadless(args: CliArgs, mission: Mission | null): Promise<void
   if (mission) {
     // Décidé avant de chercher un modèle : sans approbation valable, rien ne
     // tourne, rien n'attend de réponse, la sortie est non nulle.
-    const gate = authorizeHeadless(mission, args.approve);
+    const gate = authorizeHeadless(mission, args.approve, { verify: args.verify, approveVerifiers: args.approveVerifiers });
     process.stderr.write(`[mission] ${JSON.stringify(gate.report)}\n`);
     if (!gate.ok) {
       ui.println(mission.markdown());
@@ -310,6 +329,15 @@ async function runHeadless(args: CliArgs, mission: Mission | null): Promise<void
       return;
     }
     ui.status(`· ${gate.message}`);
+    // #9 : le run part, mais aucun contrôle décisif ne passera tant que les
+    // entrées du vérificateur ne sont pas celles que l'hôte a figées.
+    const v = gate.verifiers;
+    if (v && v.state !== "frozen") {
+      ui.warn(
+        `· verifier inputs ${v.state === "changed" ? `changed since approval (${v.changes.slice(0, 10).join(", ")}${v.changes.length > 10 ? ", …" : ""})` : `not frozen (${v.reason})`}: ` +
+          `acceptance cannot pass until they are restored${v.current ? `, or the host approves them as they are: --approve-verifiers ${v.current}` : ""}`
+      );
+    }
   }
   const bus = new EventBus();
   const cfg = loadConfig();
@@ -387,6 +415,15 @@ async function runHeadless(args: CliArgs, mission: Mission | null): Promise<void
       process.stderr.write(`[policy] ${JSON.stringify(decisionReport(err.decision))}\n`);
     }
   }
+  // Profil mission (#9) : la sortie suit le verdict, constaté après le tour —
+  // 0 seulement quand chaque critère requis est `passed` sur les fichiers
+  // actuels et que le rapport est écrit ; 4 (suspension) et 3 (contrat)
+  // priment.
+  const verdict = mission ? agent.missionVerdict : null;
+  if (mission) {
+    if (verdict) process.stderr.write(`[verdict] ${JSON.stringify(verdictSummary(verdict.report, verdict.files?.json ?? null))}\n`);
+    if (process.exitCode !== POLICY_SUSPENDED_EXIT_CODE) process.exitCode = verdict?.files ? verdictExitCode(verdict.report) : VERDICT_EXIT_CODE;
+  }
   const missionEnd = mission ? mission.status() : null;
   if (mission && missionEnd) {
     const code = missionExitCode(missionEnd);
@@ -397,12 +434,16 @@ async function runHeadless(args: CliArgs, mission: Mission | null): Promise<void
   }
   const st = agent.lastTurnStats;
   if (st) {
+    const vr = agent.verificationResult;
     // Machine-readable summary for scripts/benchmarks comparing backends.
     process.stderr.write(
       `[stats] ${JSON.stringify({
         backend: chosen.backend,
         outcome: agent.outcome,
-        verification: agent.verificationResult ? { attempts: agent.verificationResult.attempts, passed: agent.verificationResult.passed } : null,
+        // Profil mission : jamais un vert périmé — une réussite dont la preuve
+        // ne tient plus sur les fichiers actuels n'est pas `passed`.
+        verification: vr ? { attempts: vr.attempts, passed: vr.passed && !(verdict?.report.stale ?? false) } : null,
+        ...(verdict ? { verdict: verdict.report.task.state } : {}),
         model: chosen.id,
         durationMs: st.durationMs,
         modelCalls: st.modelCalls,

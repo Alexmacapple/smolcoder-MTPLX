@@ -129,11 +129,13 @@ fs.mkdirSync(path.join(HOME, ".ssh"), { recursive: true });
 fs.writeFileSync(path.join(HOME, ".ssh", "id_fake"), HOME_SECRET);
 
 /** Un workspace neuf et sa mission, préparée (et approuvée si demandé) par
- * l'hôte dans le stockage du faux dossier personnel, que smol relira. */
-function fixture(tag, { approve = false, policy = {} } = {}) {
+ * l'hôte dans le stockage du faux dossier personnel, que smol relira.
+ * `checks` (#9) : les contrôles de l'hôte qui couvrent le critère ; sans eux,
+ * un run headless sous --mission sort 5 (critère non couvert). */
+function fixture(tag, { approve = false, policy = {}, checks } = {}) {
   const ws = tmp(`smol-e2e-${tag}-`);
   const src = path.join(tmp("smol-e2e-src-"), "contract.json");
-  fs.writeFileSync(src, JSON.stringify({ schema: "smolcoder/contract/v1", id: `e2e-${tag}`, title: "Bout en bout", problem: "p", outcome: "o", acceptance: ["a"], budgets: { maxSteps: 50 } }));
+  fs.writeFileSync(src, JSON.stringify({ schema: "smolcoder/contract/v1", id: `e2e-${tag}`, title: "Bout en bout", problem: "p", outcome: "o", acceptance: ["a"], budgets: { maxSteps: 50 }, ...(checks ? { checks } : {}) }));
   const m = Mission.prepare({ source: src, workspace: ws });
   store.writePolicy(m.dir, { ...store.DEFAULT_POLICY, ...policy });
   if (approve) m.approve("terminal-human");
@@ -189,7 +191,7 @@ const tagged = (stderr, tag) => {
 // ---- headless ---------------------------------------------------------------
 
 test("H03-4 OS AC5 (headless): the real smol binary, headless under --mission, runs the model's run_command and the --verify check inside the sandbox — a witness outside the workspace stays unreadable, host probes run no planted program — while the same run without --mission reads it", { skip, timeout: 180000 }, async (t) => {
-  const f = fixture("headless");
+  const f = fixture("headless", { checks: [{ command: "sh verify.sh", covers: [1] }] });
   const { markers, PATH } = plantProbes(f.ws);
   assert.equal(fs.readFileSync(path.join(outside, "witness.txt"), "utf8"), WITNESS, "the host reads the witness: a refusal below is the sandbox's");
   const script = () => [
@@ -233,7 +235,7 @@ test("H03-4 OS AC3 (headless): a development server started as a background task
   const port = await free();
   let other = await free();
   while (other === port) other = await free();
-  const f = fixture("devserver", { policy: { tasks: "workspace", listen: [`localhost:${port}`] } });
+  const f = fixture("devserver", { policy: { tasks: "workspace", listen: [`localhost:${port}`] }, checks: [{ command: "sh verify.sh", covers: [1] }] });
   fs.writeFileSync(path.join(f.ws, "package.json"), JSON.stringify({ name: "devserver", version: "1.0.0", scripts: { dev: `node server.cjs ${port}` } }));
   fs.writeFileSync(path.join(f.ws, "server.cjs"), 'const port = Number(process.argv[2]);\nrequire("http").createServer((q, r) => r.end("pong-dev-server")).listen(port, "127.0.0.1", () => console.log("dev server on http://127.0.0.1:" + port));\n');
   fs.writeFileSync(path.join(f.ws, "other.cjs"), 'require("http").createServer().listen(Number(process.argv[2]), "127.0.0.1", () => { console.log("other-port=LISTENING"); process.exit(0); }).on("error", (e) => console.log("other-port=" + e.code));\n');
