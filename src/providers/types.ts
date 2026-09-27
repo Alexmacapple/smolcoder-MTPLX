@@ -35,7 +35,19 @@ export interface Msg {
   compactNote?: boolean;
   /** Harness-owned records of earlier tools, never a user turn or assistant answer. */
   historyNote?: boolean;
+  /** Provenance d'un message `user` (#10) : `human` pour une demande tapée
+   * par une personne (ou l'invite de l'appelant headless), `harness` pour une
+   * relance ou une note injectée par le harnais. Jamais envoyée au modèle, dont
+   * le rôle reçu ne change pas. Absente : message antérieur à #10, provenance
+   * inconnue — jamais devinée. */
+  origin?: MessageOrigin;
+  /** Demande humaine à laquelle le harnais a ajouté des consignes (#10) : le
+   * texte tapé et les consignes ajoutées, gardés séparés. `content` vaut
+   * `human` puis le rendu des pièces jointes éventuelles, puis `harness`. */
+  parts?: { human: string; harness: string };
 }
+
+export type MessageOrigin = "human" | "harness";
 
 export interface ToolSpec {
   name: string;

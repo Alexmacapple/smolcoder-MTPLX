@@ -326,7 +326,7 @@ export class ContextManager {
         ? [{ ...message, toolCalls: remainingCalls }, ...results.filter((result) => !removed.has(result.toolCallId!))]
         : message.content ? [{ role: "assistant", content: message.content }] : [];
       messages.splice(i, results.length + 1, ...retained, {
-        role: "user", historyNote: true,
+        role: "user", historyNote: true, origin: "harness",
         content: `[Harness history record — earlier tool executions, not a new request. Applied code omitted; read_file returns current source. Future changes require actual tool calls.]\n${receipts.join("\n")}`,
       });
       this.resetAnchor();
@@ -491,7 +491,7 @@ export class ContextManager {
       (facts.length ? truncateEnd(facts.join("\n"), 2400) + "\n" : "") +
       (narrative ? `\n[Model-written summary; file contents and tool results take precedence.]\nHand-over notes:\n${narrative}` : "");
 
-    return [system, { role: "user", content: note, compactNote: true }, ...tail];
+    return [system, { role: "user", content: note, compactNote: true, origin: "harness" }, ...tail];
   }
 }
 

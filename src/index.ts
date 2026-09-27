@@ -453,7 +453,8 @@ async function runHeadless(args: CliArgs, mission: Mission | null): Promise<void
   const advice = effortAdvice(chosen, effortSetting);
   if (advice) ui.warn(`  ${advice}`);
   try {
-    await agent.runTurn(args.print! + (args.proposePlan ? proposalInstruction() : ""));
+    // #10 : la consigne du run de proposition reste séparée de l'invite de l'appelant.
+    await agent.runTurn(args.print!, [], args.proposePlan ? proposalInstruction() : "");
     if (agent.outcome !== "completed") process.exitCode = 1;
   } catch (err: any) {
     ui.error(`\n${err?.message ?? err}`);

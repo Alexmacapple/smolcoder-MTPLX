@@ -1763,6 +1763,38 @@ blanc : l'étiquette Git `reference`, sans laquelle le diff du périmètre
 sur l'arbre final, aucun test sauté. SHA `ed4ba0b` reporté sur l'entrée
 précédente.
 
+### (ce commit) — Provenance des messages dans l'état — Réf #10
+
+`src/providers/types.ts`, `src/agent.ts`, `src/context.ts`, `src/index.ts`,
+`test/reprise.test.js` (nouveau). Ticket #10 (H05), premier commit : le
+périmètre ajouté par le commentaire du 2026-09-27, préalable au journal
+d'effets et à la reprise, qui doivent savoir qui a parlé.
+
+Chaque message `user` porte sa provenance, `origin` : `human` pour une demande
+tapée (ou l'invite de l'appelant headless), `harness` pour une relance ou une
+note du harnais — résultat des contrôles du projet, échec et réussite
+d'acceptation, réponse tronquée, réponse vide, plan inachevé, note de
+compaction et relevé d'historique. La demande humaine à laquelle le harnais
+ajoute ses consignes (vérification, bloc du contrat, consigne du run
+`--propose-plan`) garde les deux textes séparés, `parts: {human, harness}`.
+Rien ne change pour le modèle : même rôle, même contenu, et la sérialisation
+vers Ollama et LM Studio ne transporte aucun de ces champs. Le snapshot des
+sessions web les conserve tels quels. Un message antérieur à ce commit n'a pas
+de provenance : elle reste inconnue, jamais devinée. `runTurn` reçoit la note
+de l'hôte en troisième argument au lieu d'une concaténation faite par
+`src/index.ts`, sans changer le texte envoyé.
+
+Vérifications. Deux tests « H05 provenance » de `test/reprise.test.js`,
+fournisseur simulé, faux dossier personnel : une session terminal avec une
+demande, trois relances (réponse vide, tronquée, plan inachevé) et une seconde
+demande, puis sauvegarde, passage par JSON et restauration dans une nouvelle
+session — chaque message `user` a sa provenance exacte, le texte tapé est
+identique à l'octet, et le fil Ollama et LM Studio reste inchangé ; puis une
+relance d'acceptation, une note ajoutée par l'hôte et une note de compaction.
+Rouge constaté avant le code : provenance `undefined` pour les cinq messages.
+`npm test` 345/345 (343 et 2 nouveaux), aucun test sauté, sous un HOME et un
+cache npm temporaires.
+
 ## Hors dépôt (machine locale)
 
 - Fork créé : `Alexmacapple/smolcoder-MTPLX`.

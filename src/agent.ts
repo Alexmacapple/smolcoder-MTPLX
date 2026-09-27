@@ -436,7 +436,7 @@ export class Agent {
     this.progressFailure = passed ? "" : output;
     this.ui.toolResult(output);
     await this.bus.emit("post_progress_check", { command, passed, output });
-    this.messages.push({ role: "user", content: passed
+    this.messages.push({ role: "user", origin: "harness", content: passed
       ? `[Project checks passed: ${command}. Continue the remaining work in the original request.]`
       : `[Progress checks failed. Fix the first concrete failure before further investigation. Continue the same task.\nCommand: ${command}\n${truncateMiddle(output, this.ctxMgr.toolResultCharLimit())}]` });
     return true;
@@ -489,7 +489,7 @@ export class Agent {
     if (passed) { this.ui.status("· acceptance checks passed"); return true; }
     if (attempts >= (check.maxAttempts ?? 6)) throw new Error(`Acceptance checks still fail after ${attempts} attempts. The task is incomplete.\n${truncateMiddle(output, 1600)}`);
     this.ui.status("· acceptance failed — continuing repairs automatically");
-    this.messages.push({ role: "user", content: `[Acceptance failed; the task is not complete. Repair the first failing behavior. The harness will rerun acceptance automatically. Do not skip tests or report success.${check.source === "project" && !this.mission ? `\nCommand: ${check.command}` : ""}\n${truncateMiddle(output, this.ctxMgr.toolResultCharLimit())}]` });
+    this.messages.push({ role: "user", origin: "harness", content: `[Acceptance failed; the task is not complete. Repair the first failing behavior. The harness will rerun acceptance automatically. Do not skip tests or report success.${check.source === "project" && !this.mission ? `\nCommand: ${check.command}` : ""}\n${truncateMiddle(output, this.ctxMgr.toolResultCharLimit())}]` });
     if (this.sameVerificationFailures === 2 && this.canRefreshVerification) {
       this.ui.status("· same check failed again — refreshing working context");
       // Repeating an unchanged hypothesis in a larger transcript is not
@@ -524,7 +524,9 @@ export class Agent {
     }
   }
 
-  async runTurn(userInput: string, attachments: Attachment[] = []): Promise<void> {
+  /** `harnessNote` : une consigne que l'hôte ajoute à la demande (le run de
+   * proposition du plan, #29), gardée séparée du texte tapé (#10). */
+  async runTurn(userInput: string, attachments: Attachment[] = [], harnessNote = ""): Promise<void> {
     await this.ctxMgr.foreground();
     this.ctxMgr.cancelBackground(true);
     this.outcome = "running";
@@ -549,14 +551,20 @@ export class Agent {
     // Only a fresh conversation can safely discard every old narrative.
     this.canRefreshVerification = !this.originalRequest && this.messages.length === 1;
     const rendered = renderAttachmentsForModel(attachments, this.provider.vision !== false);
-    const request = userInput || (attachments.length ? `See the attached ${attachments.length === 1 ? "file" : "files"}.` : "");
+    const typed = userInput || (attachments.length ? `See the attached ${attachments.length === 1 ? "file" : "files"}.` : "");
+    const request = typed + harnessNote;
     // Compaction keeps the request text, so the file names ride along with it.
     const requestNote = attachments.length ? `${request} [attached: ${attachments.map((a) => a.name).join(", ")}]` : request;
     if (!this.originalRequest) this.originalRequest = requestNote;
     this.currentRequest = requestNote; // the task compaction must never lose
+    // #10 : le texte tapé et les consignes du harnais restent séparés dans
+    // l'état, sans changer ce que reçoit le modèle.
+    const added = harnessNote + this.verificationInstruction() + this.missionInstruction();
     this.messages.push({
       role: "user",
-      content: request + (rendered.text ? "\n\n" + rendered.text : "") + this.verificationInstruction() + this.missionInstruction(),
+      content: typed + (rendered.text ? "\n\n" + rendered.text : "") + added,
+      origin: "human",
+      parts: { human: typed, harness: added },
       ...(rendered.images.length ? { images: rendered.images } : {}),
     });
     this.abort = new AbortController();
@@ -670,7 +678,7 @@ export class Agent {
               : noContent
                 ? `[${this.truncatedCallHint()}]`
                 : `[Your reply was cut off by the output length limit of ${this.provider.maxOutputTokens} tokens. Continue where you left off. If a file was too large for one write_file call, split the content into separate files — writing the same path again replaces it completely.]`;
-            this.messages.push({ role: "user", content: nudgeText });
+            this.messages.push({ role: "user", origin: "harness", content: nudgeText });
             continue;
           }
           if (!result.content.trim() && nudges < 2) {
@@ -678,6 +686,7 @@ export class Agent {
             this.ui.status("· empty reply — nudging the model");
             this.messages.push({
               role: "user",
+              origin: "harness",
               content:
                 "[Your reply was empty. If the task is finished, summarize what you did. Otherwise make the next tool call now.]",
             });
@@ -698,6 +707,7 @@ export class Agent {
             this.ui.status("· plan has unfinished steps — nudging the model to continue");
             this.messages.push({
               role: "user",
+              origin: "harness",
               content: `[Your plan still has unfinished steps: ${plan.pendingSummary()}. Continue with the next step now — or if a step no longer applies, mark it done with the plan tool and explain why.]`,
             });
             continue;
@@ -844,7 +854,7 @@ export class Agent {
             }
             // Passing acceptance does not authorize dropping the remaining
             // task: ask for a final requirements review before completion.
-            this.messages.push({role:"user",content:"[Acceptance passed. Review the original request, finish any remaining work, and summarize the verified result.]"});
+            this.messages.push({role:"user",origin:"harness",content:"[Acceptance passed. Review the original request, finish any remaining work, and summarize the verified result.]"});
             repeatedReads.clear(); repeats = 0; failedCalls = 0; readsSinceAction = 0; lastProgressCheck = toolCallsThisTurn;
             continue agentLoop;
           }
@@ -860,7 +870,7 @@ export class Agent {
           if (this.verification && this.verificationResult) {
             // Once acceptance has found a real failure, keep checking THAT
             // behavior. Passing a weaker build check cannot resolve it.
-            if (await runAcceptance()) this.messages.push({role:"user",content:"[Acceptance checks passed. Finish your response with the verified result.]"});
+            if (await runAcceptance()) this.messages.push({role:"user",origin:"harness",content:"[Acceptance checks passed. Finish your response with the verified result.]"});
             readsSinceAction = 0; repeatedReads.clear(); repeats = 0; failedCalls = 0;
           } else if (await this.checkProgress(signal)) {
             readsSinceAction = 0; repeatedReads.clear(); repeats = 0; failedCalls = 0;
