@@ -1,8 +1,8 @@
 # Vérification finale du comportement
 
-Après la revue (`docs/skills/revue-de-code.md`), avant le commit : faire
-tourner le changement et observer s'il fait ce qui est demandé. La boucle de
-tests (`docs/skills/tdd.md`) construit, la revue lit le diff ; ni l'une ni
+Après la revue (fiche `revue-de-code`), avant le commit : faire tourner le
+changement et observer s'il fait ce qui est demandé. La boucle de tests
+(fiche `tdd`) construit, la revue lit le diff ; ni l'une ni
 l'autre n'observe le comportement. Version mono-agent : pas de sous-agent
 vérificateur, tu vérifies toi-même, en observateur et non en auteur.
 
@@ -23,7 +23,7 @@ forme observable, et dis que c'est ton hypothèse.
 ## 2. Lance ce qui a été modifié
 
 Construis puis démarre la chose changée par le chemin réel de l'utilisateur
-(ici : `npm run build`, puis `node dist/index.js …`, une commande, un
+(par exemple : construire puis lancer le binaire, une commande, un
 serveur), pas une fonction appelée à la main. Montre chaque commande et la
 ligne décisive de sa sortie, code de sortie compris. Changement sans
 exécutable (documentation, configuration) : exerce-le par son usage réel (la

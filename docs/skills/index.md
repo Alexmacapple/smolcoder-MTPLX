@@ -3,7 +3,11 @@
 Portées depuis les skills de Matt Pocock
 ([mattpocock/skills](https://github.com/mattpocock/skills), commit `c55ee46`,
 licence MIT), condensées en français et adaptées à smolcoder : mono-agent
-(pas de sous-agents), renvois par chemin de fichier, conventions du fork.
+(pas de sous-agents), génériques pour servir sur tout projet. Une fiche en
+nomme une autre par son nom (« la fiche `tdd` ») : `docs/skills/tdd.md` dans
+ce dépôt, `fiche:tdd` ailleurs. Les conventions d'un projet (commande de
+test, journal, format des commits) restent dans son `AGENTS.md`, jamais dans
+une fiche.
 L'axe sécurité de la revue et la vérification finale viennent du guide
 Anthropic ([AI-native SDLC
 playbook](https://claude.com/blog/the-ai-native-sdlc-playbook), ticket #31).

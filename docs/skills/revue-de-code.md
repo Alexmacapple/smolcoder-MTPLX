@@ -25,9 +25,9 @@ s'il existe, lis-le avant les axes.
 
 ## Axe 1 — standards
 
-Ce que le dépôt documente comme façon d'écrire le code (ici : `AGENTS.md`, le
-journal `CHANGELOG-MTPLX.md` exigé dans le même commit ; le `REVIEW.md` du
-projet s'il existe). Un standard documenté du dépôt prime toujours sur la
+Ce que le dépôt documente comme façon d'écrire le code (son `AGENTS.md` ou
+équivalent, par exemple un journal exigé dans le même commit ; le
+`REVIEW.md` du projet s'il existe). Un standard documenté du dépôt prime toujours sur la
 grille ci-dessous ; un `REVIEW.md` fixe en outre les niveaux d'importance, les
 exclusions et la limite des remarques mineures de toute la revue, sans
 supprimer ni fusionner d'axe. Ignore ce que l'outillage vérifie déjà.

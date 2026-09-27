@@ -901,7 +901,7 @@ un jeton dans une URL de remote devient lisible ; l'écoute accordée reste
 joignable du réseau local ; indication dans l'interface, campagne archivée
 et sondes de `check.ts` et `detect.ts` relèvent de #18.
 
-### (ce commit) — Fiches de méthode servies hors du dépôt — Closes #30
+### `3dde690` — Fiches de méthode servies hors du dépôt — Closes #30
 
 `src/fiches.ts` (nouveau), `src/prompt.ts`, `src/tools/index.ts`,
 `src/tools/fs-tools.ts`, `src/harness/store.ts`, `src/harness/mission.ts`,
@@ -973,6 +973,26 @@ du workspace nommé littéralement `fiche:…` est masqué tant que des fiches
 sont installées ; le paquet npm ne publie pas `docs/skills/`, la commande
 y refuse ; la conduite de Qwen face à l'index n'est pas mesurée (aucun run
 MTPLX).
+
+### (ce commit) — Fiches génériques, servies sur tout projet
+
+`docs/skills/index.md`, `implementer.md`, `tdd.md`,
+`verification-finale.md`, `conflits-git.md`, `revue-de-code.md`. Suite de
+#30, relevée à la revue de sa livraison : dès que les fiches sont servies
+sur tout projet, leurs consignes propres au dépôt smolcoder deviennent
+fausses ailleurs. `implementer.md` exigeait une entrée dans
+`CHANGELOG-MTPLX.md` et un message en français à la forme nominale,
+`tdd.md` disait « Dans ce dépôt : `npm test` = build + suite », la
+vérification et les conflits citaient `npm run build`, `node dist/index.js`
+et `npm test` ; sur un autre projet, Qwen aurait cherché un journal et une
+commande qui n'existent pas. Ces consignes renvoient désormais aux
+conventions du projet (son `AGENTS.md` : commande de test, journal s'il en
+tient un, format des commits) ; celles de smolcoder restent dans l'`AGENTS.md`
+du fork, qui les portait déjà. Les sept renvois par chemin entre fiches
+(`docs/skills/tdd.md`…) deviennent des renvois par nom (« la fiche `tdd` »),
+qui se lisent `docs/skills/tdd.md` dans ce dépôt et `fiche:tdd` ailleurs ;
+le sommaire l'explique. Aucune modification de code ; SHA `3dde690` reporté
+sur l'entrée précédente.
 
 ## Hors dépôt (machine locale)
 
