@@ -2373,7 +2373,7 @@ fois puis en suite complète). `src/`, `test/`, `docs/skills/` et le
 protocole inchangés. Aucun essai MTPLX à ce commit. SHA `8f89ba1` reporté
 sur l'entrée précédente.
 
-### (ce commit) — Mesure #29 : ni effet ni blocage — Réf #29
+### `e2a33f9` — Mesure #29 : ni effet ni blocage — Réf #29
 
 `docs/mesure-plan-approuve-2026-09-27.md`, `bench/mesure-plan-approuve/`
 (`mesure.py`, `faux-mtplx.py`, `test-mesure.sh`). Campagne jouée sur
@@ -2402,6 +2402,18 @@ manifestes de la campagne sont inchangés. `npm test` 374/374 ;
 `shellcheck -S warning` et `ruff` sans avertissement. `src/`, `test/`,
 `docs/skills/` et le protocole inchangés. SHA `cb507fa` reporté sur
 l'entrée précédente.
+
+### (ce commit) — Clôture de #19 et #29 dans la doc
+
+`README.md`, `docs/profil-mission.md`. #19 et #29 sont fermés sur décision
+d'Alex (2026-09-27), après leurs mesures au banc : aucun effet démontré
+pour les retours d'outils ; ni effet ni blocage pour le plan approuvé, pour
+2,5 fois plus d'appels au modèle, et le plan reste facultatif. Le README
+remplace « Chantiers restants » par les trois verdicts de mesure et les
+deux chantiers ouverts (#52, sécurité sous `--mission` ; #53, confirmation
+de `copie-figee`). Le profil mission gagne l'effet mesuré du plan dans ses
+limites. SHA `e2a33f9` reporté sur l'entrée précédente. Documentation
+seule.
 
 ## Hors dépôt (machine locale)
 
