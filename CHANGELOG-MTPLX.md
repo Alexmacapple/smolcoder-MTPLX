@@ -2257,6 +2257,24 @@ après `verification-finale`). Vérifications : `npm test` 292/292,
 `test-banc.sh` PASS et `test-etude.sh` PASS, rejoués sur ce commit.
 Documentation seule. SHA `be8fa3e` reporté sur l'entrée précédente.
 
+### (ce commit) — Étude #33 rejouable : fiches A figées
+
+`bench/lecons-fiches/fiches-a.sh` (nouveau), `essai.sh`, `etude.py`,
+`test-etude.sh`. Constaté à la fusion de l'étude sur `main` :
+`test-etude.sh` y échouait (26 vérifications) alors qu'il passait sur sa
+branche. Les scripts lisaient les fiches A dans le `docs/skills/` vivant
+puis exigeaient les empreintes de `protocole.json` ; or #9 et #29 ont
+modifié `verification-finale.md` et `revue-de-code.md` depuis la base de
+l'étude, et chaque essai bloquait (« Fichiers servis différents du protocole
+figé »). Ce test aurait été rouge à jamais. Les fiches A viennent désormais
+du commit de pré-enregistrement `309c396` (`fiches-a.sh`, par `git show`) :
+mêmes octets, empreintes du protocole toujours vérifiées (8 fiches
+conformes). Le contrôle d'équivalence entre l'installation par la fonction
+et `smol --install-fiches` garde les fiches vivantes, car il compare deux
+chemins d'installation. Ni le protocole, ni les correctifs, ni les tâches,
+ni les résultats ne changent. Rouge : 26 échecs sur `main` ; vert : PASS,
+34 contrôles.
+
 ## Hors dépôt (machine locale)
 
 - Fork créé : `Alexmacapple/smolcoder-MTPLX`.

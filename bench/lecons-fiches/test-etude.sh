@@ -152,7 +152,7 @@ python3 "$B/etude.py" controler-protocole "$REPO" > /dev/null 2>&1 && ok "protoc
 for lecon in decouverte-tests copie-figee; do
   fiche="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["lecons"][sys.argv[2]]["fiche"])' "$B/protocole.json" "$lecon")"
   mkdir -p "$TMP/patch-$lecon"
-  cp "$REPO/docs/skills/$fiche.md" "$TMP/patch-$lecon/$fiche.md"
+  "$B/fiches-a.sh" "$TMP/patch-$lecon"
   (cd "$TMP/patch-$lecon" && patch -s -p3 < "$B/lecons/$lecon/correctif.diff") \
     && cmp -s "$TMP/patch-$lecon/$fiche.md" "$B/lecons/$lecon/$fiche.md" \
     && ok "correctif $lecon appliqué à la fiche A donne la fiche B" || echec "correctif $lecon incohérent"
@@ -364,7 +364,7 @@ PY
 mkdir -p "$TMP/cablage/maison/.smolcoder" "$TMP/cablage/ws" "$TMP/cablage/src"
 cp "$VRAIE_MAISON/.smolcoder/AGENTS.md" "$TMP/cablage/maison/.smolcoder/AGENTS.md"
 printf '{}\n' > "$TMP/cablage/config.json"
-cp "$REPO/docs/skills/"*.md "$TMP/cablage/src/"
+"$B/fiches-a.sh" "$TMP/cablage/src"
 cp "$B/lecons/copie-figee/diagnostic-bugs.md" "$TMP/cablage/src/diagnostic-bugs.md"
 node "$B/installer-fiches.cjs" "$DIST" "$TMP/cablage/src" "$TMP/cablage/maison/.smolcoder/fiches" > "$TMP/cablage/installees.json"
 printf 'print(1)\n' > "$TMP/cablage/ws/app.py"
