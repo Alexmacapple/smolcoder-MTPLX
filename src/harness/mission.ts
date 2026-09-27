@@ -10,6 +10,7 @@ import * as path from "path";
 import type { Plan, PlanHooks } from "../plan";
 import { PathRules, resolveInWorkspace } from "../sandbox";
 import { describeDeviation, freezeVerifiers, PlanDeviation, PlanReport, PROJECT_COMMANDS, scanWorkspace, VerifierState, verifierChanges, WorkspaceScan } from "./proofs";
+import { InstructionPrints, MissionResume } from "./resume";
 import {
   Approval,
   ApprovalAuthority,
@@ -154,6 +155,11 @@ function inside(child: string, parent: string): boolean {
 }
 
 export class Mission {
+  /** La reprise durable de cette session (#10) : journal d'effets, état
+   * incertain, suspension. Ouverte par l'hôte de la session (terminal, web,
+   * headless), ou à défaut au premier effet. */
+  private resumeState: MissionResume | null = null;
+
   private constructor(
     readonly workspace: string,
     readonly source: string,
@@ -161,6 +167,26 @@ export class Mission {
     readonly contract: MissionContract,
     readonly fingerprint: string
   ) {}
+
+  /** Ouvre la reprise pour la session qui porte ce contrat : relit le journal
+   * d'effets et rend incertaine toute action sans résultat (#10). */
+  openResume(surface: string, prints?: InstructionPrints): MissionResume {
+    if (this.resumeState) return this.resumeState;
+    this.resumeState = new MissionResume(this, surface);
+    this.resumeState.open(prints);
+    return this.resumeState;
+  }
+
+  /** La reprise de cette session, ouverte au besoin : sans hôte de session
+   * (agent seul), elle journalise et respecte le verrou d'un autre, sans le
+   * prendre. */
+  get resume(): MissionResume {
+    if (!this.resumeState) {
+      this.resumeState = new MissionResume(this, "agent", false);
+      this.resumeState.open();
+    }
+    return this.resumeState;
+  }
 
   /** Lit le contrat de l'appelant (hors du workspace), le valide et
    * l'enregistre comme proposition dans le stockage hôte. */
@@ -296,8 +322,12 @@ export class Mission {
     }
     const frozen = this.freeze(this.verifierCommands(opts.commands));
     const withPlan = opts.plan !== undefined ? { plan: opts.plan } : {};
-    const approval: Approval = { fingerprint: this.fingerprint, by, at: new Date().toISOString(), verifiers: frozen, ...withPlan };
-    appendProof(this.dir, { type: "approval", fingerprint: this.fingerprint, by, verifiers: frozen?.digest ?? null, ...withPlan });
+    // #10 : la version de la politique en vigueur à l'approbation, gardée avec
+    // elle : un changement ultérieur se constate (et se refuse sous policyRef).
+    const pol = readPolicy(this.dir);
+    const withPolicy = pol.state === "ok" ? { policy: pol.version } : {};
+    const approval: Approval = { fingerprint: this.fingerprint, by, at: new Date().toISOString(), verifiers: frozen, ...withPlan, ...withPolicy };
+    appendProof(this.dir, { type: "approval", fingerprint: this.fingerprint, by, verifiers: frozen?.digest ?? null, ...withPlan, ...withPolicy });
     writeContract(this.dir, createRecord(this.contract, { status: "approved", approval, steps: read.record.usage.steps }));
     return this.status();
   }
@@ -617,6 +647,22 @@ export class Mission {
     return { ...(read.record.approval?.verifiers?.files ?? {}) };
   }
 
+  /** La politique d'accès au regard de l'approbation (#10). Sous `policyRef`,
+   * le contrat nomme la version exacte avec laquelle il est approuvé :
+   * `bound` si c'est celle en vigueur, sinon `mismatch` (tout est refusé).
+   * Sans `policyRef` : `same` ou `changed` par rapport à la version en vigueur
+   * à l'approbation (un changement se constate, sans refus), `unknown` si
+   * l'une des deux manque. */
+  policyBinding(): { ref: string | null; approved: string | null; current: string | null; state: "bound" | "mismatch" | "same" | "changed" | "unknown" } {
+    const read = readPolicy(this.dir);
+    const current = read.state === "ok" ? read.version : null;
+    const ref = this.contract.policyRef;
+    const approved = this.status().approval?.policy ?? null;
+    if (ref !== null) return { ref, approved, current, state: current === ref ? "bound" : "mismatch" };
+    if (!approved || !current) return { ref, approved, current, state: "unknown" };
+    return { ref, approved, current, state: approved === current ? "same" : "changed" };
+  }
+
   /** Les noms protégés de la politique : jamais lus pour une empreinte. */
   pathRules(): PathRules {
     const p = readPolicy(this.dir);
@@ -677,7 +723,8 @@ export class Mission {
     // Une approbation par sujet : celle des entrées ne touche pas au plan
     // approuvé avec le contrat (#29), que contract.json garde.
     const plan = read.record.approval?.plan;
-    const approval: Approval = { fingerprint: this.fingerprint, by, at: new Date().toISOString(), verifiers: now.freeze, ...(plan ? { plan } : {}) };
+    const policy = read.record.approval?.policy;
+    const approval: Approval = { fingerprint: this.fingerprint, by, at: new Date().toISOString(), verifiers: now.freeze, ...(plan ? { plan } : {}), ...(policy ? { policy } : {}) };
     appendProof(this.dir, { type: "approval", fingerprint: this.fingerprint, by, verifiers: now.freeze.digest });
     writeContract(this.dir, { ...read.record, approval, updatedAt: new Date().toISOString() });
     return this.verifierState(commands);
@@ -723,7 +770,11 @@ export class Mission {
   denial(tool: string, args: Record<string, any> = {}): string | null {
     if (PREPARE_TOOLS.has(tool) || (tool === "task" && PREPARE_TASK_ACTIONS.has(String(args?.action)))) return null;
     const s = this.status();
-    if (s.state === "approved") return null;
+    if (s.state === "approved") {
+      // #10 : un effet incertain, un journal abîmé suspendent les effets du
+      // modèle et les vérifications ; le terminal web reste à l'humain.
+      return tool === "terminal" ? null : this.resume.denial();
+    }
     return (
       `${tool} is blocked: the mission contract "${this.contract.id}" (${this.fingerprint.slice(0, 16)}) is ${STATE_LABELS[s.state]} — not approved for execution. ` +
       `Only the host can approve it (headless caller: --approve <fingerprint>; terminal or web user: /approve). ` +
@@ -821,6 +872,12 @@ export function missionReport(mission: Mission, status: MissionStatus = mission.
     approvedBy: status.approval?.by ?? null,
     store: mission.dir,
     policy: policy.state === "ok" ? policy.version : policy.state,
+    // #10 : la politique a changé depuis l'approbation, ou ne correspond pas
+    // à celle que le contrat nomme (policyRef) ; rien sinon.
+    ...(() => {
+      const b = mission.policyBinding();
+      return b.state === "changed" || b.state === "mismatch" ? { policyBinding: { state: b.state, approved: b.ref ?? b.approved, current: b.current } } : {};
+    })(),
     ...(status.reason ? { reason: status.reason } : {}),
     // #9 : l'état des entrées du vérificateur et l'empreinte qu'une nouvelle
     // approbation figerait (--approve-verifiers).
@@ -910,6 +967,11 @@ export function authorizeHeadless(
   const policy = readPolicy(mission.dir);
   if (policy.state !== "ok") {
     return refuse(`The access policy of mission "${id}" is ${policy.state === "absent" ? "missing from" : `${policy.state} in`} the host store (${mission.dir}): the controller cannot decide, so nothing may run. Repair or remove policy.json by hand (removing it restores the default policy at the next run).`);
+  }
+  // #10 : le contrat nomme la politique avec laquelle il est approuvé.
+  const ref = mission.contract.policyRef;
+  if (ref !== null && ref !== policy.version) {
+    return refuse(`The mission contract "${id}" binds the access policy ${ref} (policyRef), and the policy in force is ${policy.version}: restore that policy, or approve a new contract version that names the new one.`);
   }
   if (approve !== undefined && (status.state === "proposed" || (status.state === "approved" && opts.approvePlan !== undefined))) {
     try {

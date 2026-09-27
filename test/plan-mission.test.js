@@ -452,8 +452,9 @@ test("H08 AC5: under --mission without a proposed plan — even with a checklist
   const evs = events(m);
   assert.ok(evs.every((e) => e.type !== "plan"), "no plan event");
   const approval = evs.find((e) => e.type === "approval");
-  assert.deepEqual(Object.keys(approval).sort(), ["at", "by", "fingerprint", "schema", "type", "verifiers"]);
-  assert.deepEqual(Object.keys(store.readContract(m.dir).record.approval).sort(), ["at", "by", "fingerprint", "verifiers"]);
+  // #10 ajoute la version de la politique à l'approbation ; aucune clé du plan.
+  assert.deepEqual(Object.keys(approval).sort(), ["at", "by", "fingerprint", "policy", "schema", "type", "verifiers"]);
+  assert.deepEqual(Object.keys(store.readContract(m.dir).record.approval).sort(), ["at", "by", "fingerprint", "policy", "verifiers"]);
   assert.doesNotMatch(markdownBefore + m.markdown(), /[Pp]lan/, "the contract view says nothing of a plan");
   assert.equal(blockBefore.includes("Plan:"), false);
   assert.equal(m.modelBlock().includes("Plan:"), false);

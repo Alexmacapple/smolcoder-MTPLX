@@ -26,7 +26,8 @@ sans collision pratique, lisible dans un `ls`.
 
 Trois fichiers par workspace, pas plus (le troisième ajouté par #11,
 conformément à la rubrique « conséquences » ci-dessous ; #9 y ajoute deux
-projections, `report.json` et `report.md`, voir « Amendements ») :
+projections, `report.json` et `report.md`, et #10 le verrou `lock` et
+l'enregistrement de reprise `resume.json`, voir « Amendements ») :
 
 - `contract.json` — le contrat de mission approuvé (motif A, plein).
   Schéma versionné (`smolcoder/contract/v1`), statuts fermés
@@ -35,8 +36,9 @@ projections, `report.json` et `report.md`, voir « Amendements ») :
 - `policy.json` — la politique d'accès et sa version (ajouté par #11,
   même grammaire, module propriétaire commun).
 - `proofs.jsonl` — journal en ajout seul (motifs B plein et C minimal) :
-  une ligne JSON par événement, cinq types exactement (le quatrième
-  ajouté par #30, le cinquième par #29, voir « Amendements ») — `contract`
+  une ligne JSON par événement, six types exactement (le quatrième
+  ajouté par #30, le cinquième par #29, le sixième par #10, voir
+  « Amendements ») — `contract`
   (création ou changement d'état d'un contrat), `approval` (qui, quand,
   quelle empreinte), `verdict` (résultat d'une vérification, avec
   l'empreinte des fichiers vérifiés au moment du verdict ; champs fixés
@@ -44,7 +46,9 @@ projections, `report.json` et `report.md`, voir « Amendements ») :
   (lecture d'une fiche de méthode installée : son nom, l'empreinte du
   contenu servi et celle du contrat), `plan` (plan d'implémentation
   proposé par l'agent, contenu entier et empreinte, puis chaque écart au
-  plan approuvé). Un verdict dont
+  plan approuvé), `effect` (journal d'effets : chaque action du modèle
+  enregistrée avant son effet, puis son résultat, et l'état incertain
+  qu'en constate l'hôte à la reprise). Un verdict dont
   les fichiers ont changé depuis est périmé par construction : la
   péremption se constate en comparant les empreintes, elle n'est jamais un
   champ modifiable.
@@ -276,3 +280,98 @@ antérieur à #29 classe un journal qui contient un événement `plan` en
 de lecture, jamais une approbation perdue en silence.
 
 Cet amendement est accepté par la fusion de la pull request du ticket #29.
+
+### 2026-09-27 — ticket #10 : sixième événement `effect`, lignes synchronisées
+
+Écart déclaré à « cinq types exactement », dans le module propriétaire
+`src/harness/store.ts`, schéma inchangé (`smolcoder/proof/v1`). C'est le
+journal d'effets que la rubrique « conséquences » réservait à #10 ; décision
+complète : `docs/decision-reprise-durable.md`.
+
+- Sixième type d'événement, `effect`, quatre natures (`kind`) fermées :
+  `intent` (écrit avant l'effet : `id` de douze caractères hexadécimaux,
+  `session`, `call` — l'identifiant de l'appel d'outil —, `tool` parmi
+  `write_file`, `edit_file`, `run_command`, `task` ; pour un fichier `path`
+  relatif au workspace, `before` et `expected`, empreintes SHA-256 ou null ;
+  pour une commande `command`, 2 000 caractères au plus), `result` (après
+  l'effet : `status` `ok` ou `error`, `observed`, première ligne du retour de
+  l'outil sur 300 caractères au plus, `after` facultatif pour un fichier),
+  `uncertain` (écrit par l'hôte à l'ouverture d'une session pour une
+  intention sans résultat : `evidence` parmi `before`, `expected`, `neither`,
+  `none`, et `current` facultatif) et `resolved` (la décision de l'hôte :
+  `by`, une des autorités d'approbation). Champs fermés et bornés ; `fingerprint`
+  reste l'empreinte du contrat de la session qui écrit.
+- Toute ligne du journal est désormais écrite puis synchronisée sur le disque
+  (`fsync`) avant que l'appelant ne continue : une intention précède toujours
+  son effet. Le fichier est créé en mode 0600.
+
+Pourquoi le journal existant plutôt qu'un fichier d'effets : la règle de la
+rubrique « conséquences » ; un seul journal garde un seul ordre, une seule
+borne et une seule réparation à la main. Le coût : chaque effet ajoute deux
+lignes (quelques centaines d'octets), loin de la borne de 8 Mio pour une
+mission ; la borne atteinte refuse l'intention, donc l'effet (fail-closed).
+
+Compatibilité : un binaire antérieur à #10 lit un journal qui contient un
+événement `effect` comme `unknown-schema`, refus explicite prévu par les
+règles de lecture.
+
+Cet amendement est accepté par la fusion de la pull request du ticket #10.
+
+### 2026-09-27 — ticket #10 : verrou `lock` et enregistrement `resume.json`
+
+Deux fichiers de plus dans le dossier du workspace, grammaire dans le module
+propriétaire `src/harness/store.ts`. Le premier est celui que la rubrique
+« conséquences » réservait à #10 ; le second est un écart déclaré à « trois
+fichiers ». Décision complète : `docs/decision-reprise-durable.md`.
+
+- `lock` (`smolcoder/lock/v1`) : `pid`, `host`, `session` (douze caractères
+  hexadécimaux), `surface` (`terminal`, `web`, `headless`), `since`. Créé
+  exclusivement (`O_EXCL`, mode 0600, synchronisé) par la session qui ouvre
+  le profil ; retiré par elle seule à sa fin (la session qui l'a posé,
+  vérifiée à la relecture). Un verrou dont le processus n'existe plus sur
+  cette machine est remplacé atomiquement puis relu ; un verrou vivant n'est
+  jamais pris ; un verrou illisible refuse toute écriture jusqu'à réparation
+  à la main. Il ne bloque pas un éditeur externe : la session revérifie avant
+  chaque effet.
+- `resume.json` (`smolcoder/resume/v1`) : l'état que la dernière session a
+  laissé — `at`, `session`, `surface`, `contract` (empreinte), `head` (révision
+  Git lue dans `.git`), `files` (`digest`, l'empreinte globale de #9, et
+  `entries`, l'empreinte de chaque fichier, null au-delà de 5 000 fichiers),
+  `instructions` (empreintes des deux `AGENTS.md`), `plan` (empreinte du plan
+  en vigueur et checklist cochée), `steps` (budget consommé). Écrit
+  atomiquement par la session qui tient le verrou, à l'ouverture, en fin de
+  tour et à sa fin ; borne de lecture 4 Mio. Une référence pour constater ce
+  qui a changé depuis, jamais une source de droit : le contrat, le budget,
+  les preuves et les effets restent dans `contract.json` et `proofs.jsonl`.
+
+Pourquoi un fichier plutôt qu'un événement du journal : cet état est réécrit
+à chaque tour, et seul le dernier compte ; en ajout seul, il gonflerait le
+journal de l'empreinte de tout le workspace à chaque tour et rapprocherait la
+borne de 8 Mio. Un fichier perdu ou illisible ne retire aucun droit : la
+session suivante le dit et repart de l'état constaté.
+
+Cet amendement est accepté par la fusion de la pull request du ticket #10.
+
+### 2026-09-27 — ticket #10 : politique liée à l'approbation
+
+Deux champs facultatifs, dans le module propriétaire `src/harness/store.ts`,
+schémas inchangés ; un lecteur antérieur refuse un champ inconnu, comme le
+prévoient les règles de lecture.
+
+- `contract.json`, l'approbation, et l'événement `approval` : champ
+  facultatif `policy`, la version de la politique d'accès en vigueur à
+  l'approbation (`smolcoder/policy/v1@<16 hexadécimaux>`). Absent :
+  approbation antérieure à #10, ou politique illisible alors. La nouvelle
+  approbation des seules entrées du vérificateur (#9) le garde.
+- Événement `effect` de nature `intent` : champ facultatif `policy`, la
+  version de la décision qui a permis l'effet.
+- `policyRef` du contrat, réservé depuis #8, prend son sens : la version exacte
+  de la politique avec laquelle le contrat est approuvé ; une autre version en
+  vigueur ne décide de rien. Aucun changement de grammaire (le champ était
+  déjà un texte facultatif, dans l'empreinte) : un `policyRef` qui n'est pas
+  une version ne correspond jamais, et tout est refusé (fail-closed).
+
+Pourquoi l'approbation plutôt qu'un fichier de plus : la version qualifie
+l'approbation, comme les entrées figées du vérificateur et le plan approuvé.
+
+Cet amendement est accepté par la fusion de la pull request du ticket #10.

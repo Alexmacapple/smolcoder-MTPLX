@@ -35,7 +35,7 @@ export type ContractStatus = (typeof CONTRACT_STATUSES)[number];
  * un fichier du workspace ou un label de ticket. */
 export const APPROVAL_AUTHORITIES = ["headless-flag", "terminal-human", "web-human"] as const;
 export type ApprovalAuthority = (typeof APPROVAL_AUTHORITIES)[number];
-export const PROOF_TYPES = ["contract", "approval", "verdict", "fiche", "plan"] as const;
+export const PROOF_TYPES = ["contract", "approval", "verdict", "fiche", "plan", "effect"] as const;
 
 /** Statut d'un critère d'acceptation (#9, docs/decision-preuves-acceptation.md).
  * `passed` : contrôle exécuté, sorti de lui-même avec 0, au moins un test
@@ -117,7 +117,13 @@ export interface Approval {
   /** Empreinte du plan d'implémentation approuvé avec le contrat (#29).
    * Absent : contrat approuvé sans plan. */
   plan?: string;
+  /** Version de la politique d'accès en vigueur à l'approbation (#10).
+   * Absent : approbation antérieure à #10, ou politique illisible alors. */
+  policy?: string;
 }
+
+/** La version d'une politique : `smolcoder/policy/v1@<16 hexadécimaux>`. */
+export const POLICY_VERSION_RE = /^smolcoder\/policy\/v1@[0-9a-f]{16}$/;
 
 export interface ContractRecord {
   schema: typeof CONTRACT_SCHEMA;
@@ -186,12 +192,69 @@ export interface PlanDeviationInput {
 
 export type PlanInput = PlanProposedInput | PlanDeviationInput;
 
+// ---- journal d'effets (ticket #10) ----
+//
+// Chaque action du modèle qui a un effet sur le projet (écriture de fichier,
+// commande, tâche de fond lancée) est enregistrée avec un identifiant AVANT
+// l'effet (`intent`), puis son résultat observé APRÈS (`result`). Au
+// redémarrage, une intention sans résultat devient `uncertain`, enregistré
+// par l'hôte avec ce que les fichiers en disent ; seul l'hôte (humain au
+// terminal ou dans la page web, appelant headless) la résout (`resolved`).
+// Le modèle n'écrit jamais ici : aucune phrase ne résout un état incertain.
+
+/** Les outils dont les appels sont des effets. `task` : seulement `start`. */
+export const EFFECT_TOOLS = ["write_file", "edit_file", "run_command", "task"] as const;
+export type EffectTool = (typeof EFFECT_TOOLS)[number];
+export const EFFECT_KINDS = ["intent", "result", "uncertain", "resolved"] as const;
+export type EffectKind = (typeof EFFECT_KINDS)[number];
+/** Ce que les fichiers disent d'une intention sans résultat : le fichier est
+ * tel qu'avant l'action (`before`), tel que l'action l'aurait laissé
+ * (`expected`), ni l'un ni l'autre (`neither`), ou rien (`none` : commande). */
+export const EFFECT_EVIDENCE = ["before", "expected", "neither", "none"] as const;
+export type EffectEvidence = (typeof EFFECT_EVIDENCE)[number];
+export const EFFECT_ID_RE = /^[0-9a-f]{12}$/;
+const OBSERVED_MAX = 300;
+const CALL_ID_MAX = 128;
+
+/** Une action enregistrée avant son effet. Fichier : `path` (relatif au
+ * workspace), l'empreinte `before` du contenu d'avant (null : absent) et celle
+ * du contenu `expected` que l'écriture laissera (null : inconnue, edit_file).
+ * Commande ou tâche : `command`. `session` : la session qui agit ; `call` :
+ * l'identifiant de l'appel d'outil dans le transcript. */
+export interface EffectIntentInput {
+  type: "effect";
+  fingerprint: string;
+  kind: "intent";
+  id: string;
+  session: string;
+  call: string;
+  tool: EffectTool;
+  path?: string;
+  before?: string | null;
+  expected?: string | null;
+  command?: string;
+  /** La version de la politique d'accès de la décision qui l'a permise. */
+  policy?: string;
+}
+
+export type EffectInput =
+  | EffectIntentInput
+  // Le résultat observé : `ok` ou `error` selon le retour de l'outil, sa
+  // première ligne, et pour un fichier l'empreinte constatée après (null : absent).
+  | { type: "effect"; fingerprint: string; kind: "result"; id: string; status: "ok" | "error"; observed: string; after?: string | null }
+  // Constaté par l'hôte au redémarrage : aucune conclusion, seulement ce que
+  // les fichiers disent, et l'empreinte actuelle du fichier visé.
+  | { type: "effect"; fingerprint: string; kind: "uncertain"; id: string; evidence: EffectEvidence; current?: string | null }
+  // La décision de l'hôte : l'état actuel du workspace est accepté comme base.
+  | { type: "effect"; fingerprint: string; kind: "resolved"; id: string; by: ApprovalAuthority };
+
 export type ProofInput =
   | { type: "contract"; fingerprint: string; id: string; status: ContractStatus; reason?: string }
+  | EffectInput
   // `verifiers` (#9) : l'empreinte des entrées du vérificateur figées par
   // cette approbation ; null quand elles n'ont pas pu l'être. `plan` (#29) :
   // l'empreinte du plan approuvé avec le contrat, absente sans plan.
-  | { type: "approval"; fingerprint: string; by: ApprovalAuthority; verifiers?: string | null; plan?: string }
+  | { type: "approval"; fingerprint: string; by: ApprovalAuthority; verifiers?: string | null; plan?: string; policy?: string }
   // Lecture d'une fiche de méthode installée (#30) : son nom et l'empreinte
   // du contenu servi, liés à l'empreinte du contrat de la session.
   | { type: "fiche"; fingerprint: string; name: string; sha256: string }
@@ -429,14 +492,16 @@ function parseVerifiers(raw: unknown): VerifierFreeze | null {
 function parseApproval(raw: unknown): Approval | null {
   if (raw === null) return null;
   if (!isObject(raw)) throw new ContractError('field "approval" must be null or an object');
-  onlyFields(raw, ["fingerprint", "by", "at", "verifiers", "plan"], "approval.");
+  onlyFields(raw, ["fingerprint", "by", "at", "verifiers", "plan", "policy"], "approval.");
   if (typeof raw.fingerprint !== "string" || !HEX64.test(raw.fingerprint)) throw new ContractError('field "approval.fingerprint" must be 64 hexadecimal characters');
   if (!APPROVAL_AUTHORITIES.includes(raw.by as ApprovalAuthority)) throw new ContractError(`field "approval.by" must be one of ${APPROVAL_AUTHORITIES.join(", ")}`);
   if (typeof raw.at !== "string" || Number.isNaN(Date.parse(raw.at))) throw new ContractError('field "approval.at" must be a date');
   if (raw.plan !== undefined && (typeof raw.plan !== "string" || !HEX64.test(raw.plan))) throw new ContractError('field "approval.plan" must be 64 hexadecimal characters');
+  if (raw.policy !== undefined && (typeof raw.policy !== "string" || !POLICY_VERSION_RE.test(raw.policy))) throw new ContractError('field "approval.policy" must be a policy version');
   const approval: Approval = { fingerprint: raw.fingerprint, by: raw.by as ApprovalAuthority, at: raw.at };
   if (raw.verifiers !== undefined) approval.verifiers = parseVerifiers(raw.verifiers);
   if (raw.plan !== undefined) approval.plan = raw.plan as string;
+  if (raw.policy !== undefined) approval.policy = raw.policy as string;
   return approval;
 }
 
@@ -553,12 +618,60 @@ function checkVerdict(event: Record<string, unknown>): void {
   if (changes !== undefined && (!Array.isArray(changes) || changes.length > CHANGES_MAX || !changes.every((c) => typeof c === "string" && c.length <= VERIFIER_PATH_MAX + 20))) throw bad("changes");
 }
 
+/** Champs fermés d'un événement `effect` (#10). */
+function checkEffectEvent(event: Record<string, unknown>): void {
+  const bad = (field: string) => new ContractError(`proof field "${field}" of an effect event is invalid`);
+  if (!EFFECT_KINDS.includes(event.kind as EffectKind)) throw bad("kind");
+  if (typeof event.id !== "string" || !EFFECT_ID_RE.test(event.id)) throw bad("id");
+  const line = (v: unknown, max: number) => typeof v === "string" && v.length <= max && !/[\x00-\x08\x0a-\x1f\x7f]/.test(v);
+  switch (event.kind) {
+    case "intent": {
+      onlyFields(event, ["schema", "type", "at", "fingerprint", "kind", "id", "session", "call", "tool", "path", "before", "expected", "command", "policy"]);
+      if (typeof event.session !== "string" || !EFFECT_ID_RE.test(event.session)) throw bad("session");
+      if (event.policy !== undefined && (typeof event.policy !== "string" || !POLICY_VERSION_RE.test(event.policy))) throw bad("policy");
+      if (!line(event.call, CALL_ID_MAX)) throw bad("call");
+      if (!EFFECT_TOOLS.includes(event.tool as EffectTool)) throw bad("tool");
+      if (event.tool === "write_file" || event.tool === "edit_file") {
+        if (!isRelativeWorkspacePath(event.path)) throw bad("path");
+        if (!hexOrNull(event.before)) throw bad("before");
+        if (!hexOrNull(event.expected)) throw bad("expected");
+        if (event.command !== undefined) throw bad("command");
+      } else {
+        if (typeof event.command !== "string" || !event.command.trim() || event.command.length > TEXT_MAX) throw bad("command");
+        if (event.path !== undefined || event.before !== undefined || event.expected !== undefined) throw bad("path");
+      }
+      return;
+    }
+    case "result":
+      onlyFields(event, ["schema", "type", "at", "fingerprint", "kind", "id", "status", "observed", "after"]);
+      if (event.status !== "ok" && event.status !== "error") throw bad("status");
+      if (!line(event.observed, OBSERVED_MAX)) throw bad("observed");
+      if (event.after !== undefined && !hexOrNull(event.after)) throw bad("after");
+      return;
+    case "uncertain":
+      onlyFields(event, ["schema", "type", "at", "fingerprint", "kind", "id", "evidence", "current"]);
+      if (!EFFECT_EVIDENCE.includes(event.evidence as EffectEvidence)) throw bad("evidence");
+      if (event.current !== undefined && !hexOrNull(event.current)) throw bad("current");
+      return;
+    default:
+      onlyFields(event, ["schema", "type", "at", "fingerprint", "kind", "id", "by"]);
+      if (!APPROVAL_AUTHORITIES.includes(event.by as ApprovalAuthority)) throw bad("by");
+  }
+}
+
+/** La première ligne d'un retour d'outil, sans caractère de contrôle, bornée. */
+export function observedLine(output: string): string {
+  const first = String(output ?? "").split("\n").find((l) => l.trim()) ?? "";
+  return first.replace(/[\x00-\x1f\x7f]/g, " ").slice(0, OBSERVED_MAX);
+}
+
 function checkEvent(event: Record<string, unknown>): void {
   if (!PROOF_TYPES.includes(event.type as (typeof PROOF_TYPES)[number])) throw new ContractError(`unknown proof event type ${JSON.stringify(event.type)}`);
   if (typeof event.at !== "string" || Number.isNaN(Date.parse(event.at))) throw new ContractError('proof field "at" must be a date');
   if (typeof event.fingerprint !== "string" || !HEX64.test(event.fingerprint)) throw new ContractError('proof field "fingerprint" must be 64 hexadecimal characters');
   if (event.type === "verdict") return checkVerdict(event);
   if (event.type === "plan") return checkPlanEvent(event);
+  if (event.type === "effect") return checkEffectEvent(event);
   if (event.type === "contract") {
     onlyFields(event, ["schema", "type", "at", "fingerprint", "id", "status", "reason"]);
     if (typeof event.id !== "string" || !ID_RE.test(event.id)) throw new ContractError('proof field "id" is invalid');
@@ -569,10 +682,11 @@ function checkEvent(event: Record<string, unknown>): void {
     if (typeof event.name !== "string" || !FICHE_NAME_RE.test(event.name)) throw new ContractError('proof field "name" must be a method sheet name');
     if (typeof event.sha256 !== "string" || !HEX64.test(event.sha256)) throw new ContractError('proof field "sha256" must be 64 hexadecimal characters');
   } else {
-    onlyFields(event, ["schema", "type", "at", "fingerprint", "by", "verifiers", "plan"]);
+    onlyFields(event, ["schema", "type", "at", "fingerprint", "by", "verifiers", "plan", "policy"]);
     if (!APPROVAL_AUTHORITIES.includes(event.by as ApprovalAuthority)) throw new ContractError(`proof field "by" must be one of ${APPROVAL_AUTHORITIES.join(", ")}`);
     if (event.verifiers !== undefined && !hexOrNull(event.verifiers)) throw new ContractError('proof field "verifiers" must be 64 hexadecimal characters or null');
     if (event.plan !== undefined && (typeof event.plan !== "string" || !HEX64.test(event.plan))) throw new ContractError('proof field "plan" of an approval must be 64 hexadecimal characters');
+    if (event.policy !== undefined && (typeof event.policy !== "string" || !POLICY_VERSION_RE.test(event.policy))) throw new ContractError('proof field "policy" of an approval must be a policy version');
   }
 }
 
@@ -729,7 +843,15 @@ export function appendProof(dir: string, input: ProofInput): ProofEvent {
     if (last[0] !== 0x0a) throw new HarnessStoreError("truncated-tail", `${file} ends with a truncated line (truncated-tail): repair it by hand before anything else is recorded`);
   }
   if (size + Buffer.byteLength(line) > MAX_PROOFS_BYTES) throw new HarnessStoreError("unreadable", `${file} would exceed its ${MAX_PROOFS_BYTES}-byte read bound`);
-  fs.appendFileSync(file, line);
+  // #10 : la ligne est sur le disque avant que l'appelant n'agisse (une
+  // intention précède toujours son effet) : écrite puis synchronisée.
+  const fd = fs.openSync(file, "a", 0o600);
+  try {
+    fs.writeSync(fd, line);
+    fs.fsyncSync(fd);
+  } finally {
+    fs.closeSync(fd);
+  }
   return event as ProofEvent;
 }
 
@@ -946,4 +1068,171 @@ export function readProofs(dir: string): ProofsRead {
     events.push(data as ProofEvent);
   }
   return tail ? { state: "truncated-tail", events, tail } : { state: "ok", events };
+}
+
+// ---- lock et resume.json : un seul écrivain, état connu (ticket #10) ----
+//
+// `lock` : le verrou mono-écrivain par workspace que la rubrique
+// « conséquences » réservait à #10 — PID, machine, session, surface et date.
+// Créé exclusivement (O_EXCL) ; un verrou dont le processus n'existe plus est
+// repris, jamais un verrou vivant. Il ne bloque pas un éditeur externe : la
+// session revérifie avant chaque effet. `resume.json` : l'enregistrement de
+// reprise, l'état que la dernière session a laissé (révision Git, empreinte
+// de chaque fichier, consignes chargées, progression du plan, budget
+// consommé), réécrit atomiquement par la session qui écrit. Une référence
+// pour constater ce qui a changé depuis, jamais une source de droit.
+
+export const LOCK_FILE = "lock";
+export const LOCK_SCHEMA = "smolcoder/lock/v1";
+export const RESUME_FILE = "resume.json";
+export const RESUME_SCHEMA = "smolcoder/resume/v1";
+export const MAX_RESUME_BYTES = 4 * 1024 * 1024;
+/** Au-delà, l'enregistrement ne garde que l'empreinte globale du workspace. */
+export const MAX_RESUME_FILES = 5000;
+
+export interface WriterLock {
+  schema: typeof LOCK_SCHEMA;
+  pid: number;
+  host: string;
+  session: string;
+  surface: string;
+  since: string;
+}
+
+export type LockRead = { state: "absent" } | { state: "unreadable"; reason: string } | { state: "ok"; lock: WriterLock };
+
+export interface ResumeRecord {
+  schema: typeof RESUME_SCHEMA;
+  at: string;
+  session: string;
+  surface: string;
+  /** Empreinte du contrat de la session qui a écrit. */
+  contract: string;
+  head: string | null;
+  /** Empreinte globale (celle de #9) et, sous la borne, celle de chaque fichier. */
+  files: { digest: string | null; entries: Record<string, string> | null };
+  instructions: { global: string | null; workspace: string | null };
+  plan: { fingerprint: string | null; steps: { text: string; done: boolean; note?: string }[] } | null;
+  steps: number;
+}
+
+export type ResumeRead = { state: "absent" } | ReadFailure | { state: "ok"; record: ResumeRecord };
+
+const SURFACE_RE = /^[a-z-]{1,20}$/;
+
+function parseLock(raw: unknown): WriterLock {
+  if (!isObject(raw)) throw new ContractError("the lock is not a JSON object");
+  onlyFields(raw, ["schema", "pid", "host", "session", "surface", "since"]);
+  if (raw.schema !== LOCK_SCHEMA) throw new ContractError(`unknown lock schema ${JSON.stringify(raw.schema)}`);
+  if (typeof raw.pid !== "number" || !Number.isSafeInteger(raw.pid) || raw.pid < 1) throw new ContractError('lock field "pid" is invalid');
+  if (typeof raw.host !== "string" || raw.host.length > 255 || /[\x00-\x1f\x7f]/.test(raw.host)) throw new ContractError('lock field "host" is invalid');
+  if (typeof raw.session !== "string" || !EFFECT_ID_RE.test(raw.session)) throw new ContractError('lock field "session" is invalid');
+  if (typeof raw.surface !== "string" || !SURFACE_RE.test(raw.surface)) throw new ContractError('lock field "surface" is invalid');
+  if (typeof raw.since !== "string" || Number.isNaN(Date.parse(raw.since))) throw new ContractError('lock field "since" must be a date');
+  return { schema: LOCK_SCHEMA, pid: raw.pid, host: raw.host, session: raw.session, surface: raw.surface, since: raw.since };
+}
+
+export function readLock(dir: string): LockRead {
+  const raw = readBounded(path.join(dir, LOCK_FILE), 4096);
+  if (raw.state !== "ok") return raw;
+  try {
+    return { state: "ok", lock: parseLock(JSON.parse(raw.text)) };
+  } catch (err: any) {
+    return { state: "unreadable", reason: `${LOCK_FILE}: ${err?.message ?? err}` };
+  }
+}
+
+/** Crée le verrou s'il n'existe pas (création exclusive). false : déjà pris. */
+export function createLock(dir: string, lock: WriterLock): boolean {
+  const checked = parseLock(JSON.parse(JSON.stringify(lock)));
+  fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
+  let fd: number;
+  try {
+    fd = fs.openSync(path.join(dir, LOCK_FILE), "wx", 0o600);
+  } catch (err: any) {
+    if (err?.code === "EEXIST") return false;
+    throw err;
+  }
+  try {
+    fs.writeSync(fd, JSON.stringify(checked) + "\n");
+    fs.fsyncSync(fd);
+  } finally {
+    fs.closeSync(fd);
+  }
+  return true;
+}
+
+/** Remplace atomiquement un verrou mort par le sien (l'appelant a constaté
+ * que son processus n'existe plus, puis relit pour confirmer). */
+export function replaceLock(dir: string, lock: WriterLock): void {
+  const checked = parseLock(JSON.parse(JSON.stringify(lock)));
+  writeAtomic(path.join(dir, LOCK_FILE), JSON.stringify(checked) + "\n");
+}
+
+/** Retire le verrou seulement s'il appartient encore à cette session. */
+export function removeLock(dir: string, session: string): boolean {
+  const read = readLock(dir);
+  if (read.state !== "ok" || read.lock.session !== session) return false;
+  try {
+    fs.unlinkSync(path.join(dir, LOCK_FILE));
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function parseResume(raw: Record<string, unknown>): ResumeRecord {
+  onlyFields(raw, ["schema", "at", "session", "surface", "contract", "head", "files", "instructions", "plan", "steps"]);
+  const bad = (f: string) => new ContractError(`resume field "${f}" is invalid`);
+  if (typeof raw.at !== "string" || Number.isNaN(Date.parse(raw.at))) throw bad("at");
+  if (typeof raw.session !== "string" || !EFFECT_ID_RE.test(raw.session)) throw bad("session");
+  if (typeof raw.surface !== "string" || !SURFACE_RE.test(raw.surface)) throw bad("surface");
+  if (typeof raw.contract !== "string" || !HEX64.test(raw.contract)) throw bad("contract");
+  if (raw.head !== null && (typeof raw.head !== "string" || raw.head.length > 200)) throw bad("head");
+  const files = raw.files;
+  if (!isObject(files)) throw bad("files");
+  onlyFields(files, ["digest", "entries"], "files.");
+  if (!hexOrNull(files.digest)) throw bad("files.digest");
+  if (files.entries !== null) {
+    if (!isObject(files.entries) || Object.keys(files.entries).length > MAX_RESUME_FILES) throw bad("files.entries");
+    for (const [p, h] of Object.entries(files.entries)) if (!isRelativeWorkspacePath(p) || typeof h !== "string" || !HEX64.test(h)) throw bad("files.entries");
+  }
+  const ins = raw.instructions;
+  if (!isObject(ins)) throw bad("instructions");
+  onlyFields(ins, ["global", "workspace"], "instructions.");
+  if (!hexOrNull(ins.global) || !hexOrNull(ins.workspace)) throw bad("instructions");
+  const plan = raw.plan;
+  if (plan !== null) {
+    if (!isObject(plan)) throw bad("plan");
+    onlyFields(plan, ["fingerprint", "steps"], "plan.");
+    if (!hexOrNull(plan.fingerprint)) throw bad("plan.fingerprint");
+    if (!Array.isArray(plan.steps) || plan.steps.length > 50 || !plan.steps.every((s) => isObject(s) && typeof s.text === "string" && s.text.length <= ITEM_MAX && typeof s.done === "boolean" && (s.note === undefined || (typeof s.note === "string" && s.note.length <= 1000)))) throw bad("plan.steps");
+  }
+  if (!Number.isSafeInteger(raw.steps) || (raw.steps as number) < 0) throw bad("steps");
+  return raw as unknown as ResumeRecord;
+}
+
+export function readResume(dir: string): ResumeRead {
+  const raw = readBounded(path.join(dir, RESUME_FILE), MAX_RESUME_BYTES);
+  if (raw.state !== "ok") return raw;
+  let data: unknown;
+  try {
+    data = JSON.parse(raw.text);
+  } catch (err: any) {
+    return { state: "unreadable", reason: `${RESUME_FILE} is not valid JSON (${err?.message ?? err})` };
+  }
+  if (!isObject(data)) return { state: "unreadable", reason: `${RESUME_FILE} is not a JSON object` };
+  if (data.schema !== RESUME_SCHEMA) return { state: "unknown-schema", schema: data.schema };
+  try {
+    return { state: "ok", record: parseResume(data) };
+  } catch (err: any) {
+    return { state: "unreadable", reason: `${RESUME_FILE}: ${err?.message ?? err}` };
+  }
+}
+
+/** Écriture atomique ; un enregistrement invalide n'est jamais écrit. */
+export function writeResume(dir: string, record: ResumeRecord): void {
+  const checked = parseResume(JSON.parse(JSON.stringify({ ...record, schema: RESUME_SCHEMA })));
+  fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
+  writeAtomic(path.join(dir, RESUME_FILE), JSON.stringify({ ...checked, schema: RESUME_SCHEMA }) + "\n");
 }

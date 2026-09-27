@@ -154,6 +154,16 @@ export function decide(mission: Mission, req: AccessRequest): Decision {
   const deny = (why: string, paths: string[] = [], command?: string): Decision => ({
     ...base, verdict: "deny", paths, reason: `denied by the access policy (${version}): ${why}`, ...(command !== undefined ? { command } : {}),
   });
+  // #10 : un contrat qui nomme sa politique (policyRef) n'est approuvé
+  // qu'avec elle ; une autre version en vigueur ne décide de rien, sauf du
+  // plan, sans effet. Le terminal web aussi : la politique le gouverne.
+  const ref = mission.contract.policyRef;
+  if (ref !== null && ref !== version && action !== "plan") {
+    return {
+      ...base, verdict: "deny", paths: [],
+      reason: `denied: the mission contract binds the access policy ${ref} (policyRef), and the policy in force is ${version}. Nothing is decided under a policy the host did not approve; only the host can restore that policy or approve a new contract version naming the new one.`,
+    };
+  }
 
   // Le contrat d'abord : sans approbation de l'hôte, seules la lecture et la
   // préparation du plan passent (porte du ticket #8, même texte).

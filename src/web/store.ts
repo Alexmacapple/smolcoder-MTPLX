@@ -6,7 +6,7 @@
 
 import * as fs from "fs";
 import * as path from "path";
-import { SessionSnapshot } from "../session";
+import { readSnapshot, SessionSnapshot } from "../session-state";
 
 export type Event = Record<string, any>;
 
@@ -25,6 +25,15 @@ export interface SessionBody {
   /** The UI event replay, so a resumed session shows its transcript. */
   events: Event[];
 }
+
+/** Lecture d'un transcript sauvegardé (#10) : absent, lisible (v2, ou v1
+ * antérieur à #10 et migré en mémoire), écrit par un smol plus récent, ou
+ * illisible — ces deux derniers jamais repris, jamais réécrits. */
+export type BodyRead =
+  | { state: "absent" }
+  | { state: "ok"; body: SessionBody; legacy: boolean }
+  | { state: "unknown-schema"; schema: unknown }
+  | { state: "unreadable"; reason: string };
 
 export function writeAtomic(file: string, data: string): void {
   const tmp = `${file}.${process.pid}.tmp`;
@@ -97,17 +106,61 @@ export class SessionStore {
   }
 
   loadBody(id: string): SessionBody | null {
-    try {
-      const b = JSON.parse(fs.readFileSync(this.bodyPath(id), "utf8"));
-      if (!b || typeof b !== "object" || !b.snapshot) return null;
-      return { snapshot: b.snapshot, events: Array.isArray(b.events) ? b.events : [] };
-    } catch {
-      return null;
-    }
+    const read = this.readBody(id);
+    return read.state === "ok" ? read.body : null;
   }
 
+  /** Le transcript et son état de lecture (#10). */
+  readBody(id: string): BodyRead {
+    let text: string;
+    try {
+      text = fs.readFileSync(this.bodyPath(id), "utf8");
+    } catch (err: any) {
+      return err?.code === "ENOENT" ? { state: "absent" } : { state: "unreadable", reason: String(err?.message ?? err) };
+    }
+    let b: any;
+    try {
+      b = JSON.parse(text);
+    } catch (err: any) {
+      return { state: "unreadable", reason: `not valid JSON (${err?.message ?? err})` };
+    }
+    if (!b || typeof b !== "object" || !b.snapshot) return { state: "unreadable", reason: "no saved session inside" };
+    const snap = readSnapshot(b.snapshot);
+    if (snap.state === "unknown-schema") return { state: "unknown-schema", schema: snap.schema };
+    if (snap.state === "unreadable") return { state: "unreadable", reason: snap.reason };
+    return { state: "ok", body: { snapshot: b.snapshot, events: Array.isArray(b.events) ? b.events : [] }, legacy: snap.schema !== "smolcoder/session/v2" };
+  }
+
+  /** Migration prudente (#10) : avant la première réécriture au nouveau
+   * format, l'original d'une session antérieure est copié à côté, jamais
+   * écrasé. Rend le chemin de la copie. */
+  archiveLegacy(id: string): string {
+    const copy = path.join(this.dir, `${id}.v1.json`);
+    try {
+      fs.copyFileSync(this.bodyPath(id), copy, fs.constants.COPYFILE_EXCL);
+    } catch (err: any) {
+      if (err?.code !== "EEXIST") throw err;
+    }
+    return copy;
+  }
+
+  /** Un transcript illisible n'est jamais écrasé par la session qui repart
+   * vide : il est mis de côté sous un autre nom. Rend ce nom. */
+  quarantine(id: string): string {
+    const kept = path.join(this.dir, `${id}.unreadable-${Date.now()}.json`);
+    fs.renameSync(this.bodyPath(id), kept);
+    return kept;
+  }
+
+  /** Suppression demandée par l'humain : la session et ses copies. */
   delete(id: string): void {
-    for (const p of [this.metaPath(id), this.bodyPath(id)]) {
+    let extra: string[] = [];
+    try {
+      extra = fs.readdirSync(this.dir).filter((n) => n === `${id}.v1.json` || (n.startsWith(`${id}.unreadable-`) && n.endsWith(".json"))).map((n) => path.join(this.dir, n));
+    } catch {
+      /* dossier absent */
+    }
+    for (const p of [this.metaPath(id), this.bodyPath(id), ...extra]) {
       try {
         fs.unlinkSync(p);
       } catch {

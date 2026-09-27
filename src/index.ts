@@ -18,6 +18,8 @@ import { keepHostProbesOutOf } from "./harness/host-probe";
 import { BYPASS_UNDER_MISSION, decisionReport, POLICY_SUSPENDED_EXIT_CODE, PolicySuspension } from "./harness/policy";
 import { VERDICT_EXIT_CODE, verdictExitCode, verdictSummary } from "./harness/proofs";
 import { isolationLine, missionExecutor } from "./harness/sandbox-executor";
+import { describeExternal, RESUME_SUSPENDED_EXIT_CODE } from "./harness/resume";
+import { sha256 } from "./session-state";
 import { ContextManager } from "./context";
 import { EventBus } from "./events";
 import { terminalLogo } from "./logo";
@@ -70,6 +72,9 @@ interface CliArgs {
   /** Run headless de proposition du plan (#29) : lecture seule, sous un
    * contrat proposé, jamais approuvé. */
   proposePlan?: boolean;
+  /** Résolution headless des actions restées incertaines (#10) : leurs
+   * identifiants exacts, tels que la ligne [resume] les donne. */
+  resolve?: string[];
   effort?: Effort | null; // null = explicit "default"
   web?: boolean;
   webPort?: number;
@@ -143,6 +148,14 @@ function parseArgs(argv: string[]): CliArgs {
         process.exit(1);
       }
     } else if (a === "--propose-plan") args.proposePlan = true;
+    else if (a === "--resolve") {
+      const ids = String(argv[++i] ?? "").split(",").map((x) => x.trim()).filter(Boolean);
+      if (!ids.length || !ids.every((x) => /^[0-9a-f]{12}$/.test(x))) {
+        console.error("--resolve needs the identifier of an uncertain action: 12 hexadecimal characters, as printed in the [resume] line (several separated by commas).");
+        process.exit(1);
+      }
+      args.resolve = [...(args.resolve ?? []), ...ids];
+    }
     else if (a === "--install-fiches") args.installFiches = true;
     else if (a === "--print" || a === "-p") args.print = argv[++i];
     else if (a === "--web") {
@@ -198,6 +211,10 @@ ${c.bold("Options:")}
                                contract in ~/.smolcoder/harness/) decides every tool,
                                check and web-terminal line; a -p run whose next step
                                needs a human decision stops with exit code 4
+  --resolve <id>               headless, under --mission: the host resolves an action a
+                               restart left uncertain (id from the [resume] line); the
+                               workspace as it is now becomes the baseline. While an
+                               action is uncertain, a -p run stops with exit code 6
   --install-fiches             copy the method sheets of this smol's clone (docs/skills/)
                                into ~/.smolcoder/fiches, then exit; new sessions on any
                                workspace list them and read_file serves "fiche:<name>"
@@ -290,6 +307,10 @@ async function main(): Promise<void> {
     console.error("--approve-plan approves the proposed plan together with the contract: it requires -p, --mission and --approve <contract fingerprint>. In the terminal or web UI, type /approve.");
     process.exit(1);
   }
+  if (args.resolve !== undefined && (!args.mission || args.print === undefined || args.web)) {
+    console.error("--resolve is the headless caller's resolution of an uncertain action: it requires -p and --mission. In the terminal or web UI, type /resolve.");
+    process.exit(1);
+  }
   if (args.proposePlan) {
     if (!args.mission || args.print === undefined || args.web) {
       console.error("--propose-plan is a headless preparation run: it requires -p and --mission. In the terminal or web UI, ask the agent to propose its plan, then type /approve.");
@@ -377,6 +398,40 @@ async function runHeadless(args: CliArgs, mission: Mission | null): Promise<void
       return;
     }
     ui.status(`· ${gate.message}`);
+    // #10 : la reprise durable, avant tout modèle — même contrat que le
+    // terminal et le web. Une action incertaine suspend le run (sortie 6),
+    // sauf résolution explicite de l'appelant (--resolve <id>).
+    const loaded = loadAgentsMdDetails(args.workspace);
+    const resume = mission.openResume("headless", { global: loaded.globalText === null ? null : sha256(loaded.globalText), workspace: loaded.workspaceText === null ? null : sha256(loaded.workspaceText) });
+    process.on("exit", () => resume.release());
+    if (args.resolve?.length) {
+      try {
+        const done = resume.resolve(args.resolve, "headless-flag");
+        if (done.length) ui.status(`· resolved by the caller: ${done.join(", ")} — the workspace as it is now is the baseline`);
+      } catch (err: any) {
+        process.stderr.write(`[resume] ${JSON.stringify(resume.summary())}\n`);
+        ui.error(`Nothing was run. ${err?.message ?? err}.`);
+        ui.close();
+        process.exitCode = RESUME_SUSPENDED_EXIT_CODE;
+        return;
+      }
+    }
+    process.stderr.write(`[resume] ${JSON.stringify(resume.summary())}\n`);
+    for (const line of resume.lines()) ui.warn(line);
+    if (resume.state().suspended && !args.proposePlan) {
+      ui.error(`Nothing was run. ${resume.state().reason}.`);
+      resume.release();
+      ui.close();
+      process.exitCode = RESUME_SUSPENDED_EXIT_CODE;
+      return;
+    }
+    // Un seul écrivain par workspace : un run qui ne peut rien écrire ne part pas.
+    if (!resume.isWriter && !args.proposePlan) {
+      ui.error(`Nothing was run. ${resume.denial()}`);
+      ui.close();
+      process.exitCode = RESUME_SUSPENDED_EXIT_CODE;
+      return;
+    }
     // #9 : le run part, mais aucun contrôle décisif ne passera tant que les
     // entrées du vérificateur ne sont pas celles que l'hôte a figées.
     const v = (gate as { verifiers?: ReturnType<typeof authorizeHeadless>["verifiers"] }).verifiers;
@@ -436,9 +491,23 @@ async function runHeadless(args: CliArgs, mission: Mission | null): Promise<void
   const agent = new Agent(provider, mode, systemPrompt, toolCtx, ctxMgr, bus, ui, false, 1000,
     args.verify ? { command: args.verify, maxAttempts: args.verifyAttempts } : undefined, mission);
   agent.proposalOnly = !!args.proposePlan;
+  // #10 : même reprise qu'en terminal et en web — réancrage après un
+  // changement externe, fichiers jamais vus comparés à l'état connu, plan repris.
+  if (mission) {
+    const resume = mission.resume;
+    const report = resume.state();
+    resume.onExternal = (why) => agent.requireReanchor(why);
+    if (report.external) agent.requireReanchor(`The workspace changed since the last session under this contract (${describeExternal(report.external)}); those changes are someone else's and must be preserved.`);
+    toolCtx.reads?.setBaseline((abs) => resume.baselineHash(abs));
+    const ticked = resume.applyPlanProgress(toolCtx.plan);
+    if (ticked) ui.status(`· plan progress restored from the last session: ${ticked} step${ticked > 1 ? "s" : ""} already done`);
+  }
   reportCompactions(bus, ui);
   process.on("exit", () => taskManager.killAll());
-  installSignalCleanup(() => taskManager.killAll());
+  installSignalCleanup(() => {
+    taskManager.killAll();
+    mission?.resume.release();
+  });
 
   ui.println(sessionLine(chosen, mode));
   if (chosen.note) ui.warn(`  ${chosen.note}`);
@@ -453,7 +522,8 @@ async function runHeadless(args: CliArgs, mission: Mission | null): Promise<void
   const advice = effortAdvice(chosen, effortSetting);
   if (advice) ui.warn(`  ${advice}`);
   try {
-    await agent.runTurn(args.print! + (args.proposePlan ? proposalInstruction() : ""));
+    // #10 : la consigne du run de proposition reste séparée de l'invite de l'appelant.
+    await agent.runTurn(args.print!, [], args.proposePlan ? proposalInstruction() : "");
     if (agent.outcome !== "completed") process.exitCode = 1;
   } catch (err: any) {
     ui.error(`\n${err?.message ?? err}`);
@@ -515,6 +585,7 @@ async function runHeadless(args: CliArgs, mission: Mission | null): Promise<void
     );
   }
   taskManager.killAll();
+  mission?.resume.release(toolCtx.plan);
   ui.close();
 }
 
@@ -555,9 +626,13 @@ async function runInteractive(args: CliArgs, mission: Mission | null): Promise<v
 
   const session = new Session(tui, { workspace: args.workspace, chosen, prefs: prefsOf(args), cfg, help: HELP, mission, surface: "terminal" });
   session.onExit = () => process.exit(0);
-  process.on("exit", () => session.taskManager.killAll());
+  process.on("exit", () => {
+    session.taskManager.killAll();
+    session.releaseWriter();
+  });
   installSignalCleanup(() => {
     session.taskManager.killAll();
+    session.releaseWriter();
     try {
       tui.close(); // restore the raw-mode terminal on signal death
     } catch {

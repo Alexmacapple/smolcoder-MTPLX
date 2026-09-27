@@ -1763,7 +1763,7 @@ blanc : l'étiquette Git `reference`, sans laquelle le diff du périmètre
 sur l'arbre final, aucun test sauté. SHA `ed4ba0b` reporté sur l'entrée
 précédente.
 
-### (ce commit) — Tests : dossier temporaire propre à chaque passe — Closes #44
+### `2cbce81` — Tests : dossier temporaire propre à chaque passe — Closes #44
 
 `scripts/test.cjs`, `scripts/test-os.cjs`, `test/suite-hors-home.test.js`,
 `test/os/e2e.os.test.js`. Les suites laissaient leurs dossiers temporaires :
@@ -1784,6 +1784,322 @@ pouvant en utiliser. Constat de passage, hors de ce commit : le backend isolé
 ne supprime pas son dossier temporaire privé en fin de session (seulement si
 la sonde échoue), donc toute session `--mission` en laisse un ; c'est un
 défaut du produit, à traiter à part après #10.
+
+### `f507022` — Provenance des messages dans l'état — Réf #10
+
+`src/providers/types.ts`, `src/agent.ts`, `src/context.ts`, `src/index.ts`,
+`test/reprise.test.js` (nouveau). Ticket #10 (H05), premier commit : le
+périmètre ajouté par le commentaire du 2026-09-27, préalable au journal
+d'effets et à la reprise, qui doivent savoir qui a parlé.
+
+Chaque message `user` porte sa provenance, `origin` : `human` pour une demande
+tapée (ou l'invite de l'appelant headless), `harness` pour une relance ou une
+note du harnais — résultat des contrôles du projet, échec et réussite
+d'acceptation, réponse tronquée, réponse vide, plan inachevé, note de
+compaction et relevé d'historique. La demande humaine à laquelle le harnais
+ajoute ses consignes (vérification, bloc du contrat, consigne du run
+`--propose-plan`) garde les deux textes séparés, `parts: {human, harness}`.
+Rien ne change pour le modèle : même rôle, même contenu, et la sérialisation
+vers Ollama et LM Studio ne transporte aucun de ces champs. Le snapshot des
+sessions web les conserve tels quels. Un message antérieur à ce commit n'a pas
+de provenance : elle reste inconnue, jamais devinée. `runTurn` reçoit la note
+de l'hôte en troisième argument au lieu d'une concaténation faite par
+`src/index.ts`, sans changer le texte envoyé.
+
+Vérifications. Deux tests « H05 provenance » de `test/reprise.test.js`,
+fournisseur simulé, faux dossier personnel : une session terminal avec une
+demande, trois relances (réponse vide, tronquée, plan inachevé) et une seconde
+demande, puis sauvegarde, passage par JSON et restauration dans une nouvelle
+session — chaque message `user` a sa provenance exacte, le texte tapé est
+identique à l'octet, et le fil Ollama et LM Studio reste inchangé ; puis une
+relance d'acceptation, une note ajoutée par l'hôte et une note de compaction.
+Rouge constaté avant le code : provenance `undefined` pour les cinq messages.
+`npm test` 345/345 (343 et 2 nouveaux), aucun test sauté, sous un HOME et un
+cache npm temporaires.
+
+### `ff56e7d` — Schéma de session v2 et migration — Réf #10
+
+`src/session-state.ts` (nouveau), `src/session.ts`, `src/agent.ts`,
+`src/tools/index.ts`, `src/tools/read-tracker.ts`, `src/web/store.ts`,
+`src/web/hub.ts`, `test/reprise.test.js`, `docs/how-it-works.md`,
+`README.md`. Ticket #10 (H05), deuxième commit : le schéma de reprise des
+sessions, commun à toute session sauvegardée (le hub web est aujourd'hui le
+seul à sauvegarder un transcript) ; l'état hôte du profil mission vient au
+commit suivant.
+
+- Schéma versionné `smolcoder/session/v2` (`src/session-state.ts`, seul
+  propriétaire de sa grammaire) : transcript avec provenance, plan, consignes
+  réellement chargées (texte et empreinte de `~/.smolcoder/AGENTS.md` et de
+  l'`AGENTS.md` du workspace), approbations « always » (`alwaysAllowed`,
+  jamais restaurées jusqu'ici), vue de l'agent (#19 : chemin relatif vers
+  l'empreinte du contenu vu en dernier), révision Git lue dans `.git` sans
+  lancer `git` (worktrees et `packed-refs` compris). Un champ v2 mal formé
+  est écarté et dit, jamais inventé.
+- C6 : une session reprise garde sa version des consignes ; un écart avec le
+  disque est signalé (empreintes avant et après), jamais rechargé en
+  silence. `/instructions` (nouvelle commande, terminal et web) montre les
+  deux et ne bascule que sur choix explicite. Une nouvelle session lit le
+  disque, comme avant ; l'opt-out `SMOL_NO_GLOBAL_AGENTS` reste celui du
+  lancement, la phrase de précédence de `src/prompt.ts` n'est pas touchée.
+- C1 : les approbations « always » reviennent avec la session et la reprise
+  les nomme (hors profil mission, où « always » ne vaut que pour l'appel) ;
+  le message « earlier command approvals are not remembered » disparaît.
+- C4 (session reprise) : la vue de l'agent revient, et un fichier vu qui a
+  changé pendant l'arrêt reçoit le signal de #19 à sa première écriture,
+  plutôt qu'un second mécanisme ; un `HEAD` déplacé ou un tel fichier est
+  dit, préservé, jamais attribué à l'agent, et le plan doit être réancré
+  (appel de l'outil `plan`) avant la prochaine écriture ou commande
+  (`Agent.requireReanchor`, sans effet sans plan).
+- C7 : une session au format d'avant #10 se reprend sans rien perdre ;
+  l'original est copié en `sessions/<id>.v1.json` avant toute réécriture,
+  jamais écrasé ; la provenance de ses messages reste inconnue. Un transcript
+  d'un schéma inconnu (smol plus récent) n'est ni repris ni réécrit ; un
+  transcript illisible est mis de côté sous un autre nom au lieu d'être
+  écrasé par la session qui repart vide (il l'était jusqu'ici).
+
+Vérifications. Cinq tests « H05 » de plus dans `test/reprise.test.js`,
+fournisseur simulé, faux dossier personnel : C6 (écart signalé, version de
+session dans le prompt et la requête suivante, `/instructions` qui garde puis
+bascule), C1 (approbation « always » restaurée, personne n'est redemandé),
+C4 (dépôt Git réel, commit humain pendant l'arrêt : `HEAD` et fichier signalés,
+réancrage puis signal de #19, contenu humain intact, aucun reset, stash ni
+commit), C7 (transcript v1 repris par le hub avec une vraie session : archive
+identique à l'octet, messages et plan identiques, réécriture en v2 à
+l'arrêt ; schéma inconnu refusé et intact, transcript illisible mis de côté).
+Rouge constaté sur l'arbre du commit précédent, construit à part avec le même
+fichier de test : cinq échecs (schéma absent, `alwaysAllowedList` absente,
+révision Git absente, archive absente, schéma inconnu accepté), les deux
+tests de provenance verts. `npm test` 350/350 (345 et 5 nouveaux), aucun test
+sauté, sous un HOME et un cache npm temporaires. SHA `f507022` reporté sur
+l'entrée précédente.
+
+### `f7d3cd8` — Journal d'effets et état incertain — Réf #10
+
+`src/harness/resume.ts` (nouveau), `src/harness/store.ts`,
+`src/harness/mission.ts`, `src/agent.ts`, `src/session.ts`, `src/index.ts`,
+`test/reprise.test.js`, `test/mission.test.js`,
+`docs/decision-reprise-durable.md` (nouveau),
+`docs/decision-stockage-hote.md`, `docs/profil-mission.md`. Ticket #10
+(H05), troisième commit : le journal d'effets et l'état incertain, sous
+`--mission`. Hors profil, rien ne change.
+
+- C2 : chaque effet du modèle (`write_file`, `edit_file`, `run_command`,
+  `task` `start`) est enregistré au journal de l'hôte avant l'effet
+  (`intent`, avec identifiant, et pour un fichier les empreintes d'avant et
+  attendue), puis son résultat observé (`result`). Chaque ligne est écrite
+  puis synchronisée sur le disque. Un journal qui refuse l'intention empêche
+  l'effet ; un résultat qui ne s'écrit pas arrête les effets de la session.
+- C3 : à l'ouverture d'une session du profil, une intention sans résultat
+  devient `uncertain`, enregistrée par l'hôte avec l'indice des fichiers,
+  jamais une conclusion. Écritures, commandes, tâches et vérifications sont
+  alors refusées par la porte de la mission ; lectures, plan et terminal web
+  restent ouverts. Seul l'hôte résout (`/resolve`, `--resolve <id>`,
+  événement `resolved`) ; aucune reprise automatique, aucun rejeu. Une
+  dernière ligne tronquée suspend sans être interprétée. Les preuves datées
+  par d'autres fichiers sont annoncées périmées à la reprise.
+- C7 : un seul contrat de reprise pour le terminal, le web (à la construction
+  de la session) et le headless (avant toute recherche de modèle, ligne
+  `[resume] {…}` sur stderr, sortie 6 si suspendu). Sur une session web
+  reprise, un appel resté sans réponse est raconté par le journal (jamais
+  lancé, terminé, incertain) au lieu du message générique.
+- Point d'injection d'une coupure aux trois moments du protocole :
+  `MissionResume.crash` en processus, `SMOLCODER_TEST_CRASH_AT` sur le vrai
+  binaire.
+
+Grammaire, amendée explicitement dans `docs/decision-stockage-hote.md`
+(section du 2026-09-27, ticket #10) : sixième événement `effect` et ses quatre
+natures, lignes synchronisées. Décision, alternatives écartées et migration :
+`docs/decision-reprise-durable.md`. Test existant adapté, dit ici : « H01 AC5
+headless » comparait le journal entier après une écriture ; il filtre
+désormais les événements `effect` pour son assertion d'origine et vérifie à
+part l'intention et le résultat de l'écriture.
+
+Vérifications. Huit tests « H05 » de plus : coupure injectée avant l'effet,
+après l'écriture et avant le reçu, après le reçu (fichier, journal, indice,
+transcript raconté, suspension, résolution par `/resolve`, aucune action
+rejouée) ; Qwen simulé qui affirme l'échec, change son plan, retente
+l'écriture, une commande et une tâche (état toujours incertain, aucune
+résolution, rien d'exécuté) ; dernière ligne tronquée (détectée, jamais lue
+comme un résultat, incertaine après réparation) ; budget après coupure ;
+preuve périmée annoncée et `not_run (stale)` ; vrai CLI headless (sortie 6
+avant tout modèle, `--resolve` inconnu refusé, `--resolve <id>` enregistré
+par `headless-flag`). Rouge constaté sur l'arbre du commit précédent,
+construit à part avec le même fichier de test : sept échecs sur l'API
+absente (`mission.resume`, `openResume`), le test de budget vert sur la base
+(garantie déjà tenue par #8) et son rouge montré par mutation du code
+compilé (budget remis à zéro à la préparation : 0 au lieu de 3), `dist/`
+reconstruit ensuite. `npm test` 358/358 (350 et 8 nouveaux), aucun test
+sauté, sous un HOME et un cache npm temporaires. SHA `ff56e7d` reporté sur
+l'entrée précédente.
+
+### `df91965` — Un seul écrivain et changements externes — Réf #10
+
+`src/harness/resume.ts`, `src/harness/store.ts`, `src/harness/mission.ts`,
+`src/tools/read-tracker.ts`, `src/agent.ts`, `src/session.ts`,
+`src/index.ts`, `src/web/hub.ts`, `test/reprise.test.js`,
+`docs/decision-stockage-hote.md`, `docs/decision-reprise-durable.md`,
+`docs/profil-mission.md`. Ticket #10 (H05), quatrième commit, sous
+`--mission`. Hors profil, rien ne change.
+
+- C5 : verrou mono-écrivain `lock` dans le dossier hôte (PID, machine,
+  session, surface, date), créé exclusivement par la session qui ouvre le
+  profil — terminal, web, headless. Une autre session du même workspace, du
+  même processus (hub) ou d'un autre, lit et planifie sans écrire, le dit, et
+  prend le verrou quand la première se termine ou que son processus a
+  disparu, en refaisant alors la reprise. Un run headless qui ne peut pas
+  écrire ne part pas (sortie 6). Verrou rendu à la fin de session, à l'arrêt
+  du hub, en fin de run et sur signal ; un agent sans hôte de session (tests,
+  bibliothèque) respecte le verrou d'un autre sans le prendre.
+- C4 : enregistrement de reprise `resume.json` (révision Git, empreinte de
+  chaque fichier, consignes, plan, budget), écrit par l'écrivain à
+  l'ouverture, en fin de tour et à sa fin. À l'ouverture, le workspace est
+  comparé à cet état complété par les effets journalisés depuis : commit
+  humain, fichier non suivi et modification non commitée sont listés à part
+  des effets de l'agent, préservés, jamais attribués ; après une commande de
+  l'agent, un fichier changé n'est attribué à personne. Le suivi de lecture
+  de #19 consulte cet état connu pour un fichier que l'agent n'a jamais vu
+  (créé, modifié, supprimé par un autre) : première écriture refusée, comme
+  une lecture périmée. Avant chaque effet, la session revérifie le verrou et
+  la révision Git ; un `HEAD` déplacé pendant la session refuse l'effet une
+  fois, puis le plan doit être réancré. Jamais de `reset`, `stash` ou `clean`.
+- C6 : sous le profil, l'écart d'`AGENTS.md` avec la dernière session du même
+  contrat est signalé à l'ouverture et dans la ligne `[resume]`.
+- La checklist cochée revient avec la session suivante sous le même plan
+  (limite de #29 levée pour le terminal et le headless).
+
+Grammaire, amendée explicitement dans `docs/decision-stockage-hote.md`
+(section du 2026-09-27, ticket #10, verrou et enregistrement) : fichiers
+`lock` (`smolcoder/lock/v1`) et `resume.json` (`smolcoder/resume/v1`), le
+second en écart déclaré à « trois fichiers », motivé (état réécrit à chaque
+tour, seul le dernier compte).
+
+Vérifications. Six tests « H05 » de plus : double reprise dans le même
+processus (une seule session écrit, l'autre lit, puis prend le verrou à la
+fin de la première), verrou d'un autre processus vivant respecté par le vrai
+CLI headless (sortie 6, avant tout modèle) et par une session, repris après
+sa mort ; commit humain, fichier non suivi et modification non commitée
+entre deux sessions (listés à part de l'écriture de l'agent, premières
+écritures refusées, contenus intacts, aucun reset, stash ni commit) ; commit
+humain pendant la session (effet refusé une fois, réancrage, puis écriture) ;
+écart d'`AGENTS.md` sous le profil (ouverture et ligne `[resume]` du vrai
+CLI) ; progression du plan reprise. Rouge constaté sur l'arbre du commit
+précédent, construit à part avec le même fichier de test : sept échecs
+(verrou absent, run headless lancé malgré un écrivain vivant, changements
+externes non constatés, écriture passée après un commit humain, écart des
+consignes non dit, étapes non reprises, `release` absente). `npm test` en
+série (`-- --test-concurrency=1`) 364/364 (358 et 6 nouveaux), aucun test
+sauté ; en parallèle, 362/364 : deux tests préexistants sensibles au délai
+(« cancellation … typed outcomes », « H04 AC2 … killed by a signal »)
+échouent par intermittence sous la charge de la machine (charge moyenne
+supérieure à 60 : ImageOptim et MTPLX tournent à côté), échec reproduit à
+l'identique sur l'arbre de base `e36f0b6` sous la même charge, sans rapport
+avec ce commit. `npm run test:os` 23/23. SHA `f7d3cd8` reporté sur l'entrée
+précédente.
+
+### `d00c337` — Politique liée à l'approbation — Réf #10
+
+`src/harness/store.ts`, `src/harness/mission.ts`, `src/harness/policy.ts`,
+`src/harness/resume.ts`, `src/agent.ts`, `src/session.ts`,
+`test/reprise.test.js`, `test/plan-mission.test.js`,
+`docs/decision-stockage-hote.md`, `docs/decision-reprise-durable.md`,
+`docs/profil-mission.md`. Ticket #10 (H05), cinquième commit : le périmètre
+ajouté par le commentaire reporté de #11 (« la politique n'est pas liée à
+l'approbation ; `policyRef` est réservé à cet effet »), traité avec le journal
+d'effets.
+
+- L'approbation garde la version de la politique en vigueur (`policy`, dans
+  `contract.json` et l'événement `approval`) ; chaque intention du journal
+  d'effets garde la version de la décision qui l'a permise.
+- `policyRef` prend son sens : la version exacte avec laquelle le contrat est
+  approuvé, couverte par l'empreinte du contrat. Une autre version en vigueur
+  ne décide de rien, sauf du plan : outils, tâches, vérifications et
+  terminal web refusés, run headless refusé avant tout modèle (sortie 3) ;
+  rien de ce que dit le modèle n'y change. Rétablir la politique, ou
+  approuver une nouvelle version du contrat qui nomme la nouvelle, lève le
+  refus.
+- Sans `policyRef`, comportement de #11 conservé (la politique en vigueur
+  décide), mais le changement depuis l'approbation est dit à l'ouverture de la
+  session et dans la ligne `[mission]` (`policyBinding`, absente sans
+  changement). Lier par défaut ferait refuser les campagnes de #11 et #17, qui
+  élargissent la politique après approbation : décision laissée à Alex,
+  motivée dans `docs/decision-reprise-durable.md`.
+
+Grammaire, amendée explicitement dans `docs/decision-stockage-hote.md`
+(section du 2026-09-27, politique liée à l'approbation). Test existant
+adapté, dit ici : « H08 AC5 » comparait les clés exactes de l'approbation ; il
+admet désormais `policy`, toujours sans aucune clé du plan.
+
+Vérifications. Deux tests « H05 policy » : sous `policyRef`, politique
+élargie après approbation refusée sur cinq surfaces (écriture, lecture, tâche,
+vérification, terminal web), plan permis, ligne `[mission]` en `mismatch`,
+`authorizeHeadless` refusé, session qui le dit, Qwen simulé qui prétend
+l'inverse sans effet, décision rétablie avec la politique ; sans
+`policyRef`, changement dit à l'ouverture et dans `[mission]`, version portée
+par l'intention, aucune clé ajoutée sans changement. Rouge constaté sur
+l'arbre du commit précédent, construit à part : deux échecs (version absente
+de l'approbation). `npm test` en série 366/366 (364 et 2 nouveaux), aucun
+test sauté ; `npm run test:os` 23/23. SHA `df91965` reporté sur l'entrée
+précédente.
+
+### `cffc925` — Coupure réelle du vrai binaire — Closes #10
+
+`test/os/e2e.os.test.js`, `test/reprise.test.js`,
+`docs/decision-reprise-durable.md`, `docs/profil-mission.md`, `README.md`.
+Ticket #10 (H05), dernier commit : aucun code touché, la preuve sur le vrai
+binaire que `npm test` ne couvrait que par ses briques, et la documentation
+finale (limites connues de la décision, README).
+
+Test « H05 OS » (dans `npm run test:os`, macOS réel, faux serveur
+OpenAI-compatible local, faux dossier personnel ; aucun MTPLX). Premier run
+headless approuvé, `SMOLCODER_TEST_CRASH_AT=after-effect` : le processus est
+tué par `SIGKILL` après l'écriture de `hello.txt`, avant son reçu ; le journal
+garde l'intention seule, le verrou reste au PID disparu. Second run : verrou
+mort repris (`tookOver`), action incertaine avec l'indice « conforme à
+l'écriture », sortie 6, aucun appel au modèle, verrou rendu. Troisième run,
+`--resolve <id>` : résolution `headless-flag`, contrôle de l'hôte passé dans
+le bac, sortie 0 `verified`, l'écriture jamais rejouée (une seule intention),
+verrou rendu. Le test de reprise vérifie aussi que le snapshot v2 d'une
+session du profil référence l'état hôte (contrat, plan, pas, politique) sans
+le recopier, et le test des changements entre deux sessions part d'un plan
+approuvé pour prouver le réancrage avant la première écriture.
+
+Correspondance critère par critère, tests nommés :
+
+- C1 schéma de reprise versionné (contrat, politique et consignes chargées,
+  plan et écarts, compteurs, preuves, révision Git et empreintes,
+  approbations, provenance) : « H05 provenance » (deux tests), « H05 C6 »,
+  « H05 C1 » (approbations), « H05 C1 (mission) » (plan), « H05 C2/C3 cut »
+  (référence du snapshot), « H05 C3 budgets », « H05 policy » (deux tests).
+- C2 journal d'effets (intention avant l'effet, résultat, lignes
+  synchronisées, dernière ligne tronquée détectée) : « H05 C2/C3 cut
+  before-effect / after-effect / after-receipt », « H05 C3 truncated last
+  record », « H05 OS ».
+- C3 incertain au redémarrage, réconciliation par les fichiers, suspension,
+  le modèle ne l'efface pas : les trois « cut », « H05 C3 the model cannot
+  clear », « H05 C3 (headless) », « H05 C3 stale proofs », « H05 OS ».
+- C4 changements externes (commit humain, non suivi, non commité ; preuves
+  périmées ; plan réancré) : « H05 C4 (resumed web session) », « H05 C4 a
+  human commit, an untracked file… », « H05 C4 a commit made during a
+  session », « H05 C3 stale proofs ».
+- C5 un seul écrivain, revérification avant effet, jamais de reset, stash ni
+  clean : « H05 C5 double resume », « H05 C5 a lock held by another live
+  process », « H05 OS » (verrou mort repris) ; absence de reset, stash, clean
+  constatée par Git dans les tests C4.
+- C6 AGENTS.md sans rechargement silencieux : « H05 C6 », « H05 C6
+  (mission) ».
+- C7 même contrat pour le terminal, le headless et le web, migration
+  prudente : sessions terminal et web et vrai CLI dans les tests ci-dessus,
+  « H05 C7 migration » (deux tests).
+
+Rouge constaté sur le binaire de base `e36f0b6` (arbre extrait par `git
+archive`, construit à part, même fichier de test) : le processus n'est pas
+tué (aucun point d'injection), signal `null` au lieu de `SIGKILL`. `npm test`
+366/366 et `npm run test:os` 24/24 (23 et 1 nouveau), aucun test sauté, sous
+un HOME et un cache npm temporaires. SHA `d00c337` reporté sur l'entrée
+précédente.
+
+Non vérifié : aucun run contre MTPLX (occupé par l'étude #33) ; le lien de la
+politique par défaut, sans `policyRef`, reste une décision à prendre.
 
 ## Hors dépôt (machine locale)
 

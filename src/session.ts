@@ -12,6 +12,8 @@ import { EventBus } from "./events";
 import { findModelsOnNetwork, FlowUI, manageHosts } from "./network";
 import { Mission, MissionPrefs } from "./harness/mission";
 import { BYPASS_UNDER_MISSION } from "./harness/policy";
+import { readPolicy } from "./harness/store";
+import { describeExternal, InstructionPrints } from "./harness/resume";
 import { IsolatedExecutor, isolationLine, isolationState, missionExecutor } from "./harness/sandbox-executor";
 import { Plan, PlanStep } from "./plan";
 import { buildSystemPrompt, loadAgentsMdDetails } from "./prompt";
@@ -24,6 +26,23 @@ import { pickShell } from "./tools/shell";
 import { TaskManager } from "./tools/tasks";
 import { renderPlan, SelectOption, SessionUI, SlashCommand } from "./ui";
 import { c, truncateEnd } from "./util";
+import * as fs from "fs";
+import * as path from "path";
+import {
+  describeInstructionDrift,
+  instruction,
+  LEGACY_SESSION_SCHEMA,
+  readGitHead,
+  readSnapshot,
+  sameInstructions,
+  SESSION_SCHEMA,
+  SessionInstructions,
+  SessionSnapshot,
+  sha256,
+  shortRev,
+} from "./session-state";
+
+export type { SessionSnapshot } from "./session-state";
 
 /** Per-session preferences from the command line. `effort: null` means an
  * explicit "default"; undefined means "whatever the config remembers". */
@@ -43,6 +62,7 @@ export interface SessionPrefs {
 export const MISSION_COMMANDS: SlashCommand[] = [
   { name: "mission", desc: "Show the mission contract and its state" },
   { name: "approve", desc: "Approve the mission contract (your decision, not the model's)" },
+  { name: "resolve", desc: "Resolve an action left uncertain by a restart (your decision)" },
 ];
 
 export const SLASH_COMMANDS: SlashCommand[] = [
@@ -56,6 +76,7 @@ export const SLASH_COMMANDS: SlashCommand[] = [
   { name: "logs", desc: "Show task output — /logs t1" },
   { name: "stop", desc: "Stop a background task — /stop t1" },
   { name: "clear", desc: "Reset the conversation" },
+  { name: "instructions", desc: "AGENTS.md: the version this session uses · switch explicitly" },
   { name: "help", desc: "Show help" },
   { name: "exit", desc: "Quit smolcoder (web: close this session)" },
 ];
@@ -290,22 +311,6 @@ export function cleanTitle(raw: string): string | null {
 
 // ---- the session -----------------------------------------------------------
 
-/** Everything needed to bring a session back after a restart. */
-export interface SessionSnapshot {
-  messages: Msg[]; // without the system message — rebuilt on restore
-  plan: PlanStep[];
-  filesTouched: string[];
-  commandsRun: string[];
-  originalRequest: string;
-  currentRequest: string;
-  mode: Mode;
-  effort: Effort | null;
-  model: string;
-  backend: string;
-  /** Server the model ran on (absent in sessions saved before network hosts). */
-  baseUrl?: string;
-}
-
 export interface SessionOptions {
   workspace: string;
   chosen: DetectedModel;
@@ -338,8 +343,10 @@ export class Session {
    * session after the first one). */
   onTurnDone: (() => void) | null = null;
 
-  private readonly globalAgentsMd: string | null;
-  private readonly workspaceAgentsMd: string | null;
+  /** Les consignes de la session (#10) : lues à l'ouverture, gardées à la
+   * reprise, changées seulement par une transition explicite (/instructions). */
+  private globalAgentsMd: string | null;
+  private workspaceAgentsMd: string | null;
   /** Index des fiches de méthode installées (#30) ; null sans installation. */
   private readonly fichesIndex: string | null;
   private readonly prefs: SessionPrefs;
@@ -395,6 +402,19 @@ export class Session {
     this.surface = opts.surface ?? "terminal";
     this.commands = this.mission ? [...SLASH_COMMANDS, ...MISSION_COMMANDS] : SLASH_COMMANDS;
     this.agent = new Agent(provider, mode0, this.sysPrompt(mode0), this.toolCtx, this.ctxMgr, this.bus, ui, true, 1000, undefined, this.mission);
+    // #10 : sous le profil, la reprise durable s'ouvre avec la session — même
+    // contrat pour le terminal, le web et le headless (src/harness/resume.ts) :
+    // verrou d'écriture, état incertain, changements externes, consignes.
+    if (this.mission) {
+      const resume = this.mission.openResume(this.surface, this.instructionPrints());
+      const report = resume.state();
+      resume.onExternal = (why) => this.agent.requireReanchor(why);
+      if (report.external) this.agent.requireReanchor(`The workspace changed since the last session under this contract (${describeExternal(report.external)}); those changes are someone else's and must be preserved.`);
+      // #19 réutilisé : un fichier jamais vu est comparé à l'état connu de l'hôte.
+      this.toolCtx.reads?.setBaseline((abs) => resume.baselineHash(abs));
+      const ticked = resume.applyPlanProgress(this.toolCtx.plan);
+      if (ticked) ui.status(`· plan progress restored from the last session: ${ticked} step${ticked > 1 ? "s" : ""} already done`);
+    }
 
     ui.slashCommands = this.commands;
     ui.hintLeft = workspace.replace(os.homedir(), "~");
@@ -511,7 +531,45 @@ export class Session {
       );
       if (this.executor) ui.status(isolationLine(this.executor.status, this.executor.listening()));
       this.noteBypassUnderMission();
+      const pb = this.mission.policyBinding();
+      if (pb.state === "mismatch") ui.warn(`· mission profile: the contract binds the access policy ${pb.ref} (policyRef), and the policy in force is ${pb.current ?? "unreadable"} — every decision is refused until the host restores it or approves a new contract version`);
+      else if (pb.state === "changed") ui.warn(`· mission profile: the access policy changed since the contract was approved (${pb.approved} → ${pb.current}); decisions follow the current one. To bind the approval to one policy, name its version in the contract's policyRef.`);
+      for (const line of this.mission.resume.lines()) ui.warn(line);
     }
+  }
+
+  /** La résolution humaine d'une action restée incertaine (#10) : chaque
+   * effet sans résultat est montré avec ce que les fichiers en disent, puis
+   * l'humain accepte l'état actuel du workspace comme base, ou non. */
+  private async resolveUncertain(): Promise<void> {
+    const { ui } = this;
+    const resume = this.mission!.resume;
+    const open = resume.state().uncertain.filter((u) => !u.resolved);
+    const r = resume.state();
+    if (!open.length) {
+      ui.status(r.suspended ? `· nothing to resolve here: ${r.reason}` : "· no uncertain action: nothing to resolve");
+      return;
+    }
+    const by = this.surface === "web" ? "web-human" : "terminal-human";
+    for (const u of open) {
+      ui.status(`· effect ${u.id}: ${u.tool} ${u.target} (${u.at}) — no recorded result. Evidence: ${u.meaning}.`);
+      const pick = await ui.select(`Resolve effect ${u.id}? The workspace as it is now becomes the baseline; nothing is replayed or undone.`, [
+        { label: "Accept the workspace as it is now", hint: "record my decision; writes resume once nothing else is uncertain" },
+        { label: "Leave it uncertain", hint: "writes and commands stay suspended" },
+      ]);
+      if (pick !== 0) {
+        ui.status(`· effect ${u.id} left uncertain — writes and commands stay suspended`);
+        continue;
+      }
+      try {
+        resume.resolve([u.id], by);
+        ui.status(`· effect ${u.id} resolved (${by})`);
+      } catch (err: any) {
+        ui.error(String(err?.message ?? err));
+      }
+    }
+    const after = resume.state();
+    ui.status(after.suspended ? `· still suspended: ${after.reason}` : "· nothing is uncertain any more: writes and commands follow the contract again");
   }
 
   /** L'approbation humaine du terminal ou de la page web : la vue du
@@ -597,8 +655,36 @@ export class Session {
     }
   }
 
+  /** Les empreintes des consignes de la session, pour la reprise de l'hôte. */
+  private instructionPrints(): InstructionPrints {
+    const i = this.instructions();
+    return { global: i.global?.sha256 ?? null, workspace: i.workspace?.sha256 ?? null };
+  }
+
+  /** Les consignes que cette session utilise (#10), texte et empreinte. */
+  instructions(): SessionInstructions {
+    return { global: instruction(this.globalAgentsMd), workspace: instruction(this.workspaceAgentsMd) };
+  }
+
+  /** Le chemin réel du workspace, pour ranger la vue de l'agent en relatif. */
+  private realWorkspace(): string {
+    try {
+      return fs.realpathSync.native(this.workspace);
+    } catch {
+      return path.resolve(this.workspace);
+    }
+  }
+
+  /** Le schéma de reprise v2 (#10, src/session-state.ts). */
   snapshot(): SessionSnapshot {
+    const ws = this.realWorkspace();
+    const views: Array<[string, string]> = [];
+    for (const [abs, hash] of this.toolCtx.reads?.entries() ?? []) {
+      const rel = path.relative(ws, abs);
+      if (rel && !rel.startsWith("..") && !path.isAbsolute(rel)) views.push([rel.split(path.sep).join("/"), hash]);
+    }
     return {
+      schema: SESSION_SCHEMA,
       messages: this.agent.messages.slice(1),
       plan: this.toolCtx.plan.steps.map((s) => ({ ...s })),
       filesTouched: [...this.toolCtx.filesTouched],
@@ -610,7 +696,22 @@ export class Session {
       model: this.chosen.id,
       backend: this.chosen.backend,
       baseUrl: this.chosen.baseUrl,
+      instructions: this.instructions(),
+      approvals: { alwaysAllowed: this.agent.alwaysAllowedList() },
+      views,
+      head: readGitHead(this.workspace),
+      ...(this.mission ? { mission: this.missionRef() } : {}),
+      savedAt: new Date().toISOString(),
     };
+  }
+
+  /** La référence à l'état hôte (#10) : le stockage hôte fait foi. */
+  private missionRef(): { contract: string; plan: string | null; steps: number; policy: string | null } {
+    const m = this.mission!;
+    const st = m.status();
+    const plan = m.planView();
+    const policy = readPolicy(m.dir);
+    return { contract: m.fingerprint, plan: plan.state === "approved" ? plan.fingerprint : null, steps: st.steps, policy: policy.state === "ok" ? policy.version : null };
   }
 
   /** A model-written name for this session, or null to keep the fallback. */
@@ -618,14 +719,115 @@ export class Session {
     return suggestTitle(this.agent.messages, this.agent.provider);
   }
 
-  /** Bring a saved transcript back (the system message is rebuilt for the
-   * current mode/workspace; approvals are deliberately not restored). */
-  restore(s: SessionSnapshot): void {
-    this.agent.restoreTranscript(s.messages ?? [], s.originalRequest ?? "", s.currentRequest ?? "");
+  /** Bring a saved session back (#10) : le transcript et sa provenance, le
+   * plan, les consignes que la session utilisait (jamais relues en silence),
+   * ses approbations de commandes, la vue que l'agent avait des fichiers et la
+   * révision Git. Une session antérieure (v1) se migre sans rien perdre ; un
+   * schéma inconnu est refusé. Ce qui a changé depuis la sauvegarde est dit,
+   * préservé, et le plan est réancré avant la prochaine écriture. */
+  restore(raw: SessionSnapshot): void {
+    const read = readSnapshot(raw);
+    if (read.state === "unknown-schema") throw new Error(`this session was saved with an unknown schema (${JSON.stringify(read.schema)}), probably by a newer smolcoder: it is not resumed, and nothing is overwritten`);
+    if (read.state === "unreadable") throw new Error(`this saved session cannot be read (${read.reason}): it is not resumed`);
+    const s = read.snapshot;
+    // Profil mission : un appel resté sans réponse est raconté par le journal
+    // d'effets de l'hôte (fini, jamais lancé, ou incertain), pas deviné.
+    const resume = this.mission?.resume;
+    this.agent.restoreTranscript(s.messages ?? [], s.originalRequest ?? "", s.currentRequest ?? "", resume ? (call) => resume.explainCall(call.id, call.name, call.args) : undefined);
     this.toolCtx.plan.steps = (s.plan ?? []).map((p) => ({ text: String(p.text), done: !!p.done,
       ...(typeof p.note === "string" ? { note: p.note.slice(0, 1000) } : {}) }));
     for (const f of s.filesTouched ?? []) this.toolCtx.filesTouched.add(f);
     this.toolCtx.commandsRun.push(...(s.commandsRun ?? []));
+    if (read.dropped?.length) this.ui.warn(`· saved session fields could not be read and were left out: ${read.dropped.join(", ")}`);
+    this.restoreInstructions(s, read.schema === LEGACY_SESSION_SCHEMA);
+    // Approbations « always » (hors profil mission, où elles ne valent que pour l'appel).
+    const approvals = s.approvals?.alwaysAllowed ?? [];
+    if (!this.mission && approvals.length) {
+      this.agent.restoreApprovals(approvals);
+      this.ui.status(`· command approvals restored from the saved session: ${approvals.join(", ")} (always allowed)`);
+    }
+    this.restoreViews(s);
+  }
+
+  /** C6 : la version des consignes de la session est conservée ; un écart
+   * avec le disque est signalé, jamais rechargé en silence. */
+  private restoreInstructions(s: SessionSnapshot, legacy: boolean): void {
+    const disk = this.instructions();
+    const fps = (x: SessionInstructions) => `global ${x.global ? x.global.sha256.slice(0, 12) : "absent"}, workspace ${x.workspace ? x.workspace.sha256.slice(0, 12) : "absent"}`;
+    if (legacy || !s.instructions) {
+      this.ui.status(`· this session was saved before smolcoder recorded its instructions: the AGENTS.md version it used is unknown, so the files on disk are loaded (${fps(disk)})`);
+      return;
+    }
+    // L'opt-out du noyau global (SMOL_NO_GLOBAL_AGENTS) reste celui du lancement.
+    const optOut = process.env.SMOL_NO_GLOBAL_AGENTS === "1";
+    const kept: SessionInstructions = { global: optOut ? null : s.instructions.global, workspace: s.instructions.workspace };
+    if (sameInstructions(kept, disk)) return;
+    this.globalAgentsMd = kept.global?.text ?? null;
+    this.workspaceAgentsMd = kept.workspace?.text ?? null;
+    this.agent.setMode(this.agent.mode, this.sysPrompt(this.agent.mode));
+    this.mission?.resume.setInstructions(this.instructionPrints());
+    this.ui.warn(
+      `· AGENTS.md changed since this session was saved (${describeInstructionDrift(kept, disk).join("; ")}): this session keeps the version it was using — nothing is reloaded silently. /instructions shows the difference and switches only when you choose.`
+    );
+  }
+
+  /** C4 : la vue de l'agent (#19) revient avec la session ; un fichier vu qui a
+   * changé depuis, comme un HEAD déplacé, est un changement externe — dit,
+   * préservé, jamais attribué à l'agent, et sa première écriture refusée. */
+  private restoreViews(s: SessionSnapshot): void {
+    const ws = this.realWorkspace();
+    const changed: string[] = [];
+    for (const [rel, hash] of s.views ?? []) {
+      const abs = path.join(ws, ...rel.split("/"));
+      if (!abs.startsWith(ws + path.sep)) continue;
+      this.toolCtx.reads?.noteHash(abs, hash);
+      let now: string | null;
+      try {
+        now = sha256(fs.readFileSync(abs, "utf8")); // même empreinte que la vue de #19
+      } catch {
+        now = null;
+      }
+      if (now !== hash) changed.push(`${rel} (${now === null ? "deleted" : "modified"})`);
+    }
+    const head = s.head === undefined ? undefined : readGitHead(this.workspace);
+    const moved = s.head !== undefined && head !== s.head;
+    if (!changed.length && !moved) return;
+    const facts = [
+      ...(moved ? [`HEAD moved ${shortRev(s.head)} → ${shortRev(head)}`] : []),
+      ...(changed.length ? [`files this session had seen changed: ${changed.slice(0, 10).join(", ")}${changed.length > 10 ? ", …" : ""}`] : []),
+    ].join("; ");
+    this.ui.warn(`· the workspace changed since this session was saved (${facts}). These changes are preserved and are not the agent's; a file it had seen is re-checked before any write.`);
+    this.agent.requireReanchor(`The workspace changed outside this session since it was saved (${facts}); those changes are someone else's and must be preserved.`);
+  }
+
+  /** La transition explicite des consignes (#10, C6) : montrer la version de
+   * la session et celle du disque, et ne basculer que sur choix humain. */
+  private async reviewInstructions(): Promise<void> {
+    const { ui } = this;
+    const session = this.instructions();
+    const loaded = loadAgentsMdDetails(this.workspace);
+    const disk: SessionInstructions = { global: instruction(loaded.globalText), workspace: instruction(loaded.workspaceText) };
+    const fp = (x: SessionInstructions["global"]) => (x ? x.sha256.slice(0, 12) : "absent");
+    ui.status(`· instructions of this session: ~/.smolcoder/AGENTS.md ${fp(session.global)}, AGENTS.md ${fp(session.workspace)}`);
+    if (sameInstructions(session, disk)) {
+      ui.status("· the AGENTS.md files on disk are the ones this session uses");
+      return;
+    }
+    ui.warn(`· on disk now: ${describeInstructionDrift(session, disk).join("; ")}`);
+    for (const w of loaded.warnings) ui.status(`· ${w}`);
+    const pick = await ui.select("AGENTS.md changed on disk. Switch this session to the files on disk?", [
+      { label: "Reload from disk", hint: "explicit transition: the next request follows the new instructions" },
+      { label: "Keep the session version", hint: "nothing changes for this session" },
+    ]);
+    if (pick !== 0) {
+      ui.status("· instructions unchanged: this session keeps its version");
+      return;
+    }
+    this.globalAgentsMd = loaded.globalText;
+    this.workspaceAgentsMd = loaded.workspaceText;
+    this.agent.setMode(this.agent.mode, this.sysPrompt(this.agent.mode));
+    this.mission?.resume.setInstructions(this.instructionPrints());
+    ui.status(`· instructions reloaded from disk (~/.smolcoder/AGENTS.md ${fp(disk.global)}, AGENTS.md ${fp(disk.workspace)})`);
   }
 
   /** The input loop. Returns after /exit (or after the host asked the UI to
@@ -685,6 +887,9 @@ export class Session {
               `Context ${budget.prompt.toLocaleString()} / ${budget.window.toLocaleString()} tokens (${budget.source})\nReply reserve ${budget.reserve.toLocaleString()} · available ${budget.available.toLocaleString()} · ${agent.messages.length} messages · ${agent.tools.length} tools`
             );
             break;
+          case "instructions":
+            await this.reviewInstructions();
+            break;
           case "clear":
             agent.resetTranscript();
             toolCtx.plan.reset();
@@ -703,6 +908,10 @@ export class Session {
           case "approve":
             if (!this.mission) ui.warn(`Unknown command /${cmd} — try /help`);
             else await this.approveMission();
+            break;
+          case "resolve":
+            if (!this.mission) ui.warn(`Unknown command /${cmd} — try /help`);
+            else await this.resolveUncertain();
             break;
           default:
             ui.warn(`Unknown command /${cmd} — try /help`);
@@ -737,8 +946,19 @@ export class Session {
       /* best effort */
     }
     this.taskManager.killAll();
+    this.releaseWriter();
     this.ui.close();
     this.onExit?.();
+  }
+
+  /** #10 : rend le verrou d'écriture du workspace (fin de session, arrêt du
+   * hub, signal). Sans effet hors profil ou déjà rendu. */
+  releaseWriter(): void {
+    try {
+      this.mission?.resume.release(this.toolCtx.plan);
+    } catch {
+      /* au mieux : un verrou non rendu est repris quand son processus n'est plus */
+    }
   }
 
   private async switchModel(): Promise<void> {

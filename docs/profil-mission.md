@@ -57,7 +57,10 @@ Obligatoires : `schema`, `id`, `title`, `problem`, `outcome`, `acceptance`
 d'intention s'y retrouvent (problème, résultat attendu, utilisateurs,
 contraintes, hors périmètre, critère observable, questions ouvertes).
 `workspace` est rempli par l'hôte (chemin réel) ; s'il est fourni, il doit
-désigner le même dossier. `policyRef` est réservé à #11.
+désigner le même dossier. `policyRef` (#10) nomme, s'il est donné, la version
+exacte de la politique d'accès avec laquelle le contrat est approuvé
+(`smolcoder/policy/v1@<empreinte>`, section « Politique d'accès ») : comme il
+entre dans l'empreinte du contrat, l'approbation la couvre.
 
 `plan` (facultatif, #29) : `"required"` exige un plan d'implémentation
 approuvé avec le contrat ; absent, le plan est facultatif (section « Plan
@@ -134,6 +137,20 @@ est gardée telle quelle ; une politique illisible n'est jamais écrasée. Elle
 est relue à chaque décision. Sa version, `smolcoder/policy/v1@<empreinte>`,
 est l'empreinte de son contenu, jamais un champ modifiable : elle figure dans
 chaque décision et dans la ligne `[mission]`.
+
+L'approbation garde la version de la politique en vigueur (`policy`, dans
+`contract.json` et l'événement `approval`, #10), et chaque effet du modèle
+enregistre au journal la version de la décision qui l'a permis. Sans
+`policyRef`, une politique modifiée après l'approbation décide des actions
+suivantes, mais le changement est dit à l'ouverture de chaque session et dans
+la ligne `[mission]` (`policyBinding`). Avec `policyRef`, le contrat n'est
+approuvé qu'avec cette version : une autre version en vigueur ne décide de
+rien (tout est refusé sauf le plan, terminal web compris, et un run headless
+sort en 3) jusqu'à ce que l'hôte rétablisse la politique, ou approuve une
+nouvelle version du contrat qui nomme la nouvelle. Pourquoi pas par défaut :
+les campagnes de #11 et #17 élargissent la politique après l'approbation, et
+lier sans le dire changerait leur sens ; la décision de rendre le lien
+obligatoire reste à Alex.
 
 Aucun fichier du workspace n'est lu comme politique. Le stockage hôte est
 hors d'atteinte des outils de fichiers (confinement au workspace, liens
@@ -433,6 +450,46 @@ de l'agent repart, à chaque session sous le même contrat, de la version
 courante du plan approuvé (ou de celui qui attend l'approbation), étapes non
 cochées ; `/clear` la rétablit, comme le contrat.
 
+## Reprise durable (ticket #10)
+
+Sous le profil, chaque action du modèle qui a un effet sur le projet
+(`write_file`, `edit_file`, `run_command`, `task` `start`) est enregistrée au
+journal de l'hôte avant son effet, puis son résultat observé après
+(événement `effect`, `docs/decision-stockage-hote.md`). À l'ouverture d'une
+session — terminal, web ou headless, même contrat —, une action sans
+résultat devient incertaine : l'hôte l'enregistre avec ce que les fichiers en
+disent (tel qu'avant, conforme à l'écriture, ni l'un ni l'autre ; rien pour
+une commande), sans jamais conclure. Tant qu'elle l'est, écritures,
+commandes, tâches et vérifications sont refusées ; le modèle peut lire et
+planifier, et rien de ce qu'il dit ne lève la suspension. L'humain la lève
+par `/resolve` (terminal, web), l'appelant headless par `--resolve <id>`,
+l'identifiant venant de la ligne `[resume] {…}` que tout run headless du
+profil écrit sur stderr ; l'état actuel du workspace devient alors la base,
+rien n'est rejoué ni défait. Une session web reprise raconte chaque appel
+resté sans réponse d'après le journal : jamais lancé, terminé (« ne pas le
+relancer ») ou incertain.
+
+Un seul écrivain par workspace : la session qui ouvre le profil prend le
+verrou `lock` du dossier hôte ; une autre session du même workspace (autre
+onglet du hub, autre terminal) lit et planifie sans écrire, et prend le verrou
+quand la première se termine ou que son processus a disparu ; un run headless
+qui ne peut pas écrire ne part pas (sortie 6). Avant chaque effet, la session
+revérifie le verrou, la révision Git et, par le suivi de lecture de #19, le
+fichier visé : un verrou ne bloque pas un éditeur externe. À l'ouverture, ce
+qui a changé depuis la dernière session (`resume.json`) — commit humain,
+fichier non suivi, modification non commitée — est listé à part des effets de
+l'agent, préservé, jamais attribué ; la première écriture d'un tel fichier est
+refusée et le plan doit être réancré (outil `plan`) avant la prochaine
+écriture. Jamais de `reset`, `stash` ou `clean`. La checklist cochée revient
+avec la session suivante sous le même plan ; un écart d'`AGENTS.md` avec la
+dernière session du contrat est signalé.
+
+Une dernière ligne tronquée du journal suspend de même, sans être lue comme
+un résultat, jusqu'à la réparation à la main. Les preuves datées par
+d'autres fichiers que ceux de la reprise sont annoncées périmées (#9) ; le
+budget consommé (`usage.steps`) repart de sa valeur, jamais de zéro.
+Décision complète, alternatives et limites : `docs/decision-reprise-durable.md`.
+
 ## Budget de pas
 
 `budgets.maxSteps` compte les appels au modèle effectués sous un contrat
@@ -465,6 +522,10 @@ le reprend en tête, relu dans le stockage hôte au moment de la compaction
   aussi 3 : le contrat reste proposé, le plan attend l'hôte ;
 - 4 : suspendu sur une décision « ask » de la politique d'accès, rien n'a été
   exécuté pour cette action ; il prime sur 5 ;
+- 6 (#10) : suspendu par la reprise, avant toute recherche de modèle — une
+  action d'une session précédente est restée incertaine, ou le journal de
+  l'hôte ne permet pas de conclure (dernière ligne tronquée, illisible) ;
+  `--resolve <id>` inconnu aussi. Il vient après 3 (le contrat d'abord) ;
 - 5 (#9) : le run est allé à son terme ou s'est arrêté, mais la tâche n'est
   pas `verified` — critère en échec, non couvert, non exécuté, en erreur,
   preuve périmée, vérificateur modifié, ou rapport non écrit. Avant #9, un
@@ -481,14 +542,21 @@ le reprend en tête, relu dans le stockage hôte au moment de la compaction
   refuse la lecture quel que soit le texte de la commande ; ses limites
   (réseau, écoute, descendants détachés, git) sont dans
   `docs/decision-backend-isole.md` et `docs/allowlist-outils.md`.
-- La politique n'est pas liée à l'approbation : l'appelant qui la modifie
-  après approbation change les droits sans nouvelle approbation (la version
-  figure dans chaque décision). `policyRef` du contrat reste réservé.
+- Sans `policyRef`, la politique n'est pas liée à l'approbation : l'appelant
+  qui la modifie après approbation change les droits sans nouvelle
+  approbation ; le changement est dit (ouverture de session, ligne
+  `[mission]`) et chaque effet journalise sa version (#10). Avec `policyRef`,
+  elle l'est.
 - `list_files` montre le nom des fichiers protégés, jamais leur contenu.
   L'`AGENTS.md` du workspace reste modifiable (une consigne, pas un droit) ;
   l'appelant peut l'ajouter à `paths.protect`.
-- Pas de verrou : deux sessions simultanées sous le même contrat peuvent
-  perdre un débit de pas (verrou mono-écrivain : #10).
+- Le verrou mono-écrivain (#10) tient par PID sur cette machine : un PID
+  réutilisé par un autre processus après une coupure fait croire le verrou
+  vivant (le retirer à la main) ; deux sessions qui reprennent le même verrou
+  mort au même instant se départagent à la relecture avant l'effet suivant.
+  Le budget de pas n'est pas sous le verrou : une session qui lit sans écrire
+  débite ses appels au modèle, et deux sessions simultanées peuvent encore
+  perdre un débit (lecture puis écriture de `contract.json`).
 - Les événements `verdict` sont produits par chaque contrôle décisif (#9) ;
   leurs limites (ensemble des entrées du vérificateur par convention, zéro
   test reconnu par les résumés des lanceurs courants…) sont dans
@@ -502,7 +570,9 @@ le reprend en tête, relu dans le stockage hôte au moment de la compaction
   ticket). Un run `--propose-plan` appelle le modèle sans débiter le budget
   de pas, le contrat n'étant pas approuvé ; il reste borné par le plafond de
   pas du headless et ne peut rien écrire. La progression du plan (étapes
-  cochées) ne survit pas à la session : la reprise (#10) la persistera.
+  cochées) revient avec la session suivante sous le même plan (#10,
+  `resume.json`), à la granularité du tour : une coupure au milieu d'un tour
+  perd les étapes cochées depuis son début.
 - Les écarts au plan ne voient que les outils de fichiers du modèle : un
   fichier créé ou modifié par une commande (`run_command`, tâche de fond,
   script de build) n'est pas comparé au plan. Une session web reprise
@@ -513,4 +583,7 @@ le reprend en tête, relu dans le stockage hôte au moment de la compaction
   OpenAI-compatible local qui joue le modèle : `run_command`, `--verify`,
   tâche de fond et écoute, dans le bac ; et le plan (#29, « H08 OS ») en
   deux runs, `--propose-plan` puis `--approve` avec `--approve-plan`, écart
-  journalisé compris. Aucun test ne le lance contre MTPLX.
+  journalisé compris ; et la reprise (#10, « H05 OS ») : processus tué par
+  `SIGKILL` entre une écriture et son reçu, run suivant qui reprend le verrou
+  mort et s'arrête sur l'action incertaine (sortie 6), puis `--resolve` et
+  run vérifié sans rejouer l'écriture. Aucun test ne le lance contre MTPLX.

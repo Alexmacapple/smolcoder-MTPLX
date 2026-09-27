@@ -6,13 +6,14 @@
 import { Attachment, renderAttachmentsForModel } from "./attachments";
 import { ContextManager } from "./context";
 import { EventBus } from "./events";
-import { ChatResult, Msg, Provider, ToolSpec } from "./providers/types";
+import { ChatResult, Msg, Provider, ToolCall, ToolSpec } from "./providers/types";
 import {
   buildToolSpecs,
   executeTool,
   Mode,
   MODE_LABELS,
   commandOf,
+  isEffectCall,
   ToolContext,
 } from "./tools/index";
 import { AgentUI } from "./ui";
@@ -40,10 +41,12 @@ import {
   renderReportMarkdown,
   RunInfo,
   VerdictReport,
+  WorkspaceScan,
   verifierChanges,
   verifierStamps,
 } from "./harness/proofs";
 import { appendProof, writeReportFiles } from "./harness/store";
+import { EffectHandle, SimulatedCrash } from "./harness/resume";
 
 /** Supplied by the caller, never generated or changed by a model tool. */
 export interface Verification {
@@ -75,6 +78,8 @@ export class Agent {
   messages: Msg[] = [];
   tools: ToolSpec[];
   private alwaysAllowed = new Set<string>();
+  /** #10 : motif d'un réancrage du plan attendu avant la prochaine écriture. */
+  private reanchor: string | null = null;
   originalRequest = "";
   currentRequest = "";
   private planNudged = false;
@@ -95,6 +100,8 @@ export class Agent {
    * stockage hôte (null : non écrits). Le headless en tire sa sortie. */
   missionVerdict: { report: VerdictReport; files: { json: string; markdown: string } | null } | null = null;
   private suspended = false;
+  /** #10 : l'empreinte du workspace constatée par le dernier rapport. */
+  private lastScan: WorkspaceScan | null = null;
   /** Profil mission (#29) : un run `--propose-plan`, en lecture seule, où
    * l'agent propose son plan ; aucun contrôle d'acceptation n'y tourne. */
   proposalOnly = false;
@@ -175,7 +182,9 @@ export class Agent {
 
   /** Resume a saved session: the transcript (without its system message) and
    * the two requests the compaction note is built around. */
-  restoreTranscript(messages: Msg[], originalRequest: string, currentRequest: string): void {
+  /** `explain` (#10, profil mission) : ce que le journal d'effets de l'hôte
+   * dit d'un appel resté sans réponse, à la place du message générique. */
+  restoreTranscript(messages: Msg[], originalRequest: string, currentRequest: string, explain?: (call: ToolCall) => string | null): void {
     this.ctxMgr.cancelBackground(true);
     this.messages = [this.messages[0], ...messages];
     this.originalRequest = originalRequest;
@@ -184,7 +193,8 @@ export class Agent {
     // #19 : ce que la session a vu ne décrit pas la conversation reprise.
     this.toolCtx.reads?.clear();
     this.ctxMgr.resetAnchor();
-    this.repairTranscript("[Tool execution was interrupted by a restart. Its outcome is unknown. Inspect files or command state before retrying; do not assume it failed or rerun it blindly.]");
+    const generic = "[Tool execution was interrupted by a restart. Its outcome is unknown. Inspect files or command state before retrying; do not assume it failed or rerun it blindly.]";
+    this.repairTranscript(explain ? (call) => explain(call) ?? generic : generic);
   }
 
   cancel(): void {
@@ -386,6 +396,7 @@ export class Agent {
         // #29 : le plan d'implémentation et ses écarts, seulement s'il existe.
         implementationPlan: mission.planReport(),
       });
+      this.lastScan = scan;
       let files: { json: string; markdown: string } | null = null;
       try {
         files = writeReportFiles(mission.dir, JSON.stringify(report, null, 2) + "\n", renderReportMarkdown(report));
@@ -436,7 +447,7 @@ export class Agent {
     this.progressFailure = passed ? "" : output;
     this.ui.toolResult(output);
     await this.bus.emit("post_progress_check", { command, passed, output });
-    this.messages.push({ role: "user", content: passed
+    this.messages.push({ role: "user", origin: "harness", content: passed
       ? `[Project checks passed: ${command}. Continue the remaining work in the original request.]`
       : `[Progress checks failed. Fix the first concrete failure before further investigation. Continue the same task.\nCommand: ${command}\n${truncateMiddle(output, this.ctxMgr.toolResultCharLimit())}]` });
     return true;
@@ -489,7 +500,7 @@ export class Agent {
     if (passed) { this.ui.status("· acceptance checks passed"); return true; }
     if (attempts >= (check.maxAttempts ?? 6)) throw new Error(`Acceptance checks still fail after ${attempts} attempts. The task is incomplete.\n${truncateMiddle(output, 1600)}`);
     this.ui.status("· acceptance failed — continuing repairs automatically");
-    this.messages.push({ role: "user", content: `[Acceptance failed; the task is not complete. Repair the first failing behavior. The harness will rerun acceptance automatically. Do not skip tests or report success.${check.source === "project" && !this.mission ? `\nCommand: ${check.command}` : ""}\n${truncateMiddle(output, this.ctxMgr.toolResultCharLimit())}]` });
+    this.messages.push({ role: "user", origin: "harness", content: `[Acceptance failed; the task is not complete. Repair the first failing behavior. The harness will rerun acceptance automatically. Do not skip tests or report success.${check.source === "project" && !this.mission ? `\nCommand: ${check.command}` : ""}\n${truncateMiddle(output, this.ctxMgr.toolResultCharLimit())}]` });
     if (this.sameVerificationFailures === 2 && this.canRefreshVerification) {
       this.ui.status("· same check failed again — refreshing working context");
       // Repeating an unchanged hypothesis in a larger transcript is not
@@ -524,7 +535,9 @@ export class Agent {
     }
   }
 
-  async runTurn(userInput: string, attachments: Attachment[] = []): Promise<void> {
+  /** `harnessNote` : une consigne que l'hôte ajoute à la demande (le run de
+   * proposition du plan, #29), gardée séparée du texte tapé (#10). */
+  async runTurn(userInput: string, attachments: Attachment[] = [], harnessNote = ""): Promise<void> {
     await this.ctxMgr.foreground();
     this.ctxMgr.cancelBackground(true);
     this.outcome = "running";
@@ -549,14 +562,20 @@ export class Agent {
     // Only a fresh conversation can safely discard every old narrative.
     this.canRefreshVerification = !this.originalRequest && this.messages.length === 1;
     const rendered = renderAttachmentsForModel(attachments, this.provider.vision !== false);
-    const request = userInput || (attachments.length ? `See the attached ${attachments.length === 1 ? "file" : "files"}.` : "");
+    const typed = userInput || (attachments.length ? `See the attached ${attachments.length === 1 ? "file" : "files"}.` : "");
+    const request = typed + harnessNote;
     // Compaction keeps the request text, so the file names ride along with it.
     const requestNote = attachments.length ? `${request} [attached: ${attachments.map((a) => a.name).join(", ")}]` : request;
     if (!this.originalRequest) this.originalRequest = requestNote;
     this.currentRequest = requestNote; // the task compaction must never lose
+    // #10 : le texte tapé et les consignes du harnais restent séparés dans
+    // l'état, sans changer ce que reçoit le modèle.
+    const added = harnessNote + this.verificationInstruction() + this.missionInstruction();
     this.messages.push({
       role: "user",
-      content: request + (rendered.text ? "\n\n" + rendered.text : "") + this.verificationInstruction() + this.missionInstruction(),
+      content: typed + (rendered.text ? "\n\n" + rendered.text : "") + added,
+      origin: "human",
+      parts: { human: typed, harness: added },
       ...(rendered.images.length ? { images: rendered.images } : {}),
     });
     this.abort = new AbortController();
@@ -670,7 +689,7 @@ export class Agent {
               : noContent
                 ? `[${this.truncatedCallHint()}]`
                 : `[Your reply was cut off by the output length limit of ${this.provider.maxOutputTokens} tokens. Continue where you left off. If a file was too large for one write_file call, split the content into separate files — writing the same path again replaces it completely.]`;
-            this.messages.push({ role: "user", content: nudgeText });
+            this.messages.push({ role: "user", origin: "harness", content: nudgeText });
             continue;
           }
           if (!result.content.trim() && nudges < 2) {
@@ -678,6 +697,7 @@ export class Agent {
             this.ui.status("· empty reply — nudging the model");
             this.messages.push({
               role: "user",
+              origin: "harness",
               content:
                 "[Your reply was empty. If the task is finished, summarize what you did. Otherwise make the next tool call now.]",
             });
@@ -698,6 +718,7 @@ export class Agent {
             this.ui.status("· plan has unfinished steps — nudging the model to continue");
             this.messages.push({
               role: "user",
+              origin: "harness",
               content: `[Your plan still has unfinished steps: ${plan.pendingSummary()}. Continue with the next step now — or if a step no longer applies, mark it done with the plan tool and explain why.]`,
             });
             continue;
@@ -743,7 +764,7 @@ export class Agent {
               while (this.messages[end]?.role === "tool") end--;
               this.ctxMgr.prepareBackground(this.messages.slice(0, end), this.tools, this.provider, this.compactState());
             }
-            output = await this.gateAndExecute(call.name, call.args, signal);
+            output = await this.gateAndExecute(call.name, call.args, signal, call.id);
             observedOutput = output; // fingerprint real evidence before coaching/reminders
             toolCallsThisTurn++;
             stats.toolCalls++;
@@ -844,7 +865,7 @@ export class Agent {
             }
             // Passing acceptance does not authorize dropping the remaining
             // task: ask for a final requirements review before completion.
-            this.messages.push({role:"user",content:"[Acceptance passed. Review the original request, finish any remaining work, and summarize the verified result.]"});
+            this.messages.push({role:"user",origin:"harness",content:"[Acceptance passed. Review the original request, finish any remaining work, and summarize the verified result.]"});
             repeatedReads.clear(); repeats = 0; failedCalls = 0; readsSinceAction = 0; lastProgressCheck = toolCallsThisTurn;
             continue agentLoop;
           }
@@ -860,7 +881,7 @@ export class Agent {
           if (this.verification && this.verificationResult) {
             // Once acceptance has found a real failure, keep checking THAT
             // behavior. Passing a weaker build check cannot resolve it.
-            if (await runAcceptance()) this.messages.push({role:"user",content:"[Acceptance checks passed. Finish your response with the verified result.]"});
+            if (await runAcceptance()) this.messages.push({role:"user",origin:"harness",content:"[Acceptance checks passed. Finish your response with the verified result.]"});
             readsSinceAction = 0; repeatedReads.clear(); repeats = 0; failedCalls = 0;
           } else if (await this.checkProgress(signal)) {
             readsSinceAction = 0; repeatedReads.clear(); repeats = 0; failedCalls = 0;
@@ -886,7 +907,11 @@ export class Agent {
       this.abort = null;
       stats.durationMs = Date.now() - t0;
       // #9 : le verdict du tour, constaté maintenant, quelle que soit l'issue.
-      if (this.mission) this.writeMissionReport(this.outcome === "running" ? "error" : this.outcome);
+      if (this.mission) {
+        this.writeMissionReport(this.outcome === "running" ? "error" : this.outcome);
+        // #10 : l'état que le tour laisse, pour la prochaine reprise.
+        this.mission.resume.checkpoint({ scan: this.lastScan, plan: this.toolCtx.plan });
+      }
       if (completed) {
         this.ui.turnEnd(
           `${fmtDuration(stats.durationMs)}${describeStats(stats)}`
@@ -952,10 +977,51 @@ export class Agent {
     }
   }
 
+  /** #10 : après un changement externe constaté (reprise, HEAD déplacé,
+   * fichiers modifiés par quelqu'un d'autre), le plan est réancré avant la
+   * prochaine écriture ou commande : la première est refusée, sans effet,
+   * jusqu'à un appel de l'outil plan. Sans plan, il n'y a rien à réancrer. */
+  requireReanchor(reason: string): void {
+    this.reanchor = reason;
+  }
+
+  /** Le motif du réancrage attendu, ou null. */
+  get pendingReanchor(): string | null {
+    return this.reanchor;
+  }
+
+  /** Les programmes approuvés « always » par l'humain (hors profil mission). */
+  alwaysAllowedList(): string[] {
+    return [...this.alwaysAllowed];
+  }
+
+  /** Reprise (#10) : les approbations « always » de la session sauvegardée. */
+  restoreApprovals(programs: string[]): void {
+    for (const p of programs) if (typeof p === "string" && /^[A-Za-z0-9._+-]{1,64}$/.test(p)) this.alwaysAllowed.add(p);
+  }
+
   private async gateAndExecute(
     name: string,
     args: Record<string, any>,
-    signal?: AbortSignal
+    signal?: AbortSignal,
+    callId = ""
+  ): Promise<string> {
+    if (this.reanchor && isEffectCall(name, args)) {
+      if (this.toolCtx.plan.exists) {
+        return `Error: ${this.reanchor} Re-anchor your plan before the next write or command: review it with plan {"action":"show"} and update it if the work changed, then retry. Nothing was changed.`;
+      }
+      this.reanchor = null;
+    }
+    const out = await this.runGated(name, args, signal, callId);
+    if (name === "plan" && !out.startsWith("Error")) this.reanchor = null;
+    return out;
+  }
+
+  private async runGated(
+    name: string,
+    args: Record<string, any>,
+    signal?: AbortSignal,
+    callId = ""
   ): Promise<string> {
     // Profil mission : la décision d'accès (contrat puis politique) remplace
     // la porte du mode, y compris en bypass, et répond avant toute demande
@@ -969,9 +1035,29 @@ export class Agent {
       if (!auth.ok) return auth.message;
       if (signal?.aborted) throw signal.reason;
       if (!this.tools.some((t) => t.name === name)) return `Error: ${name} is no longer available in ${MODE_LABELS[this.mode]} mode.`;
+      // #10 : un effet est enregistré au journal de l'hôte avant d'avoir
+      // lieu, son résultat observé après ; un journal qui refuse l'intention
+      // empêche l'effet.
+      let effect: EffectHandle | null = null;
+      if (isEffectCall(name, args)) {
+        try {
+          effect = mission.resume.begin({ id: callId, name, args, policy: auth.decision.policyVersion });
+        } catch (err: any) {
+          if (err instanceof SimulatedCrash) throw err;
+          return `Error: ${name} was not run: the host could not record it before acting (${err?.message ?? err}). Nothing was changed.`;
+        }
+      }
       // Chaque lecture de fiche est tracée au journal avant d'être servie (#30) ;
       // le plan structuré passe par l'hôte (#29).
-      return executeTool(name, args, { ...this.toolCtx, exec: auth.decision.exec, protect: auth.decision.protect, onFicheRead: (fiche, sha256) => mission.recordFiche(fiche, sha256), planHooks: mission.planHooks() }, signal);
+      let out: string;
+      try {
+        out = await executeTool(name, args, { ...this.toolCtx, exec: auth.decision.exec, protect: auth.decision.protect, onFicheRead: (fiche, sha256) => mission.recordFiche(fiche, sha256), planHooks: mission.planHooks() }, signal);
+      } catch (err: any) {
+        if (effect) mission.resume.end(effect, `Error: ${err?.message ?? err}`);
+        throw err;
+      }
+      if (effect) mission.resume.end(effect, out);
+      return out;
     }
     const command = commandOf(name, args);
     // Gate everywhere except bypass (defense-in-depth: in ro mode exec tools are
@@ -1000,7 +1086,7 @@ export class Agent {
     return executeTool(name, args, this.toolCtx, signal);
   }
 
-  private repairTranscript(reason: string): void {
+  private repairTranscript(reason: string | ((call: ToolCall) => string)): void {
     const repaired: Msg[] = [];
     for (let i = 0; i < this.messages.length; i++) {
       const m = this.messages[i];
@@ -1009,7 +1095,7 @@ export class Agent {
       if (!m.toolCalls?.length) continue;
       const results = new Map<string | undefined, Msg>();
       while (this.messages[i + 1]?.role === "tool") { const t = this.messages[++i]; results.set(t.toolCallId, t); }
-      for (const call of m.toolCalls) repaired.push(results.get(call.id) ?? { role: "tool", toolCallId: call.id, toolName: call.name, content: reason });
+      for (const call of m.toolCalls) repaired.push(results.get(call.id) ?? { role: "tool", toolCallId: call.id, toolName: call.name, content: typeof reason === "string" ? reason : reason(call) });
     }
     this.messages = repaired;
   }
