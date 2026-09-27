@@ -668,6 +668,61 @@ s.listen(port, host, () => { console.log("listen=LISTENING " + s.address().addre
   assert.deepEqual(f.iso.listening(), [], "policy restored: no listening");
 });
 
+// ---- #30 : fiches de méthode installées côté hôte ----
+
+test("#30 OS AC3: installed fiches give isolated commands no new access — reading, listing or overwriting ~/.smolcoder/fiches is refused by the kernel (host witness first), while the host's read_file serves a fiche and journals it", { skip, timeout: 60000 }, async () => {
+  const f = await fixture();
+  const fiches = require("../../dist/fiches");
+  const dir = fiches.fichesDir();
+  assert.equal(dir, path.join(HOME, ".smolcoder", "fiches"), "the default location, under the fake home");
+  fiches.installFiches(path.join(__dirname, "..", "..", "docs", "skills"), dir);
+  const tdd = path.join(dir, "tdd.md");
+  const before = fs.readFileSync(tdd, "utf8");
+  const reads = {
+    "read-fiche": `cat "${tdd}"`,
+    "read-manifest": `cat "${path.join(dir, "fiches.json")}"`,
+    "list-fiches": `ls "${dir}"`,
+  };
+  const writes = {
+    "append-fiche": `echo pwned >> "${tdd}"`,
+    "plant-fiche": `echo pwned > "${path.join(dir, "planted.md")}"`,
+  };
+  const tryAll = (attempts) => Object.entries(attempts).map(([name, cmd]) => `if ( ${cmd} ) >/dev/null 2>&1; then echo ${name}=LEAK; else echo ${name}=denied; fi`).join("\n");
+  const host = results(hostRun(f, tryAll(reads)).out);
+  const inside = results((await run(f, tryAll({ ...reads, ...writes }))).output);
+  for (const name of Object.keys(reads)) {
+    assert.equal(host[name], "LEAK", `${name}: allowed outside the sandbox, so the refusal below is the sandbox's`);
+    assert.equal(inside[name], "denied", `${name}: refused under isolation`);
+  }
+  for (const name of Object.keys(writes)) assert.equal(inside[name], "denied", `${name}: refused under isolation`);
+  assert.equal(fs.readFileSync(tdd, "utf8"), before, "the installed fiche is unchanged");
+  assert.ok(!fs.existsSync(path.join(dir, "planted.md")), "nothing was planted");
+
+  // Par l'agent sous la mission de la fixture : la commande est refusée par
+  // la décision d'accès, la lecture nommée est servie par l'hôte et tracée.
+  const replies = [
+    { toolCalls: [{ id: "c1", name: "run_command", args: { command: `cat "${tdd}"` } }] },
+    { toolCalls: [{ id: "r1", name: "read_file", args: { path: "fiche:tdd" } }] },
+    { content: "ok" },
+  ];
+  const seen = [];
+  let i = 0;
+  const provider = {
+    label: "fake", modelId: "fake", contextWindow: 32000, maxOutputTokens: 2000, setEffort() {}, effortLabel() { return null; },
+    async chat(messages) { seen.push(messages.map((m) => ({ role: m.role, content: m.content }))); return { content: "", toolCalls: [], generatedTokens: 10, genTokPerSec: 50, promptTokens: 500, completionTokens: 20, ...replies[Math.min(i++, replies.length - 1)] }; },
+  };
+  const ui = { token() {}, thinking() {}, toolCall() {}, toolResult() {}, println() {}, status() {}, warn() {}, error() {}, startSpinner() {}, stopSpinner() {}, async confirmCommand() { return "no"; }, turnEnd() {}, planUpdated() {} };
+  const ctx = { workspace: f.ws, taskManager: new TaskManager(f.ws, f.iso), plan: new Plan(), filesTouched: new Set(), commandsRun: [], executor: f.iso, fichesDir: dir };
+  const agent = new Agent(provider, "bypass", "sys", ctx, new ContextManager(32000, 2000), new EventBus(), ui, false, 20, undefined, f.m);
+  await agent.runTurn("Lis la fiche tdd.");
+  const [cmd, read] = seen.at(-1).filter((m) => m.role === "tool").map((m) => m.content);
+  assert.match(cmd, /^Error: denied by the access policy.*host store/);
+  assert.equal(read, before);
+  const proofs = store.readProofs(f.m.dir);
+  assert.equal(proofs.state, "ok");
+  assert.ok(proofs.events.some((e) => e.type === "fiche" && e.name === "tdd" && e.sha256 === require("crypto").createHash("sha256").update(before).digest("hex")), "the read is journaled");
+});
+
 test.after(() => {
   for (const s of [F?.allowed, F?.forbidden, F?.localApi]) s?.close();
 });

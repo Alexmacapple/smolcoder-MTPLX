@@ -81,6 +81,9 @@ export function relPath(root: string, abs: string): string {
 const HOME_TOKENS = /^(~|\$HOME|\$\{HOME\}|%USERPROFILE%|%HOMEPATH%)([\\/]|$)/i;
 const TEMP_TOKENS = /^(\$TMPDIR|\$\{TMPDIR\}|\$TEMP|\$TMP|%TEMP%|%TMP%|\$\{TEMP\}|\$\{TMP\})([\\/]|$)/i;
 const GLOBAL_INSTALL = /\b(npm|pnpm|yarn|bun)\b[^;&|]*\s(-g|--global|global)(\s|$)/;
+/** `smol --install-fiches` écrit dans le dossier de données de l'hôte (#30) :
+ * une installation explicite, jamais une commande du workspace. */
+const FICHES_INSTALL = /(^|\s)--install-fiches(\s|$)/;
 /** MSYS roots Git Bash maps to real places; any other one-segment `/word` on
  * Windows is a command switch (`taskkill /pid`, `dir /s`), not a path. */
 const MSYS_ROOTS = /^\/(tmp|usr|etc|bin|home|mnt|dev|proc|var|opt|root)(\/|$)/i;
@@ -144,6 +147,7 @@ export function insideWorkspace(root: string, abs: string): boolean {
  */
 export function commandEscapesWorkspace(command: string, root: string): string | null {
   if (GLOBAL_INSTALL.test(command)) return "installs a package globally, outside the workspace";
+  if (FICHES_INSTALL.test(command)) return "installs method sheets into the host data folder (~/.smolcoder/fiches), outside the workspace";
   for (const tok of pathCandidates(command)) {
     if (HOME_TOKENS.test(tok)) return `uses the home directory (${tok})`;
     if (TEMP_TOKENS.test(tok)) return `uses the system temp directory (${tok})`;

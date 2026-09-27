@@ -4,7 +4,7 @@ The mechanics behind smolcoder, kept out of the README so the setup guide stays 
 
 ## Built around the next coding step
 
-Each coding request contains a short system prompt, project instructions from `AGENTS.md` when present, the tools allowed by the current mode, and a budgeted working history. Tool selection is deliberately simple: eight tools in edit/bypass mode, four in read-only mode. Tool schemas use flat parameters and example calls; file reads and command results have bounded output.
+Each coding request contains a short system prompt, project instructions from `AGENTS.md` when present, a short index of the method sheets installed with `smol --install-fiches` when present (read with `read_file {"path": "fiche:<name>"}`), the tools allowed by the current mode, and a budgeted working history. Tool selection is deliberately simple: eight tools in edit/bypass mode, four in read-only mode. Tool schemas use flat parameters and example calls; file reads and command results have bounded output.
 
 ```mermaid
 flowchart LR

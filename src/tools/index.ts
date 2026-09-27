@@ -5,7 +5,8 @@
 
 import { Plan } from "../plan";
 import { ToolSpec } from "../providers/types";
-import { editFile, listFiles, readFile, writeFile } from "./fs-tools";
+import { editFile, listFiles, readFile, renderRead, writeFile } from "./fs-tools";
+import { isFicheRef, readInstalledFiche } from "../fiches";
 import { syntaxCheck } from "./check";
 import { ExecOptions, runCommand } from "./shell";
 import type { Executor } from "../harness/executor";
@@ -161,6 +162,13 @@ export interface ToolContext {
    * fixée par l'hôte ; absente = l'adaptateur hôte. Les tâches et le terminal
    * reçoivent la leur à leur construction. */
   executor?: Executor;
+  /** Fiches de méthode installées (#30) : le dossier que read_file sert pour
+   * `fiche:<nom>`, fixé par l'hôte à l'ouverture de la session quand
+   * l'index figure dans le prompt ; absent = aucune exception. */
+  fichesDir?: string;
+  /** Profil mission : trace chaque lecture de fiche avant de la servir ;
+   * une trace impossible lève, et la fiche n'est pas servie. */
+  onFicheRead?: (name: string, sha256: string) => void;
 }
 
 export async function executeTool(
@@ -172,9 +180,20 @@ export async function executeTool(
   try {
     let result: string;
     switch (name) {
-      case "read_file":
-        result = readFile(ctx.workspace, args, ctx.resultCharLimit ? ctx.resultCharLimit - 256 : undefined);
+      case "read_file": {
+        const maxChars = ctx.resultCharLimit ? ctx.resultCharLimit - 256 : undefined;
+        if (ctx.fichesDir && isFicheRef(args.path)) {
+          // L'exception nommée : une fiche installée, lue par l'hôte, jamais
+          // un autre fichier hors du workspace.
+          const fiche = readInstalledFiche(ctx.fichesDir, args.path);
+          if (!fiche.ok) return `Error: ${fiche.error}`;
+          ctx.onFicheRead?.(fiche.name, fiche.sha256);
+          result = renderRead(fiche.content, args, maxChars);
+        } else {
+          result = readFile(ctx.workspace, args, maxChars);
+        }
         break;
+      }
       case "list_files":
         result = listFiles(ctx.workspace, args);
         break;
@@ -194,6 +213,7 @@ export async function executeTool(
         break;
       }
       case "write_file":
+        if (ctx.fichesDir && isFicheRef(args.path)) return ficheReadOnly(args.path);
         result = writeFile(ctx.workspace, args);
         if (!result.startsWith("Error")) {
           ctx.filesTouched.add(String(args.path));
@@ -201,6 +221,7 @@ export async function executeTool(
         }
         break;
       case "edit_file":
+        if (ctx.fichesDir && isFicheRef(args.path)) return ficheReadOnly(args.path);
         result = editFile(ctx.workspace, args);
         if (!result.startsWith("Error")) {
           ctx.filesTouched.add(String(args.path));
@@ -242,6 +263,11 @@ export async function executeTool(
     if (err instanceof SandboxError) return `Error: ${err.message}`;
     return `Error: ${err?.message ?? String(err)}`;
   }
+}
+
+/** Une fiche installée ne s'écrit jamais : le modèle écrit dans le workspace. */
+export function ficheReadOnly(p: unknown): string {
+  return `Error: "${String(p)}" names an installed method sheet, which is read-only. Write to a workspace path instead.`;
 }
 
 /** Post-write hook: parse what was just written and coach on the first

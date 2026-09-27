@@ -21,6 +21,7 @@ import { EventBus } from "./events";
 import { terminalLogo } from "./logo";
 import { Plan } from "./plan";
 import { buildSystemPrompt, loadAgentsMdDetails } from "./prompt";
+import { installFiches, packageSkillsDir, loadHostFiches } from "./fiches";
 import { Effort } from "./providers/types";
 import {
   effortAdvice,
@@ -61,6 +62,8 @@ interface CliArgs {
   effort?: Effort | null; // null = explicit "default"
   web?: boolean;
   webPort?: number;
+  /** Copie docs/skills/ du fork dans ~/.smolcoder/fiches, puis s'arrête (#30). */
+  installFiches?: boolean;
   help?: boolean;
   version?: boolean;
 }
@@ -116,7 +119,8 @@ function parseArgs(argv: string[]): CliArgs {
         console.error("--approve needs the contract fingerprint: 64 hexadecimal characters, as printed by smol --mission.");
         process.exit(1);
       }
-    } else if (a === "--print" || a === "-p") args.print = argv[++i];
+    } else if (a === "--install-fiches") args.installFiches = true;
+    else if (a === "--print" || a === "-p") args.print = argv[++i];
     else if (a === "--web") {
       args.web = true;
       if (argv[i + 1] && /^\d+$/.test(argv[i + 1])) args.webPort = Number(argv[++i]);
@@ -159,6 +163,9 @@ ${c.bold("Options:")}
                                contract in ~/.smolcoder/harness/) decides every tool,
                                check and web-terminal line; a -p run whose next step
                                needs a human decision stops with exit code 4
+  --install-fiches             copy the method sheets of this smol's clone (docs/skills/)
+                               into ~/.smolcoder/fiches, then exit; new sessions on any
+                               workspace list them and read_file serves "fiche:<name>"
   --effort <level>             reasoning effort: off, low, medium, high, default
   --web [port]                 browser UI (default port ${DEFAULT_WEB_PORT}): a sidebar of your
                                workspaces and sessions, an embedded browser and
@@ -224,6 +231,10 @@ async function main(): Promise<void> {
     console.log(VERSION);
     return;
   }
+  if (args.installFiches) {
+    runInstallFiches();
+    return;
+  }
   if (args.verify && (!args.print || args.web)) throw new Error('--verify requires a headless -p run');
   if (args.verifyAttempts !== undefined && !args.verify) throw new Error('--verify-attempts requires --verify');
   if (args.approve !== undefined && !args.mission) {
@@ -243,6 +254,23 @@ async function main(): Promise<void> {
   if (args.print !== undefined) await runHeadless(args, mission);
   else if (args.web) await runWeb(args);
   else await runInteractive(args, mission);
+}
+
+/** Installation explicite des fiches de méthode (#30) : une seule source,
+ * docs/skills/ du clone dont ce binaire fait partie. Sortie 1 sur refus. */
+function runInstallFiches(): void {
+  try {
+    const r = installFiches(packageSkillsDir());
+    const home = os.homedir();
+    console.log(
+      `Installed ${r.fiches.length} method sheets into ${r.dir.replace(home, "~")} from ${r.source.replace(home, "~")}: ` +
+        `${r.fiches.map((f) => f.name).join(", ")}.\n` +
+        "New sessions list them in their prompt; sessions already open keep their current prompt."
+    );
+  } catch (err: any) {
+    console.error(`Method sheets not installed: ${err?.message ?? err}`);
+    process.exit(1);
+  }
 }
 
 /** Profil mission : contrat validé et proposé dans le stockage hôte avant
@@ -308,12 +336,21 @@ async function runHeadless(args: CliArgs, mission: Mission | null): Promise<void
   const agents = loadAgentsMdDetails(args.workspace);
   for (const w of agents.warnings) ui.status(`· ${w}`);
   if (agents.text) ui.status(`· Instructions loaded: ${agents.sources.join(" + ")} (${agents.text.split("\n").length} lines)`);
+  // Fiches de méthode installées (#30) : index dans le prompt, `fiche:<nom>`
+  // servi par read_file ; sans installation, rien ne change.
+  const fiches = loadHostFiches(args.workspace, agents.workspaceText);
+  for (const w of fiches.warnings) ui.status(`· ${w}`);
+  if (fiches.dir) {
+    toolCtx.fichesDir = fiches.dir;
+    ui.status(`· Method sheets: ${fiches.count} installed (${fiches.dir.replace(os.homedir(), "~")})`);
+  }
   const systemPrompt = buildSystemPrompt({
     workspace: args.workspace,
     mode,
     shellLabel: shell.label,
     globalAgentsMd: agents.globalText,
     workspaceAgentsMd: agents.workspaceText,
+    fichesIndex: fiches.index,
   });
   const agent = new Agent(provider, mode, systemPrompt, toolCtx, ctxMgr, bus, ui, false, 1000,
     args.verify ? { command: args.verify, maxAttempts: args.verifyAttempts } : undefined, mission);

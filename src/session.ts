@@ -15,6 +15,7 @@ import { BYPASS_UNDER_MISSION } from "./harness/policy";
 import { IsolatedExecutor, isolationLine, missionExecutor } from "./harness/sandbox-executor";
 import { Plan, PlanStep } from "./plan";
 import { buildSystemPrompt, loadAgentsMdDetails } from "./prompt";
+import { loadHostFiches } from "./fiches";
 import { LmStudioProvider } from "./providers/lmstudio";
 import { OllamaProvider } from "./providers/ollama";
 import { Effort, Msg, Provider } from "./providers/types";
@@ -339,6 +340,8 @@ export class Session {
 
   private readonly globalAgentsMd: string | null;
   private readonly workspaceAgentsMd: string | null;
+  /** Index des fiches de méthode installées (#30) ; null sans installation. */
+  private readonly fichesIndex: string | null;
   private readonly prefs: SessionPrefs;
   private readonly help: string;
   private ended = false;
@@ -381,6 +384,12 @@ export class Session {
     this.globalAgentsMd = agents.globalText;
     this.workspaceAgentsMd = agents.workspaceText;
     for (const w of agents.warnings) ui.status(`· ${w}`);
+    // Fiches de méthode installées (#30) : l'index entre dans le prompt et
+    // read_file sert `fiche:<nom>` ; sans installation, rien ne change.
+    const fiches = loadHostFiches(workspace, agents.workspaceText);
+    this.fichesIndex = fiches.index;
+    if (fiches.dir) this.toolCtx.fichesDir = fiches.dir;
+    for (const w of fiches.warnings) ui.status(`· ${w}`);
     // The step cap is a runaway-loop backstop, not a work limit — esc/ctrl+c
     // is the user's real kill switch, so set it far above any legitimate task.
     this.surface = opts.surface ?? "terminal";
@@ -410,6 +419,7 @@ export class Session {
       shellLabel: this.shell.label,
       globalAgentsMd: this.globalAgentsMd,
       workspaceAgentsMd: this.workspaceAgentsMd,
+      fichesIndex: this.fichesIndex,
     });
   }
 

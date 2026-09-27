@@ -21,6 +21,7 @@ import {
   resolveInWorkspace,
   SandboxError,
 } from "../sandbox";
+import { isFicheRef, readInstalledFiche } from "../fiches";
 import type { ExecOptions } from "../tools/shell";
 import { AccessPolicy, POLICY_FILE, PolicyRule, readPolicy } from "./store";
 import type { Mission } from "./mission";
@@ -39,6 +40,9 @@ export interface AccessRequest {
   args: Record<string, any>;
   /** Terminal web : le dossier courant du shell. */
   cwd?: string;
+  /** Fiches de méthode installées (#30) : le dossier que l'hôte sert pour
+   * `fiche:<nom>`, fixé par l'hôte, jamais par un argument du modèle. */
+  fichesDir?: string;
 }
 
 export interface Decision {
@@ -156,6 +160,14 @@ export function decide(mission: Mission, req: AccessRequest): Decision {
   switch (action) {
     case "read": case "write": case "list": case "search": {
       const given = typeof req.args?.path === "string" && req.args.path.trim() ? req.args.path : action === "list" || action === "search" ? "." : "";
+      // L'exception nommée de read_file (#30) : une fiche installée, en
+      // lecture seule, et rien d'autre hors du workspace.
+      if (req.fichesDir && isFicheRef(given) && (action === "read" || action === "write")) {
+        if (action === "write") return deny(`"${given}" names an installed method sheet, which is read-only`);
+        const fiche = readInstalledFiche(req.fichesDir, given);
+        if (!fiche.ok) return deny(fiche.error);
+        return { ...base, verdict: "allow", paths: [fiche.file], reason: `an installed method sheet ("${fiche.name}"), read-only, served by the host outside the workspace` };
+      }
       let abs: string;
       try {
         abs = resolveInWorkspace(ws, given);

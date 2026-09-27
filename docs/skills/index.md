@@ -28,6 +28,14 @@ Lis la fiche AVANT de commencer la tâche correspondante :
 - `conflits-git.md` — merge ou rebase en conflit : comprendre les deux
   intentions avant de résoudre, jamais d'abandon.
 
+Hors de ce dépôt, ces fiches servent aussi : `smol --install-fiches` les
+copie dans `~/.smolcoder/fiches/` et toute session ouverte ensuite, sur
+n'importe quel projet, en reçoit l'index et les lit par
+`read_file {"path": "fiche:<nom>"}` (décision : `docs/decision-fiches-hote.md`).
+Ce sommaire est la liste installée : une fiche ajoutée ici doit y figurer,
+sinon l'installation refuse ; après une modification, relancer
+l'installation pour mettre la copie de l'hôte à jour.
+
 Non portés depuis l'amont (v1) : les skills de pilotage produit (to-spec,
 to-tickets, triage, wayfinder, ask-matt, wizard), research et prototype —
 pensés pour un humain orchestrant un projet avec sous-agents, hors du rôle

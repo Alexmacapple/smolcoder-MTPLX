@@ -1,7 +1,8 @@
 // Stockage hôte du harnais — seul module propriétaire de la grammaire de
 // ~/.smolcoder/harness/<empreinte-du-workspace>/ (docs/decision-stockage-hote.md) :
 // contract.json (le contrat de mission), proofs.jsonl (journal en ajout
-// seul, trois types d'événements) et policy.json (la politique d'accès du
+// seul, quatre types d'événements, `fiche` ajouté par #30 en amendement de
+// la décision) et policy.json (la politique d'accès du
 // profil, ticket #11). Schéma versionné, statuts fermés,
 // validation et bornes de lecture vivent ici ; tout consommateur passe par
 // ce module pour que les portes ne dérivent pas vers des lectures
@@ -13,6 +14,7 @@ import { createHash } from "crypto";
 import * as fs from "fs";
 import * as path from "path";
 import { DATA_DIR } from "../config";
+import { FICHE_NAME_RE } from "../fiches";
 import { writeAtomic } from "../web/store";
 
 export const CONTRACT_SCHEMA = "smolcoder/contract/v1";
@@ -30,7 +32,7 @@ export type ContractStatus = (typeof CONTRACT_STATUSES)[number];
  * un fichier du workspace ou un label de ticket. */
 export const APPROVAL_AUTHORITIES = ["headless-flag", "terminal-human", "web-human"] as const;
 export type ApprovalAuthority = (typeof APPROVAL_AUTHORITIES)[number];
-export const PROOF_TYPES = ["contract", "approval", "verdict"] as const;
+export const PROOF_TYPES = ["contract", "approval", "verdict", "fiche"] as const;
 
 /** Le contrat de mission : les sept rubriques du format d'intention, plus
  * l'identité, le workspace, la révision de base, la référence de politique
@@ -79,6 +81,9 @@ export type ContractRead = { state: "absent" } | ReadFailure | { state: "ok"; re
 export type ProofInput =
   | { type: "contract"; fingerprint: string; id: string; status: ContractStatus; reason?: string }
   | { type: "approval"; fingerprint: string; by: ApprovalAuthority }
+  // Lecture d'une fiche de méthode installée (#30) : son nom et l'empreinte
+  // du contenu servi, liés à l'empreinte du contrat de la session.
+  | { type: "fiche"; fingerprint: string; name: string; sha256: string }
   // Les champs d'un verdict sont fixés par #9 ; seule l'enveloppe est
   // contrôlée ici.
   | { type: "verdict"; [key: string]: unknown };
@@ -342,6 +347,10 @@ function checkEvent(event: Record<string, unknown>): void {
     if (typeof event.id !== "string" || !ID_RE.test(event.id)) throw new ContractError('proof field "id" is invalid');
     if (!CONTRACT_STATUSES.includes(event.status as ContractStatus)) throw new ContractError('proof field "status" is invalid');
     if (event.reason !== undefined && (typeof event.reason !== "string" || event.reason.length > REF_MAX)) throw new ContractError('proof field "reason" is invalid');
+  } else if (event.type === "fiche") {
+    onlyFields(event, ["schema", "type", "at", "fingerprint", "name", "sha256"]);
+    if (typeof event.name !== "string" || !FICHE_NAME_RE.test(event.name)) throw new ContractError('proof field "name" must be a method sheet name');
+    if (typeof event.sha256 !== "string" || !HEX64.test(event.sha256)) throw new ContractError('proof field "sha256" must be 64 hexadecimal characters');
   } else {
     onlyFields(event, ["schema", "type", "at", "fingerprint", "by"]);
     if (!APPROVAL_AUTHORITIES.includes(event.by as ApprovalAuthority)) throw new ContractError(`proof field "by" must be one of ${APPROVAL_AUTHORITIES.join(", ")}`);

@@ -66,7 +66,14 @@ export function readFile(root: string, args: any, maxChars = READ_CHAR_LIMIT): s
     return `Error: "${args.path}" looks like a binary file (${stat.size} bytes) and cannot be read as text.`;
   }
 
-  const content = fs.readFileSync(abs, "utf8");
+  return renderRead(fs.readFileSync(abs, "utf8"), args, charLimit);
+}
+
+/** Une lecture présentée au modèle : la tranche demandée (offset, limit),
+ * coupée sur une fin de ligne, et l'appel exact pour continuer. Partagée
+ * par les fichiers du workspace et les fiches servies par l'hôte (#30). */
+export function renderRead(content: string, args: any, maxChars = READ_CHAR_LIMIT): string {
+  const charLimit = Math.max(128, Math.min(READ_CHAR_LIMIT, Math.floor(maxChars)));
   const lines = content.split(/\r?\n/);
   const total = lines.length;
   const offset = Math.max(1, Number(args.offset) || 1);

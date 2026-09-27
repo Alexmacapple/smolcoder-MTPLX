@@ -709,11 +709,14 @@ export class Agent {
     // d'approbation. Les droits de l'appel (environnement, fichiers protégés)
     // viennent de la décision, jamais des arguments du modèle.
     if (this.mission) {
-      const auth = await this.authorize({ surface: "tool", tool: name, args });
+      const mission = this.mission;
+      const fichesDir = this.toolCtx.fichesDir;
+      const auth = await this.authorize({ surface: "tool", tool: name, args, ...(fichesDir ? { fichesDir } : {}) });
       if (!auth.ok) return auth.message;
       if (signal?.aborted) throw signal.reason;
       if (!this.tools.some((t) => t.name === name)) return `Error: ${name} is no longer available in ${MODE_LABELS[this.mode]} mode.`;
-      return executeTool(name, args, { ...this.toolCtx, exec: auth.decision.exec, protect: auth.decision.protect }, signal);
+      // Chaque lecture de fiche est tracée au journal avant d'être servie (#30).
+      return executeTool(name, args, { ...this.toolCtx, exec: auth.decision.exec, protect: auth.decision.protect, onFicheRead: (fiche, sha256) => mission.recordFiche(fiche, sha256) }, signal);
     }
     const command = commandOf(name, args);
     // Gate everywhere except bypass (defense-in-depth: in ro mode exec tools are

@@ -4,7 +4,9 @@
 // If ~/.smolcoder/AGENTS.md or the workspace has an AGENTS.md, their contents
 // ride along directly after the prompt (each size-capped, global first) — and
 // because they are part of message[0], they survive compaction the same way
-// the system prompt does.
+// the system prompt does. When method sheets are installed on the host
+// (src/fiches.ts, #30), their short index sits between the core prompt and
+// those blocks.
 
 import * as fs from "fs";
 import * as os from "os";
@@ -102,6 +104,9 @@ export function buildSystemPrompt(opts: {
   workspaceAgentsMd?: string | null;
   /** Instructions combinées conservées pour l'ancienne API. */
   agentsMd?: string | null;
+  /** Index des fiches de méthode installées côté hôte (#30, src/fiches.ts),
+   * absent quand aucune n'est installée : le prompt est alors inchangé. */
+  fichesIndex?: string | null;
 }): string {
   const os =
     process.platform === "win32" ? "Windows" : process.platform === "darwin" ? "macOS" : "Linux";
@@ -135,6 +140,9 @@ export function buildSystemPrompt(opts: {
     `Read relevant files before editing. Search narrowly and read small line ranges. Inspect a local module's actual exports before importing it. Make one tool call at a time; use small modules and write large files in parts. ` +
     `Read errors and change your approach when a call fails. Put test programs in files rather than long inline shell commands. Verify changes with the relevant test or command; a failed check is not success. ` +
     `Continue until the request is finished or explain the blocker. Summarize the result and verification briefly.` +
+    // Bloc séparé, hors plafonds des AGENTS.md : une capacité de l'hôte,
+    // placée avant les consignes pour ne rien changer à leur précédence.
+    (opts.fichesIndex ? `\n\n${opts.fichesIndex}` : "") +
     (instructionBlocks.length ? `\n\n${instructionBlocks.join("\n\n")}` : "") +
     precedence
   );
