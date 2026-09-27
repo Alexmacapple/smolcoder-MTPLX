@@ -1195,7 +1195,7 @@ contrat), puis #10 ; l'étude #33, porte d'entrée du chantier
 d'apprentissage #34, est mise à part, en attente de décision. SHA `83fc9be`
 reporté sur l'entrée précédente.
 
-### (ce commit) — Étude #33 : protocole pré-enregistré — Réf #33
+### `309c396` — Étude #33 : protocole pré-enregistré — Réf #33
 
 `bench/lecons-fiches/` (nouveau : `essai.sh`, `campagne.sh`, `etude.py`,
 `analyse.py`, `installer-fiches.cjs`, `figer-binaire.sh`, `test-etude.sh`,
@@ -1230,6 +1230,19 @@ synthétiques ; binaire figé contre un faux serveur Ollama, fiche B servie par
 `fiche:diagnostic-bugs`) ; `npm test` 292/292 ; `test-banc.sh` PASS ;
 `shellcheck` et `ruff` sans avertissement. Aucun essai MTPLX à ce commit.
 SHA `91f8cd6` reporté sur l'entrée précédente.
+
+### (ce commit) — Étude #33 : écart A/A publié — Réf #33
+
+`docs/etude-lecons-fiches-2026-09-27.md`. Campagne jouée sur `309c396`
+avec le binaire figé : 56 essais pour 54 cellules en 3 h 04, deux essais
+non comptés (délai dépassé pendant une autre session Qwen sur MTPLX)
+rejoués et comptés. Écart A/A publié avant toute lecture de la série B
+(`analyse.py --etape aa`) : `decouverte-tests` A 9/9, A2 6/9, δ = 1/3 (les
+trois échecs A2 sont des scripts pilotes laissés dans `.scratch/` après
+lecture de `verification-finale`) ; `copie-figee` A 3/9, A2 1/9, δ = 2/9
+(quatorze correctifs au seul endroit du symptôme, tous annoncés comme
+réussis). Documentation seule ; aucune retouche du protocole, des scripts
+ni des tâches. SHA `309c396` reporté sur l'entrée précédente.
 
 ## Hors dépôt (machine locale)
 
