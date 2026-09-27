@@ -1307,7 +1307,7 @@ verdict (une première version de cette mutation cassait la syntaxe ; elle a
 `--mission`. `npm test` 313/313 (296 et 17 nouveaux) et `npm run test:os`
 21/21, aucun test sauté. SHA `8d5108a` reporté sur l'entrée précédente.
 
-### (ce commit) — Preuve sur le vrai binaire, README — Closes #9
+### `2d74f9b` — Preuve sur le vrai binaire, README — Closes #9
 
 `test/os/e2e.os.test.js`, `README.md`. Ticket #9 (H04), dernier commit :
 les six critères d'acceptation sont prouvés par des tests nommés, sur le
@@ -1349,6 +1349,40 @@ de npm des commandes lancées à la main et du test existant
 antérieure à #9, non corrigée ici) ; aucun des nouveaux tests. Non vérifié :
 aucun run contre MTPLX ni Qwen réel ; une seule machine. SHA `e71311e`
 reporté sur l'entrée précédente.
+
+### (ce commit) — Retours d'échec d'édition exploitables — Réf #19
+
+`src/tools/fs-tools.ts`, `test/edit-feedback.test.js`. Ticket #19 (H07),
+premier commit : les retours d'échec d'`edit_file`. Constat préalable :
+`renderRead` donne déjà le chemin, la portion lue et l'appel exact pour
+continuer (volet « après une lecture » du ticket déjà tenu, inchangé) ; un
+old_text introuvable rendait déjà un extrait voisin quand une ligne lui
+ressemblait. Manquaient la localisation d'un old_text ambigu (ni ligne ni
+extrait), la cause précise d'un introuvable, et l'erreur nue quand rien ne
+ressemble.
+
+Ajouts. old_text ambigu, exact ou aux espaces près : chaque occurrence
+localisée par sa ligne, avec le texte actuel qui l'entoure (trois
+occurrences, 1 500 caractères au plus). old_text introuvable : d'abord la
+ligne où il décroche du fichier (« lines 1-2 match lines 31-32 […], then
+line 3 of old_text differs »), avec les deux textes et l'extrait ; sinon
+l'extrait voisin existant ; sinon, un fichier court (40 lignes et 1 500
+caractères au plus) rendu en entier, ou une recherche ciblée proposée avec
+un mot réel de old_text. Fichier absent : les fichiers voisins, comme
+read_file. Chaque échec dit « No file was changed ». Les extraits restent du
+texte brut entre deux lignes « --- », sans numéros collés aux lignes, qu'un
+petit modèle recopierait dans old_text.
+
+Vérifications. Quatre tests « H07 AC1 » : old_text ambigu et fichier court,
+joués par la boucle de l'agent avec un fournisseur simulé qui ne connaît du
+fichier que ce que les outils lui rendent et relit le fichier faute
+d'extrait — il corrige au tour suivant sans `read_file` ; cause du
+décrochage ; fichier absent. Rouge constaté sur le code d'avant, chacun pour
+sa raison : retour ambigu sans ligne ni extrait, fournisseur simulé réduit
+à relire (`['edit_file', 'read_file']`), cause absente, voisins absents. Le
+test existant de l'extrait voisin passe inchangé. `npm test` 317/317 (313
+et 4 nouveaux) et `npm run test:os` 22/22, aucun test sauté, sous un HOME
+temporaire. SHA `2d74f9b` reporté sur l'entrée précédente.
 
 ## Hors dépôt (machine locale)
 

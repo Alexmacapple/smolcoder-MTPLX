@@ -45,17 +45,24 @@ function isProbablyBinary(filePath: string): boolean {
   return false;
 }
 
+/** Les fichiers voisins d'un chemin absent : de quoi corriger une faute de
+ * frappe sans lister tout le workspace. */
+function nearbyFiles(root: string, abs: string): string {
+  try {
+    const dir = path.dirname(abs);
+    if (!fs.existsSync(dir)) return "";
+    const near = fs.readdirSync(dir).slice(0, 15).join(", ");
+    return near ? ` Files that do exist in ${relPath(root, dir)}: ${near}` : "";
+  } catch {
+    return "";
+  }
+}
+
 export function readFile(root: string, args: any, maxChars = READ_CHAR_LIMIT): string {
   const charLimit = Math.max(128, Math.min(READ_CHAR_LIMIT, Math.floor(maxChars)));
   const abs = resolveInWorkspace(root, args.path);
   if (!fs.existsSync(abs)) {
-    const dir = path.dirname(abs);
-    let hint = "";
-    if (fs.existsSync(dir)) {
-      const near = fs.readdirSync(dir).slice(0, 15).join(", ");
-      if (near) hint = ` Files that do exist in ${relPath(root, dir)}: ${near}`;
-    }
-    return `Error: file "${args.path}" does not exist.${hint}`;
+    return `Error: file "${args.path}" does not exist.${nearbyFiles(root, abs)}`;
   }
   const stat = fs.statSync(abs);
   if (stat.isDirectory()) {
@@ -182,10 +189,72 @@ function closestSnippet(fileLines: string[], oldText: string): { text: string; o
   return { text: fileLines.slice(start, end).join("\n"), offset: start + 1, limit: end - start };
 }
 
+// Retours d'échec exploitables (#19) : un échec d'edit_file dit sa cause
+// précise et rend l'extrait actuel qui permet de corriger au tour suivant,
+// sans relire le fichier entier. Les extraits sont du texte brut entre deux
+// lignes « --- », sans numéros collés aux lignes : un petit modèle les
+// recopierait dans old_text.
+const EDIT_EXCERPT_CHARS = 1500;
+const CONTEXT_BEFORE = 3;
+const CONTEXT_AFTER = 2;
+const SHOWN_OCCURRENCES = 3;
+const SHORT_FILE_LINES = 40;
+
+/** Lignes from..to (1 = première, incluses) du fichier, bornées en caractères. */
+function excerpt(fileLines: string[], from: number, to: number, maxChars: number): string {
+  return truncateEnd(fileLines.slice(Math.max(1, from) - 1, Math.min(fileLines.length, to)).join("\n"), maxChars);
+}
+
+/** « lines 4 and 10 », « lines 4, 10 and 16 » (numéros 1 = première ligne). */
+function lineList(starts: number[]): string {
+  const n = starts.slice(0, 10).map((s) => String(s + 1));
+  if (starts.length > 10) n.push(`${starts.length - 10} more`);
+  return n.length === 1 ? `line ${n[0]}` : `lines ${n.slice(0, -1).join(", ")} and ${n.at(-1)}`;
+}
+
+/** old_text trouvé à plusieurs endroits : chacun localisé, avec le texte
+ * actuel qui l'entoure, pour choisir les lignes qui le rendent unique. */
+function ambiguous(shownPath: string, fileLines: string[], starts: number[], span: number, exact: boolean): string {
+  const shown = starts.slice(0, SHOWN_OCCURRENCES);
+  const per = Math.floor(EDIT_EXCERPT_CHARS / shown.length);
+  const blocks = shown.map((s, i) => {
+    const from = Math.max(1, s + 1 - CONTEXT_BEFORE);
+    const to = Math.min(fileLines.length, s + span + CONTEXT_AFTER);
+    return `Occurrence ${i + 1} (line ${s + 1}), current lines ${from}-${to}:\n---\n${excerpt(fileLines, from, to, per)}\n---`;
+  });
+  const more = starts.length > shown.length ? `\n(${starts.length - shown.length} more not shown.)` : "";
+  return (
+    `Error: old_text ${exact ? `appears ${starts.length} times` : `matches ${starts.length} places`} in ${shownPath}${exact ? "" : " (ignoring whitespace)"}, at ${lineList(starts)}. No file was changed. ` +
+    `Copy a few more of the surrounding lines below into old_text so it matches exactly one place.\n` +
+    blocks.join("\n") + more
+  );
+}
+
+/** Une ligne qui ancre vraiment un endroit (pas une accolade seule). */
+const meaningful = (line: string) => /[a-zA-Z_$]/.test(line) && line.trim().length > 6;
+
+/** La plus longue suite de lignes du début de old_text retrouvée telle quelle
+ * dans le fichier (espaces de bord ignorés) : l'endroit où old_text décroche.
+ * null si rien de significatif ne concorde. */
+function divergence(fileLines: string[], oldLines: string[]): { at: number; matched: number } | null {
+  const target = oldLines.map((l) => l.trim());
+  if (!target[0]) return null;
+  let best: { at: number; matched: number } | null = null;
+  for (let i = 0; i < fileLines.length; i++) {
+    let k = 0;
+    while (k < target.length && i + k < fileLines.length && fileLines[i + k].trim() === target[k]) k++;
+    if (k > 0 && (!best || k > best.matched)) best = { at: i, matched: k };
+  }
+  if (!best || best.matched >= target.length) return null;
+  return target.slice(0, best.matched).some(meaningful) ? best : null;
+}
+
+const clip = (s: string) => JSON.stringify(s.length > 200 ? s.slice(0, 200) + "…" : s);
+
 export function editFile(root: string, args: any): string {
   const abs = resolveInWorkspace(root, args.path);
   if (!fs.existsSync(abs)) {
-    return `Error: file "${args.path}" does not exist. Use write_file to create a new file.`;
+    return `Error: file "${args.path}" does not exist. No file was changed. Use write_file to create a new file.${nearbyFiles(root, abs)}`;
   }
   const oldText = args.old_text;
   const newText = args.new_text ?? "";
@@ -209,6 +278,9 @@ export function editFile(root: string, args: any): string {
   const newNorm = newText.replace(/\r\n/g, "\n");
   const serialize = (s: string) => (crlf ? s.replace(/\n/g, "\r\n") : s);
 
+  const fileLines = content.split("\n");
+  const oldLines = oldNorm.split("\n");
+
   // Tier 1: exact match.
   const occurrences = content.split(oldNorm).length - 1;
   if (occurrences === 1) {
@@ -216,12 +288,14 @@ export function editFile(root: string, args: any): string {
     return `Edited ${args.path}: replaced 1 occurrence.`;
   }
   if (occurrences > 1) {
-    return `Error: old_text appears ${occurrences} times in ${args.path}. Include a few more surrounding lines in old_text so it matches exactly one place.`;
+    const starts: number[] = [];
+    for (let at = content.indexOf(oldNorm); at >= 0; at = content.indexOf(oldNorm, at + oldNorm.length)) {
+      starts.push(content.slice(0, at).split("\n").length - 1);
+    }
+    return ambiguous(String(args.path), fileLines, starts, oldLines.length, true);
   }
 
   // Tier 2: line-trimmed match (forgives leading/trailing whitespace per line).
-  const fileLines = content.split("\n");
-  const oldLines = oldNorm.split("\n");
   const matches = findTrimmedMatch(fileLines, oldLines);
   if (matches.length === 1) {
     const start = matches[0];
@@ -234,17 +308,46 @@ export function editFile(root: string, args: any): string {
     return `Edited ${args.path}: replaced 1 occurrence (whitespace differences in old_text were ignored).`;
   }
   if (matches.length > 1) {
-    return `Error: old_text matches ${matches.length} places in ${args.path} (ignoring whitespace). Include more surrounding lines to make it unique.`;
+    return ambiguous(String(args.path), fileLines, matches, oldLines.length, false);
   }
 
-  // Tier 3: coach with the closest real snippet.
+  // Tier 3: say where old_text stops matching, then coach with the closest
+  // real snippet, then — for a short file — show all of it.
+  const hint = "Use a small exact replacement; this snippet is only a location hint, not the whole block you tried to replace.";
+  const cut = divergence(fileLines, oldLines);
+  if (cut) {
+    const { at, matched } = cut;
+    const from = at + 1;
+    const to = Math.min(fileLines.length, at + Math.min(oldLines.length + CONTEXT_AFTER, 20));
+    const fileSide = at + matched < fileLines.length ? `line ${at + matched + 1} of the file: ${clip(fileLines[at + matched])}` : `the file ends at line ${fileLines.length}`;
+    return (
+      `Error: old_text was not found in ${args.path}. No file was changed.\n` +
+      `Cause: old_text ${matched === 1 ? `line 1 matches line ${from}` : `lines 1-${matched} match lines ${from}-${at + matched}`} of ${args.path}, ` +
+      `then line ${matched + 1} of old_text differs.\n  line ${matched + 1} of old_text: ${clip(oldLines[matched])}\n  ${fileSide}\n` +
+      `Read this range: ${JSON.stringify({ path: args.path, offset: from, limit: to - at })}. ${hint}\n---\n${excerpt(fileLines, from, to, EDIT_EXCERPT_CHARS)}\n---`
+    );
+  }
   const snippet = closestSnippet(fileLines, oldText);
   if (snippet) {
     return (
-      `Error: old_text was not found in ${args.path}. Closest source starts at line ${snippet.offset}. Read this range: ${JSON.stringify({path:args.path,offset:snippet.offset,limit:snippet.limit})}. Use a small exact replacement; this snippet is only a location hint, not the whole block you tried to replace.\n---\n${truncateEnd(snippet.text, 1500)}\n---`
+      `Error: old_text was not found in ${args.path}. No file was changed. Closest source starts at line ${snippet.offset}. Read this range: ${JSON.stringify({path:args.path,offset:snippet.offset,limit:snippet.limit})}. ${hint}\n---\n${truncateEnd(snippet.text, 1500)}\n---`
     );
   }
-  return `Error: old_text was not found in ${args.path}. Call read_file on it first and copy the exact text you want to change.`;
+  const total = fileLines.length - (content.endsWith("\n") ? 1 : 0);
+  if (total <= SHORT_FILE_LINES && content.length <= EDIT_EXCERPT_CHARS) {
+    return (
+      `Error: old_text was not found in ${args.path}, and no line resembles it. No file was changed. ` +
+      `The file is short; here is all of it (${total} line${total === 1 ? "" : "s"}). Copy old_text exactly from it.\n---\n${content.replace(/\n$/, "")}\n---`
+    );
+  }
+  // Le mot le plus long de old_text sert d'exemple concret : un gabarit
+  // « <mot> » serait recopié tel quel par un petit modèle.
+  const word = (oldText.match(/[A-Za-z_$][\w$]{3,}/g) ?? []).sort((a: string, b: string) => b.length - a.length)[0];
+  const search = word ? `search ${JSON.stringify({ pattern: word, path: args.path })}` : `search with a distinctive word of old_text and {"path": ${JSON.stringify(args.path)}}`;
+  return (
+    `Error: old_text was not found in ${args.path} (${total} lines), and no line resembles its first line. No file was changed. ` +
+    `Locate the text with ${search}, then read_file that range and copy old_text exactly.`
+  );
 }
 
 export function listFiles(root: string, args: any): string {
