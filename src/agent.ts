@@ -95,6 +95,9 @@ export class Agent {
    * stockage hôte (null : non écrits). Le headless en tire sa sortie. */
   missionVerdict: { report: VerdictReport; files: { json: string; markdown: string } | null } | null = null;
   private suspended = false;
+  /** Profil mission (#29) : un run `--propose-plan`, en lecture seule, où
+   * l'agent propose son plan ; aucun contrôle d'acceptation n'y tourne. */
+  proposalOnly = false;
 
   constructor(
     public provider: Provider,
@@ -116,8 +119,11 @@ export class Agent {
     if (callerVerification && (!callerVerification.command.trim() || (callerVerification.maxAttempts !== undefined && (!Number.isSafeInteger(callerVerification.maxAttempts) || callerVerification.maxAttempts < 1)))) throw new Error("Verification needs a command and a positive attempt limit.");
     if (callerVerification?.timeoutMs !== undefined && (!Number.isSafeInteger(callerVerification.timeoutMs) || callerVerification.timeoutMs < 1)) throw new Error("Verification timeout must be a positive number of milliseconds.");
     this.messages = [{ role: "system", content: systemPrompt }];
-    this.tools = buildToolSpecs(mode);
+    this.tools = buildToolSpecs(mode, { mission: !!mission });
     this.ctxMgr.setReplayThinking(provider.replaysThinking !== false);
+    // #29 : la checklist part du plan approuvé avec le contrat (ou de celui
+    // qui attend son approbation) ; sans plan, elle reste vide comme avant.
+    mission?.seedPlan(toolCtx.plan);
     // #19 : les journaux complets des sorties raccourcies, lus par read_file
     // sous `log:<n>`. Posés sur le contexte d'outils lui-même, pour que ses
     // copies par appel (profil mission) partagent le même stock.
@@ -136,7 +142,7 @@ export class Agent {
     this.ctxMgr.cancelBackground(true);
     this.ctxMgr.resetAnchor();
     this.mode = mode;
-    this.tools = buildToolSpecs(mode);
+    this.tools = buildToolSpecs(mode, { mission: !!this.mission });
     this.messages[0] = { role: "system", content: systemPrompt };
   }
 
@@ -530,7 +536,11 @@ export class Agent {
     if (this.mission) {
       // #9 : contrôles de l'hôte, puis rapport « en cours » : aucun vert du
       // tour précédent ne reste affiché pendant que le modèle travaille.
-      this.setupMissionChecks();
+      // #29 : un run de proposition de plan ne vérifie rien.
+      if (this.proposalOnly) {
+        this.missionChecks = [];
+        this.verification = undefined;
+      } else this.setupMissionChecks();
       this.writeMissionReport("running");
     }
     // Earlier user decisions may exist only in a previous turn's summary.
@@ -677,7 +687,11 @@ export class Agent {
           // drag every later unrelated question back to stale work. The flag
           // re-arms only when the plan actually changes (set/done/add).
           const plan = this.toolCtx.plan;
-          if (plan.exists && plan.currentIndex >= 0 && toolCallsThisTurn > 0 && !this.planNudged) {
+          // #29 : un plan proposé qui attend l'approbation de l'hôte n'a
+          // aucune étape faisable ; relancer le modèle l'enverrait se heurter
+          // à la porte d'écriture.
+          const awaitingApproval = !!plan.details && this.mission?.status().state === "proposed";
+          if (plan.exists && plan.currentIndex >= 0 && toolCallsThisTurn > 0 && !this.planNudged && !awaitingApproval) {
             this.planNudged = true;
             this.ui.status("· plan has unfinished steps — nudging the model to continue");
             this.messages.push({
@@ -953,8 +967,9 @@ export class Agent {
       if (!auth.ok) return auth.message;
       if (signal?.aborted) throw signal.reason;
       if (!this.tools.some((t) => t.name === name)) return `Error: ${name} is no longer available in ${MODE_LABELS[this.mode]} mode.`;
-      // Chaque lecture de fiche est tracée au journal avant d'être servie (#30).
-      return executeTool(name, args, { ...this.toolCtx, exec: auth.decision.exec, protect: auth.decision.protect, onFicheRead: (fiche, sha256) => mission.recordFiche(fiche, sha256) }, signal);
+      // Chaque lecture de fiche est tracée au journal avant d'être servie (#30) ;
+      // le plan structuré passe par l'hôte (#29).
+      return executeTool(name, args, { ...this.toolCtx, exec: auth.decision.exec, protect: auth.decision.protect, onFicheRead: (fiche, sha256) => mission.recordFiche(fiche, sha256), planHooks: mission.planHooks() }, signal);
     }
     const command = commandOf(name, args);
     // Gate everywhere except bypass (defense-in-depth: in ro mode exec tools are

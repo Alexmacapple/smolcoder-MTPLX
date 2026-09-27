@@ -35,14 +35,15 @@ projections, `report.json` et `report.md`, voir « Amendements ») :
 - `policy.json` — la politique d'accès et sa version (ajouté par #11,
   même grammaire, module propriétaire commun).
 - `proofs.jsonl` — journal en ajout seul (motifs B plein et C minimal) :
-  une ligne JSON par événement, quatre types exactement (le quatrième
-  ajouté par #30, voir « Amendements ») — `contract`
+  une ligne JSON par événement, cinq types exactement (le quatrième
+  ajouté par #30, le cinquième par #29, voir « Amendements ») — `contract`
   (création ou changement d'état d'un contrat), `approval` (qui, quand,
   quelle empreinte), `verdict` (résultat d'une vérification, avec
   l'empreinte des fichiers vérifiés au moment du verdict ; champs fixés
   par #9, voir « Amendements »), `fiche`
   (lecture d'une fiche de méthode installée : son nom, l'empreinte du
-  contenu servi et celle du contrat). Un verdict dont
+  contenu servi et celle du contrat), `plan` (plan d'implémentation
+  proposé par l'agent, contenu entier et empreinte). Un verdict dont
   les fichiers ont changé depuis est périmé par construction : la
   péremption se constate en comparant les empreintes, elle n'est jamais un
   champ modifiable.
@@ -201,3 +202,55 @@ séparé exigerait de réconcilier deux écritures. Écarté : écrire le rappor
 dans le workspace, où l'agent qu'il juge pourrait le modifier.
 
 Cet amendement est accepté par la fusion de la pull request du ticket #9.
+
+### 2026-09-27 — ticket #29 : plan d'implémentation, cinquième événement `plan`
+
+Écarts déclarés à « quatre types exactement » et à la grammaire de
+`contract.json`, tous dans le module propriétaire `src/harness/store.ts`,
+schémas inchangés (`smolcoder/contract/v1`, `smolcoder/proof/v1`). Les champs
+ajoutés sont facultatifs et absents sans plan : sans plan proposé,
+`contract.json` et le journal s'écrivent exactement comme avant. Parcours et
+décisions : `docs/profil-mission.md`, section du ticket #29.
+
+- Cinquième type d'événement, `plan`, de nature `proposed` :
+  `{"schema": "smolcoder/proof/v1", "type": "plan", "at": …, "fingerprint":
+  <empreinte du contrat>, "kind": "proposed", "plan": <empreinte du plan>,
+  "content": {"steps": […], "files": […], "risks": […], "proofs":
+  [{"criterion": <numéro>, "proof": …}]}}` — le plan structuré que l'agent
+  propose avant approbation, contenu entier. Champs fermés et bornés : 1 à 20
+  étapes, 1 à 50 fichiers (chemins relatifs du workspace, sans `..`, 300
+  caractères au plus, `dossier/` pour tout un dossier), 20 risques au plus, une
+  preuve prévue par critère au plus (numéro du critère dans `acceptance`),
+  lignes de 500 caractères au plus. L'empreinte du plan est le SHA-256 de la
+  forme canonique de son contenu et de l'empreinte du contrat : le même texte
+  sous une autre version du contrat est un autre plan. Elle se vérifie à la
+  lecture ; une ligne retouchée à la main rend le journal illisible
+  (fail-closed). Une proposition identique à la précédente n'ajoute rien.
+- Événement `approval` : champ facultatif `plan`, l'empreinte du plan approuvé
+  avec le contrat. Absent : contrat approuvé sans plan.
+- `contract.json`, l'approbation : même champ facultatif `plan`, écrit
+  atomiquement avec elle. La nouvelle approbation des seules entrées du
+  vérificateur (#9) le garde tel quel : une approbation par sujet.
+- `contract.json`, le contrat : champ facultatif `plan`, seule valeur
+  `"required"` — l'hôte n'approuve alors ce contrat qu'avec un plan. Absent,
+  il n'entre pas dans la forme canonique : l'empreinte des contrats existants
+  ne change pas.
+
+Pourquoi le journal plutôt qu'un fichier `plan.json` : le plan approuvé doit
+rester lisible tel qu'il a été approuvé, même quand l'agent réécrit ensuite sa
+checklist ; l'ajout seul le garantit par construction, là où un fichier
+réécrit atomiquement devrait tenir lui-même ses versions, et dupliquerait les
+bornes, la lecture fail-closed et la réparation à la main du journal. Le
+contenu approuvé se relit dans la proposition journalisée dont l'empreinte est
+celle de l'approbation ; l'empreinte, elle, vit dans l'approbation, qu'elle
+qualifie, comme les entrées figées du vérificateur. Écarté : un `plan.md` dans
+le workspace, à la manière du guide cité par le ticket — l'agent qu'il guide
+pourrait réécrire le plan approuvé.
+
+Compatibilité, dite pour qu'il n'y ait pas d'écart silencieux : un binaire
+antérieur à #29 classe un journal qui contient un événement `plan` en
+`unknown-schema`, et un `contract.json` dont l'approbation porte `plan` en
+`unreadable` (champ inconnu) — refus explicites, comme le prévoient les règles
+de lecture, jamais une approbation perdue en silence.
+
+Cet amendement est accepté par la fusion de la pull request du ticket #29.

@@ -501,6 +501,9 @@ export class Session {
     if (advice) ui.warn(`  ${advice}`);
     if (this.mission) {
       ui.println(this.mission.markdown());
+      // #29 : le plan proposé ou approuvé, à côté du contrat ; rien sans plan.
+      const plan = this.mission.planMarkdown();
+      if (plan) ui.println(plan);
       ui.status(
         this.mission.status().state === "approved"
           ? "· mission profile: the contract is approved; the agent works within it"
@@ -512,11 +515,14 @@ export class Session {
   }
 
   /** L'approbation humaine du terminal ou de la page web : la vue du
-   * contrat, puis une confirmation explicite liée à son empreinte. */
+   * contrat (et du plan proposé, #29), puis une confirmation explicite liée
+   * à leurs empreintes. */
   private async approveMission(): Promise<void> {
     const { ui } = this;
     const mission = this.mission!;
     ui.println(mission.markdown());
+    const planText = mission.planMarkdown();
+    if (planText) ui.println(planText);
     const st = mission.status();
     if (st.state === "approved") {
       // #9 : les entrées du vérificateur ont changé (ou n'ont jamais été
@@ -543,6 +549,38 @@ export class Session {
       }
       return;
     }
+    const by = this.surface === "web" ? "web-human" : "terminal-human";
+    // #29 : un plan proposé s'approuve avec le contrat, dans le même geste ;
+    // un contrat qui exige un plan ne s'approuve pas sans lui.
+    const plan = mission.planView();
+    if (plan.required && plan.state !== "proposed") {
+      ui.error(`This mission contract requires an implementation plan approved with it, and none is proposed: ask the agent to propose one (plan tool, action "propose"), then /approve again.`);
+      return;
+    }
+    if (plan.state === "proposed" && plan.fingerprint) {
+      const missing = mission.missingProofs(plan.content);
+      if (missing.length) ui.warn(`· acceptance criteria without a planned proof: ${missing.join(", ")} — the plan does not say how they will be proven`);
+      const pfp = plan.fingerprint.slice(0, 16);
+      const options = [
+        { label: "Approve contract and plan", hint: "record my approval of this exact contract and this exact plan" },
+        ...(plan.required ? [] : [{ label: "Approve contract only", hint: "the plan stays unapproved: no plan baseline, no deviation tracked" }]),
+        { label: "Cancel", hint: "keep writes and commands blocked" },
+      ];
+      const choice = await ui.select(`Approve mission contract ${mission.fingerprint.slice(0, 16)} and plan ${pfp}? Writes and commands are then allowed within ${st.maxSteps - st.steps} model steps.`, options);
+      if (choice === null || choice === options.length - 1) {
+        ui.status("· not approved — writes and commands stay blocked");
+        return;
+      }
+      try {
+        mission.approve(by, mission.fingerprint, choice === 0 ? { plan: plan.fingerprint } : {});
+        ui.status(choice === 0
+          ? `· mission approved (${mission.fingerprint.slice(0, 16)}) with plan ${pfp}`
+          : `· mission approved (${mission.fingerprint.slice(0, 16)}); the proposed plan ${pfp} was not approved — no plan baseline`);
+      } catch (err: any) {
+        ui.error(String(err?.message ?? err));
+      }
+      return;
+    }
     const pick = await ui.select(`Approve mission contract ${mission.fingerprint.slice(0, 16)}? Writes and commands are then allowed within ${st.maxSteps - st.steps} model steps.`, [
       { label: "Approve", hint: "record my approval of this exact contract" },
       { label: "Cancel", hint: "keep writes and commands blocked" },
@@ -552,7 +590,7 @@ export class Session {
       return;
     }
     try {
-      mission.approve(this.surface === "web" ? "web-human" : "terminal-human");
+      mission.approve(by);
       ui.status(`· mission approved (${mission.fingerprint.slice(0, 16)})`);
     } catch (err: any) {
       ui.error(String(err?.message ?? err));
@@ -650,11 +688,17 @@ export class Session {
           case "clear":
             agent.resetTranscript();
             toolCtx.plan.reset();
+            // #29 : le plan approuvé avec le contrat survit, comme le contrat.
+            this.mission?.seedPlan(toolCtx.plan);
             ui.status("· conversation cleared");
             break;
           case "mission":
             if (!this.mission) ui.warn(`Unknown command /${cmd} — try /help`);
-            else ui.println(this.mission.markdown());
+            else {
+              ui.println(this.mission.markdown());
+              const plan = this.mission.planMarkdown();
+              if (plan) ui.println(plan);
+            }
             break;
           case "approve":
             if (!this.mission) ui.warn(`Unknown command /${cmd} — try /help`);

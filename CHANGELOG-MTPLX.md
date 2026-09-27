@@ -1546,7 +1546,7 @@ de ses suites sont dans le HOME temporaire). Non vérifié : aucun essai
 contre MTPLX ni Qwen réel, donc aucun effet mesuré sur la conduite du
 modèle ; une seule machine. SHA `88aa128` reporté sur l'entrée précédente.
 
-### (ce commit) — Exception log:<n> dans la décision d'accès — Réf #19
+### `f85b7fe` — Exception log:<n> dans la décision d'accès — Réf #19
 
 `src/harness/policy.ts`, `src/agent.ts`, `test/command-log.test.js`,
 `docs/profil-mission.md`. Correction demandée à la revue de #19, avant la
@@ -1586,6 +1586,53 @@ requêtes — lecture de `log:1`, de `log:99`, écriture et édition de `log:1`
 328/328 (326 et 2 nouveaux) et `npm run test:os` 22/22, aucun test sauté,
 sous un HOME et un cache npm temporaires neufs. SHA `f93de98` reporté sur
 l'entrée précédente.
+
+### (ce commit) — Plan proposé et approuvé avec le contrat — Réf #29
+
+`src/harness/store.ts`, `src/harness/mission.ts`, `src/plan.ts`,
+`src/tools/index.ts`, `src/agent.ts`, `src/session.ts`, `src/index.ts`,
+`test/plan-mission.test.js` (nouveau), `docs/decision-stockage-hote.md`,
+`docs/profil-mission.md`. Ticket #29 (H08), premier commit : le plan
+d'implémentation proposé avant approbation et approuvé avec le contrat ; les
+écarts après approbation viennent au commit suivant. Hors `--mission`, rien
+ne change.
+
+Sous `--mission`, l'outil `plan` gagne l'action `propose` (champs plats
+`steps`, `files`, `risks`, `proofs` en lignes « N: preuve ») : l'hôte valide,
+journalise et pose le plan sur la checklist existante, étendue d'un détail
+structuré (`Plan.details`) plutôt que doublée d'un second système ; ce détail
+voyage avec les étapes, compaction comprise. La preuve attendue s'aligne sur
+#9 sans la dupliquer : un critère couvert par un contrôle de l'hôte a déjà la
+sienne, un critère ni couvert ni prévu est signalé au modèle, à l'humain avant
+la question de `/approve`, et dans la ligne `[mission]`. `/approve` (terminal,
+web) montre le contrat puis le plan et approuve les deux dans le même geste ;
+en headless, `--propose-plan` (run de lecture seule sous un contrat proposé,
+sortie 3) puis `--approve <contrat> --approve-plan <plan>`. Une approbation
+par sujet : `--approve-plan` n'existe qu'avec `--approve`, la nouvelle
+approbation des entrées du vérificateur garde le plan approuvé. Décision : plan
+facultatif par défaut, exigible par le champ de contrat `"plan": "required"`.
+
+Grammaire, amendée explicitement dans `docs/decision-stockage-hote.md`
+(section du 2026-09-27, ticket #29) : cinquième événement `plan` (`proposed`,
+contenu entier, empreinte vérifiée à la lecture), champ facultatif `plan` de
+l'approbation (événement et `contract.json`), champ facultatif `plan` du
+contrat, hors empreinte quand il est absent. Choix du journal plutôt qu'un
+`plan.json`, et du stockage hôte plutôt qu'un `plan.md` du workspace, motivés
+dans l'amendement.
+
+Vérifications. Onze tests « H08 » de `test/plan-mission.test.js`, fournisseur
+simulé : AC1 en terminal, en web et en headless (vrai CLI jusqu'à la
+décision, approbation par `authorizeHeadless`), drapeaux mal employés, run de
+proposition, AC2 (signalement, vocabulaire et erreurs de grammaire), plan
+exigé, plan laissé de côté, AC5 hors mission et sous mission sans plan. Rouge
+constaté avant le code : dix échecs, chacun sur la fonction, l'action ou le
+drapeau absent ; les deux tests AC5 passaient déjà sur la base, à la seule
+ligne `planView()` près (nouvelle API), et leur rouge est montré par mutation
+du code compilé (schéma de mission appliqué hors `--mission`, clé `plan`
+toujours présente dans la ligne `[mission]`), `dist/` reconstruit ensuite.
+`npm test` 339/339 (328 et 11 nouveaux) et `npm run test:os` 22/22, aucun
+test sauté, sous un HOME et un cache npm temporaires. SHA `f85b7fe` reporté
+sur l'entrée précédente.
 
 ## Hors dépôt (machine locale)
 

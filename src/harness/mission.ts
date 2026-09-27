@@ -7,6 +7,7 @@
 
 import * as fs from "fs";
 import * as path from "path";
+import type { Plan, PlanHooks } from "../plan";
 import type { PathRules } from "../sandbox";
 import { freezeVerifiers, PROJECT_COMMANDS, scanWorkspace, VerifierState, verifierChanges, WorkspaceScan } from "./proofs";
 import {
@@ -23,8 +24,14 @@ import {
   HarnessStoreError,
   MissionContract,
   parseContractSource,
+  parsePlanContent,
+  PlanContent,
+  planFingerprint,
+  PLAN_REQUIRED,
+  ProofEvent,
   readContract,
   readPolicy,
+  readProofs,
   VerifierFreeze,
   writeContract,
   writePolicy,
@@ -60,6 +67,28 @@ export interface MissionPrefs {
 
 /** Code de sortie headless quand le contrat n'autorise pas l'exécution. */
 export const MISSION_EXIT_CODE = 3;
+
+/** L'état du plan d'implémentation de cette version du contrat (#29) :
+ * aucun, proposé (le dernier proposé, en attente d'approbation), approuvé
+ * avec le contrat, ou illisible dans le journal. */
+export type PlanState = "none" | "proposed" | "approved" | "unreadable";
+
+export interface PlanView {
+  state: PlanState;
+  /** Le contrat exige un plan approuvé avec lui (`"plan": "required"`). */
+  required: boolean;
+  /** Empreinte du plan proposé en attente, ou du plan approuvé. */
+  fingerprint: string | null;
+  content: PlanContent | null;
+  /** Date de la proposition. */
+  at: string | null;
+  reason?: string;
+}
+
+type PlanProposedEvent = Extract<ProofEvent, { kind: "proposed" }>;
+
+/** Deux contenus identiques, clés comprises (forme canonique de l'empreinte). */
+const samePlan = (a: PlanContent, b: PlanContent) => planFingerprint("", a) === planFingerprint("", b);
 
 /** Outils sans effet sur le projet : disponibles avant approbation pour lire
  * et préparer le plan (la checklist du modèle n'accorde aucun droit). Liste
@@ -189,8 +218,11 @@ export class Mission {
    * toujours sa trace). Elle fige aussi les entrées du vérificateur (#9) :
    * tests, configuration et scripts qui les exécutent, tels que l'hôte les
    * voit en approuvant ; `commands` ajoute une commande de l'appelant
-   * (--verify) à celles du contrat. */
-  approve(by: ApprovalAuthority, fingerprint: string = this.fingerprint, opts: { commands?: string[] } = {}): MissionStatus {
+   * (--verify) à celles du contrat. `plan` (#29) : l'empreinte exacte du
+   * plan proposé que l'hôte approuve avec le contrat ; l'événement
+   * d'approbation la porte. Sans elle, le contrat seul est approuvé — sauf
+   * s'il exige un plan. */
+  approve(by: ApprovalAuthority, fingerprint: string = this.fingerprint, opts: { commands?: string[]; plan?: string } = {}): MissionStatus {
     if (!APPROVAL_AUTHORITIES.includes(by)) throw new MissionError(`approval "by" must be one of ${APPROVAL_AUTHORITIES.join(", ")}`);
     if (fingerprint !== this.fingerprint) {
       throw new MissionError(`approval fingerprint ${fingerprint.slice(0, 16)}… does not match the contract fingerprint ${this.fingerprint}`);
@@ -198,7 +230,13 @@ export class Mission {
     const read = readContract(this.dir);
     if (read.state !== "ok") throw new MissionError(`host contract store is ${read.state} (${this.dir}): nothing was approved`);
     const current = this.status();
-    if (current.state === "approved") return current;
+    if (current.state === "approved") {
+      if (opts.plan !== undefined && opts.plan !== current.approval?.plan) {
+        const approved = current.approval?.plan;
+        throw new MissionError(`the mission contract "${this.contract.id}" is already approved ${approved ? `with plan ${approved.slice(0, 16)}…` : "without a plan"}: a plan is approved only together with the contract, so nothing was approved`);
+      }
+      return current;
+    }
     if (current.state === "expired") {
       throw new MissionError(`the mission contract "${this.contract.id}" is expired: approving it again cannot extend it. Widen it (for example budgets.maxSteps) and approve the new fingerprint.`);
     }
@@ -206,11 +244,197 @@ export class Mission {
     if (current.steps >= current.maxSteps) {
       throw new MissionError(`the step budget of "${this.contract.id}" is already spent (${current.steps}/${current.maxSteps}): widen budgets.maxSteps before approving`);
     }
+    // #29 : le plan approuvé est exactement celui que l'hôte a vu, et un
+    // contrat qui exige un plan ne s'approuve jamais sans lui.
+    const plan = this.planView();
+    if (opts.plan !== undefined) {
+      if (plan.state !== "proposed") throw new MissionError(`no implementation plan is proposed for the mission contract "${this.contract.id}"${plan.state === "unreadable" ? ` (${plan.reason})` : ""}: nothing was approved`);
+      if (plan.fingerprint !== opts.plan) {
+        throw new MissionError(`plan fingerprint ${opts.plan.slice(0, 16)}… does not match the proposed plan ${plan.fingerprint}: the plan changed or another one was named. Review it and approve its current fingerprint; nothing was approved`);
+      }
+    } else if (plan.required) {
+      throw new MissionError(
+        `the mission contract "${this.contract.id}" requires an implementation plan approved with it: ` +
+          (plan.state === "proposed"
+            ? `approve the proposed plan ${plan.fingerprint} together with the contract`
+            : 'the agent proposes one first (plan tool, action "propose"; headless: a --propose-plan run)') +
+          "; nothing was approved"
+      );
+    }
     const frozen = this.freeze(this.verifierCommands(opts.commands));
-    const approval: Approval = { fingerprint: this.fingerprint, by, at: new Date().toISOString(), verifiers: frozen };
-    appendProof(this.dir, { type: "approval", fingerprint: this.fingerprint, by, verifiers: frozen?.digest ?? null });
+    const withPlan = opts.plan !== undefined ? { plan: opts.plan } : {};
+    const approval: Approval = { fingerprint: this.fingerprint, by, at: new Date().toISOString(), verifiers: frozen, ...withPlan };
+    appendProof(this.dir, { type: "approval", fingerprint: this.fingerprint, by, verifiers: frozen?.digest ?? null, ...withPlan });
     writeContract(this.dir, createRecord(this.contract, { status: "approved", approval, steps: read.record.usage.steps }));
     return this.status();
+  }
+
+  // ---- plan d'implémentation (#29) ----------------------------------------
+
+  /** Le plan de cette version du contrat, relu dans le stockage hôte : le
+   * plan approuvé avec elle (son contenu vient de la proposition journalisée
+   * qui porte la même empreinte), sinon le dernier proposé tant qu'elle
+   * attend son approbation. Un contrat approuvé sans plan n'en a aucun. */
+  planView(): PlanView {
+    const required = this.contract.plan === PLAN_REQUIRED;
+    const none: PlanView = { state: "none", required, fingerprint: null, content: null, at: null };
+    const read = readContract(this.dir);
+    const record = read.state === "ok" && read.record.fingerprint === this.fingerprint ? read.record : null;
+    const approval = record?.approval?.fingerprint === this.fingerprint ? record.approval : null;
+    if (approval && !approval.plan) return none;
+    if (!approval && (!record || approvalState(record) !== "proposed")) return none;
+    const journal = readProofs(this.dir);
+    if (journal.state === "unreadable" || journal.state === "unknown-schema") {
+      // Illisible ne se dit que d'un plan qu'une approbation nomme ; sans
+      // elle, un journal abîmé ne fait pas apparaître de plan.
+      return approval?.plan ? { ...none, state: "unreadable", fingerprint: approval.plan, reason: `the proof journal is ${journal.state}` } : none;
+    }
+    const events = journal.state === "absent" ? [] : journal.events;
+    const proposals = events.filter((e: ProofEvent): e is PlanProposedEvent => e.type === "plan" && e.kind === "proposed" && e.fingerprint === this.fingerprint);
+    if (approval?.plan) {
+      const p = proposals.find((e) => e.plan === approval.plan);
+      return p
+        ? { state: "approved", required, fingerprint: p.plan, content: p.content, at: p.at }
+        : { ...none, state: "unreadable", fingerprint: approval.plan, reason: `the approved plan ${approval.plan.slice(0, 16)}… is missing from the proof journal` };
+    }
+    const last = proposals.at(-1);
+    return last ? { state: "proposed", required, fingerprint: last.plan, content: last.content, at: last.at } : none;
+  }
+
+  /** Les critères d'acceptation (numéros à partir de 1) qu'aucun contrôle de
+   * l'hôte ne couvre et pour lesquels le plan ne prévoit aucune preuve. Un
+   * critère couvert par `checks` (#9) a déjà sa preuve : l'hôte la produit. */
+  missingProofs(content: PlanContent | null = this.planView().content): number[] {
+    if (!content) return [];
+    const covered = new Set((this.contract.checks ?? []).flatMap((k) => k.covers));
+    const planned = new Set(content.proofs.map((p) => p.criterion));
+    return this.contract.acceptance.map((_, i) => i + 1).filter((n) => !covered.has(n) && !planned.has(n));
+  }
+
+  /** Chemins du plan écrits à la façon du workspace : sans `./`, relatifs
+   * même donnés en absolu dans le workspace, sans doublon. */
+  private normalizePlan(c: PlanContent): PlanContent {
+    const files = c.files.map((f) => {
+      let p = f.trim();
+      const dir = p.endsWith("/");
+      if (path.isAbsolute(p)) {
+        const rel = path.relative(this.workspace, p);
+        if (rel && !rel.startsWith("..") && !path.isAbsolute(rel)) p = rel.split(path.sep).join("/") + (dir ? "/" : "");
+      }
+      while (p.startsWith("./")) p = p.slice(2);
+      return p;
+    });
+    return { ...c, files: [...new Set(files)] };
+  }
+
+  /** Enregistre la proposition de l'agent pour ce contrat, tant qu'il attend
+   * son approbation : un événement `plan` (`proposed`) au journal, contenu
+   * entier et empreinte. Une proposition identique à la précédente n'ajoute
+   * rien. Grammaire refusée : MissionError, rien n'est écrit. */
+  proposePlan(raw: PlanContent): { fingerprint: string; content: PlanContent; missing: number[]; recorded: boolean } {
+    const st = this.status();
+    if (st.state !== "proposed") {
+      throw new MissionError(
+        st.state === "approved"
+          ? `the mission contract "${this.contract.id}" is already approved${this.planView().state === "approved" ? " with its plan" : " without a plan"}: a plan is approved only together with the contract`
+          : `the mission contract "${this.contract.id}" is ${STATE_LABELS[st.state]}: no plan can be proposed for it`
+      );
+    }
+    let content: PlanContent;
+    try {
+      content = parsePlanContent(this.normalizePlan(raw), this.contract.acceptance.length);
+    } catch (err: any) {
+      if (err instanceof ContractError) throw new MissionError(err.message.replace(/^plan field /, ""));
+      throw err;
+    }
+    const fingerprint = planFingerprint(this.fingerprint, content);
+    const view = this.planView();
+    const recorded = !(view.state === "proposed" && view.fingerprint === fingerprint);
+    if (recorded) appendProof(this.dir, { type: "plan", fingerprint: this.fingerprint, kind: "proposed", plan: fingerprint, content });
+    return { fingerprint, content, missing: this.missingProofs(content), recorded };
+  }
+
+  /** La preuve prévue de chaque critère, pour le modèle : contrôle de l'hôte,
+   * preuve déclarée, ou absence signalée. */
+  private proofLines(content: PlanContent): string[] {
+    return this.contract.acceptance.map((_, i) => {
+      const n = i + 1;
+      const check = this.contract.checks?.some((k) => k.covers.includes(n));
+      const p = content.proofs.find((x) => x.criterion === n);
+      if (check) return `${n}. host check (run by the host)${p ? `; also planned: ${p.proof}` : ""}`;
+      if (p) return `${n}. planned: ${p.proof}`;
+      return `${n}. NO PLANNED PROOF — add "${n}: <how it will be proven>" to "proofs" and propose again, or tell the host why it cannot be proven`;
+    });
+  }
+
+  /** Ce que l'hôte fait de l'outil plan sous ce contrat : les propositions
+   * sont validées et journalisées ; avant approbation, une checklist
+   * structurée modifiée par set ou add devient la nouvelle proposition. */
+  planHooks(): PlanHooks {
+    return {
+      propose: (content) => {
+        try {
+          const r = this.proposePlan(content);
+          const fp = r.fingerprint.slice(0, 16);
+          const head = r.recorded
+            ? `Plan proposed (fingerprint ${fp}; ${r.content.steps.length} steps, ${r.content.files.length} files). The host reviews it with the contract and approves both, or not; writes and commands stay blocked until then — wait for the host, do not start the work.`
+            : `Plan unchanged (fingerprint ${fp}): the host already has this version.`;
+          return { ok: true, content: r.content, message: [head, "Expected proof per acceptance criterion:", ...this.proofLines(r.content)].join("\n") };
+        } catch (err: any) {
+          return { ok: false, message: String(err?.message ?? err) + (err instanceof MissionError && /already approved without a plan/.test(err.message) ? '. Keep your working checklist with {"action":"set","steps":"..."}.' : "") };
+        }
+      },
+      changed: (before, after) => {
+        if (samePlan(before, after) || this.planView().state !== "proposed") return "";
+        try {
+          const r = this.proposePlan(after);
+          return r.recorded ? `\nProposed plan updated (fingerprint ${r.fingerprint.slice(0, 16)}): the host approves this version with the contract.` : "";
+        } catch (err: any) {
+          return `\n[The proposed plan could not be updated (${err?.message ?? err}); the host still sees the previous version.]`;
+        }
+      },
+    };
+  }
+
+  /** Pose sur une checklist vide le plan approuvé avec le contrat, sinon celui
+   * qui attend son approbation : la boussole du modèle suit le stockage hôte. */
+  seedPlan(plan: Plan): void {
+    if (plan.exists) return;
+    const v = this.planView();
+    if ((v.state === "approved" || v.state === "proposed") && v.content) plan.adopt(v.content);
+  }
+
+  /** Vue Markdown du plan pour l'humain, à côté de celle du contrat ; vide
+   * sans plan (et sans exigence de plan), pour que rien ne change alors. */
+  planMarkdown(): string {
+    const v = this.planView();
+    if (v.state === "none") {
+      return v.required
+        ? "## Plan d'implémentation — exigé par le contrat, aucun proposé\n\nL'agent le propose avant approbation (outil plan, action « propose ») ; en headless, un run `--propose-plan`. Le contrat ne s'approuve qu'avec lui."
+        : "";
+    }
+    if (v.state === "unreadable" || !v.content) return `## Plan d'implémentation — illisible\n\n${v.reason ?? "contenu introuvable"}${v.fingerprint ? ` (empreinte \`${v.fingerprint}\`)` : ""}.`;
+    const c = v.content;
+    const criteria = this.contract.acceptance.map((a, i) => {
+      const n = i + 1;
+      const check = this.contract.checks?.find((k) => k.covers.includes(n));
+      const p = c.proofs.find((x) => x.criterion === n);
+      const parts = [check ? `contrôle de l'hôte : \`${check.command}\`` : "", p ? `preuve prévue : ${p.proof}` : ""].filter(Boolean);
+      return `${n}. ${a} — ${parts.length ? parts.join(" ; ") : "**aucune preuve prévue**"}`;
+    });
+    const missing = this.missingProofs(c);
+    return [
+      `## Plan d'implémentation — ${v.state === "proposed" ? "proposé, en attente d'approbation avec le contrat" : "approuvé avec le contrat"}`,
+      "",
+      `Empreinte \`${v.fingerprint}\` · proposé le ${v.at} · ${c.steps.length} étape(s) · ${c.files.length} fichier(s)${v.required ? " · exigé par le contrat" : ""}`,
+      "Un guide, pas une cage : après approbation, un écart est journalisé et montré, jamais bloqué.",
+      "",
+      "### Ordre des travaux", "", ...c.steps.map((s, i) => `${i + 1}. ${s}`), "",
+      "### Fichiers à créer ou modifier", "", ...c.files.map((f) => `- \`${f}\``), "",
+      "### Risques et contraintes techniques", "", ...(c.risks.length ? c.risks.map((r) => `- ${r}`) : ["_(aucun déclaré)_"]), "",
+      "### Preuve attendue par critère d'acceptation", "", ...criteria,
+      ...(missing.length ? ["", `Critère(s) sans preuve prévue : ${missing.join(", ")}.`] : []),
+    ].join("\n");
   }
 
   /** Les entrées figées par l'approbation en vigueur ; {} sans elle. */
@@ -277,7 +501,10 @@ export class Mission {
     }
     const state = this.verifierState(commands, scan);
     if (state.state === "frozen") return state;
-    const approval: Approval = { fingerprint: this.fingerprint, by, at: new Date().toISOString(), verifiers: now.freeze };
+    // Une approbation par sujet : celle des entrées ne touche pas au plan
+    // approuvé avec le contrat (#29), que contract.json garde.
+    const plan = read.record.approval?.plan;
+    const approval: Approval = { fingerprint: this.fingerprint, by, at: new Date().toISOString(), verifiers: now.freeze, ...(plan ? { plan } : {}) };
     appendProof(this.dir, { type: "approval", fingerprint: this.fingerprint, by, verifiers: now.freeze.digest });
     writeContract(this.dir, { ...read.record, approval, updatedAt: new Date().toISOString() });
     return this.verifierState(commands);
@@ -353,8 +580,22 @@ export class Mission {
         ? `Host checks: acceptance criteria ${c.checks.flatMap((k) => k.covers).sort((a, b) => a - b).join(", ")} are checked by the host itself; the others are not covered by any check.`
         : "Host checks: none — no acceptance criterion is covered by a host check.",
       "Verification: the host runs the decisive checks itself. The tests, their configuration and the scripts that run them are frozen when the host approves; changing them never earns acceptance — it blocks it until the host approves them again.",
+      ...this.planModelLines(s.state),
       ...(c.openQuestions.length ? [`Open questions: ${c.openQuestions.join("; ")}`] : []),
     ].join("\n");
+  }
+
+  /** Le plan dans le bloc du contrat (#29) : rien sans plan ni exigence. */
+  private planModelLines(state: MissionState): string[] {
+    const v = this.planView();
+    const fp = v.fingerprint?.slice(0, 16);
+    if (v.state === "proposed") return [`Plan: proposed ${fp} (${v.content!.steps.length} steps, ${v.content!.files.length} files) — awaiting the host's approval with the contract.`];
+    if (v.state === "approved") {
+      return [`Plan: approved ${fp} with the contract. It is a guide, not a cage: another file or a changed step is allowed and shown to the host — say why in "reason". Files: ${v.content!.files.join(", ")}.`];
+    }
+    if (v.state === "unreadable") return [`Plan: the plan approved with the contract cannot be read from the host journal (${v.reason}).`];
+    if (v.required && state !== "approved") return ['Plan: the host requires an implementation plan approved with the contract — propose it with the plan tool (action "propose") before approval.'];
+    return [];
   }
 
   /** Vue Markdown pour l'humain (format d'intention du ticket), produite
@@ -394,6 +635,7 @@ export class Mission {
  * `policy` : version de la politique d'accès, ou l'état qui empêche de la lire. */
 export function missionReport(mission: Mission, status: MissionStatus = mission.status(), verifiers?: VerifierState) {
   const policy = readPolicy(mission.dir);
+  const plan = mission.planView();
   return {
     state: status.state,
     id: mission.contract.id,
@@ -407,6 +649,49 @@ export function missionReport(mission: Mission, status: MissionStatus = mission.
     // #9 : l'état des entrées du vérificateur et l'empreinte qu'une nouvelle
     // approbation figerait (--approve-verifiers).
     ...(verifiers ? { verifiers: { state: verifiers.state, frozen: verifiers.frozen, current: verifiers.current, ...(verifiers.changes.length ? { changes: verifiers.changes.slice(0, 20) } : {}) } } : {}),
+    // #29 : le plan, seulement quand il existe ou que le contrat l'exige —
+    // l'empreinte qu'--approve-plan doit nommer, les critères sans preuve prévue.
+    ...(plan.state !== "none" || plan.required
+      ? {
+          plan: {
+            state: plan.state,
+            required: plan.required,
+            fingerprint: plan.fingerprint,
+            ...(plan.content ? { steps: plan.content.steps.length, files: plan.content.files.length, missingProofs: mission.missingProofs(plan.content) } : {}),
+            ...(plan.reason ? { reason: plan.reason } : {}),
+          },
+        }
+      : {}),
+  };
+}
+
+/** Le complément de la requête d'un run `--propose-plan` (#29). */
+export function proposalInstruction(): string {
+  return (
+    "\n\n[Plan proposal run: the host has not approved the contract, and nothing can be written or run in this run. " +
+    'Read what you need, then propose your implementation plan with the plan tool: {"action":"propose","steps":"...","files":"...","risks":"...","proofs":"1: ...\\n2: ..."}. ' +
+    "Then stop: the host reviews the plan with the contract and approves both, or not.]"
+  );
+}
+
+/** Autorisation d'un run headless `--propose-plan` (#29) : seulement sous un
+ * contrat proposé, jamais approuvé — l'agent y lit et propose, rien d'autre. */
+export function authorizeProposal(mission: Mission): { ok: boolean; message: string; report: ReturnType<typeof missionReport> } {
+  const { id } = mission.contract;
+  const refuse = (message: string) => ({ ok: false, message: `Nothing was run. ${message}`, report: missionReport(mission) });
+  const status = mission.status();
+  if (status.state === "approved") {
+    return refuse(`Mission contract "${id}" is already approved: a plan is proposed before approval, together with the contract, so there is nothing left to propose. Run without --propose-plan.`);
+  }
+  if (status.state !== "proposed") return refuse(`Mission contract "${id}" is ${STATE_LABELS[status.state]}${status.reason ? ` (${status.reason})` : ""}: no plan can be proposed for it.`);
+  const policy = readPolicy(mission.dir);
+  if (policy.state !== "ok") {
+    return refuse(`The access policy of mission "${id}" is ${policy.state === "absent" ? "missing from" : `${policy.state} in`} the host store (${mission.dir}): the controller cannot decide, so nothing may run.`);
+  }
+  return {
+    ok: true,
+    message: `plan proposal run for mission "${id}" (${mission.fingerprint.slice(0, 16)}): read-only, nothing is written or checked; the host reviews the plan with the contract afterwards`,
+    report: missionReport(mission),
   };
 }
 
@@ -423,7 +708,7 @@ export function missionExitCode(status: MissionStatus): number | null {
 export function authorizeHeadless(
   mission: Mission,
   approve?: string,
-  opts: { verify?: string; approveVerifiers?: string } = {}
+  opts: { verify?: string; approveVerifiers?: string; approvePlan?: string } = {}
 ): { ok: boolean; message: string; report: ReturnType<typeof missionReport>; verifiers?: VerifierState } {
   const { id } = mission.contract;
   const fp = mission.fingerprint;
@@ -432,6 +717,8 @@ export function authorizeHeadless(
   if (approve !== undefined && approve !== fp) {
     return refuse(`--approve ${approve.slice(0, 16)}… does not match the contract fingerprint ${fp}: the contract changed or another one was named. Review it and approve its current fingerprint.`);
   }
+  // #29 : le plan proposé tel que l'hôte le voit avant d'approuver.
+  const proposed = mission.planView();
   let status = mission.status();
   if (status.state === "approved" && status.steps >= status.maxSteps) {
     try {
@@ -448,9 +735,9 @@ export function authorizeHeadless(
   if (policy.state !== "ok") {
     return refuse(`The access policy of mission "${id}" is ${policy.state === "absent" ? "missing from" : `${policy.state} in`} the host store (${mission.dir}): the controller cannot decide, so nothing may run. Repair or remove policy.json by hand (removing it restores the default policy at the next run).`);
   }
-  if (approve !== undefined && status.state === "proposed") {
+  if (approve !== undefined && (status.state === "proposed" || (status.state === "approved" && opts.approvePlan !== undefined))) {
     try {
-      status = mission.approve("headless-flag", approve, { commands });
+      status = mission.approve("headless-flag", approve, { commands, ...(opts.approvePlan !== undefined ? { plan: opts.approvePlan } : {}) });
     } catch (err: any) {
       return refuse(`${err?.message ?? err}.`);
     }
@@ -466,14 +753,29 @@ export function authorizeHeadless(
       }
     }
     const verifiers = mission.verifierState(mission.verifierCommands(commands));
+    const plan = status.approval?.plan;
+    // Un plan proposé que l'appelant n'a pas nommé reste non approuvé : dit
+    // une fois, au moment où l'approbation se fait sans lui.
+    const unapproved = approve !== undefined && !plan && proposed.state === "proposed" && proposed.fingerprint
+      ? `; the proposed plan ${proposed.fingerprint.slice(0, 16)} was not approved (--approve-plan ${proposed.fingerprint} approves it with the contract): this run has no plan baseline`
+      : "";
     return {
       ok: true,
-      message: `mission "${id}" approved (${fp.slice(0, 16)}, by ${status.approval?.by}); ${status.maxSteps - status.steps} of ${status.maxSteps} model steps left`,
+      message: `mission "${id}" approved (${fp.slice(0, 16)}, by ${status.approval?.by}${plan ? `, with plan ${plan.slice(0, 16)}` : ""}); ${status.maxSteps - status.steps} of ${status.maxSteps} model steps left${unapproved}`,
       report: missionReport(mission, status, verifiers),
       verifiers,
     };
   }
   if (opts.approveVerifiers !== undefined) return refuse(`--approve-verifiers needs an approved contract; mission contract "${id}" is ${STATE_LABELS[status.state]}.`);
+  if (status.state === "proposed" && proposed.state === "proposed") {
+    return refuse(
+      `Mission contract "${id}" is proposed, not approved, and the agent proposed an implementation plan. Review both, then rerun with --approve ${fp} --approve-plan ${proposed.fingerprint}` +
+        (proposed.required ? " (this contract requires its plan)." : ` — or --approve ${fp} alone to approve the contract without the plan.`)
+    );
+  }
+  if (status.state === "proposed" && proposed.required) {
+    return refuse(`Mission contract "${id}" is proposed, not approved, and it requires an implementation plan approved with it: run smol with --propose-plan first, review the plan, then rerun with --approve ${fp} --approve-plan <plan fingerprint>.`);
+  }
   if (status.state === "proposed") return refuse(`Mission contract "${id}" is proposed, not approved. Review it, then rerun with --approve ${fp}`);
   if (status.state === "expired") return refuse(`Mission contract "${id}" is expired. Widen it (for example budgets.maxSteps) and approve the new fingerprint.`);
   return refuse(`Mission contract "${id}" is ${STATE_LABELS[status.state]}${status.reason ? ` (${status.reason})` : ""}.`);
