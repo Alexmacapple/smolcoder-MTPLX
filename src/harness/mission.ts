@@ -10,6 +10,7 @@ import * as path from "path";
 import type { Plan, PlanHooks } from "../plan";
 import { PathRules, resolveInWorkspace } from "../sandbox";
 import { describeDeviation, freezeVerifiers, PlanDeviation, PlanReport, PROJECT_COMMANDS, scanWorkspace, VerifierState, verifierChanges, WorkspaceScan } from "./proofs";
+import { MissionResume } from "./resume";
 import {
   Approval,
   ApprovalAuthority,
@@ -154,6 +155,11 @@ function inside(child: string, parent: string): boolean {
 }
 
 export class Mission {
+  /** La reprise durable de cette session (#10) : journal d'effets, état
+   * incertain, suspension. Ouverte par l'hôte de la session (terminal, web,
+   * headless), ou à défaut au premier effet. */
+  private resumeState: MissionResume | null = null;
+
   private constructor(
     readonly workspace: string,
     readonly source: string,
@@ -161,6 +167,20 @@ export class Mission {
     readonly contract: MissionContract,
     readonly fingerprint: string
   ) {}
+
+  /** Ouvre la reprise pour la session qui porte ce contrat : relit le journal
+   * d'effets et rend incertaine toute action sans résultat (#10). */
+  openResume(surface: string): MissionResume {
+    if (this.resumeState) return this.resumeState;
+    this.resumeState = new MissionResume(this, surface);
+    this.resumeState.open();
+    return this.resumeState;
+  }
+
+  /** La reprise de cette session, ouverte au besoin. */
+  get resume(): MissionResume {
+    return this.resumeState ?? this.openResume("agent");
+  }
 
   /** Lit le contrat de l'appelant (hors du workspace), le valide et
    * l'enregistre comme proposition dans le stockage hôte. */
@@ -723,7 +743,11 @@ export class Mission {
   denial(tool: string, args: Record<string, any> = {}): string | null {
     if (PREPARE_TOOLS.has(tool) || (tool === "task" && PREPARE_TASK_ACTIONS.has(String(args?.action)))) return null;
     const s = this.status();
-    if (s.state === "approved") return null;
+    if (s.state === "approved") {
+      // #10 : un effet incertain, un journal abîmé suspendent les effets du
+      // modèle et les vérifications ; le terminal web reste à l'humain.
+      return tool === "terminal" ? null : this.resume.denial();
+    }
     return (
       `${tool} is blocked: the mission contract "${this.contract.id}" (${this.fingerprint.slice(0, 16)}) is ${STATE_LABELS[s.state]} — not approved for execution. ` +
       `Only the host can approve it (headless caller: --approve <fingerprint>; terminal or web user: /approve). ` +

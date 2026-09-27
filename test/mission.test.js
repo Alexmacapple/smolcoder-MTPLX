@@ -569,5 +569,8 @@ test("H01 AC5: headless: prepare → approve (--approve) → execute, in runHead
   assert.equal(fs.readFileSync(path.join(s.ws, "hello.txt"), "utf8"), "bonjour");
   assert.equal(missionExitCode(m.status()), null, "a completed approved run exits 0");
   assert.equal(m.status().steps, 2);
-  assert.deepEqual(events(m).map((e) => [e.type, e.status ?? e.by]), [["contract", "proposed"], ["approval", "headless-flag"]]);
+  const evs = events(m);
+  assert.deepEqual(evs.filter((e) => e.type !== "effect").map((e) => [e.type, e.status ?? e.by]), [["contract", "proposed"], ["approval", "headless-flag"]]);
+  // #10 : l'écriture est journalisée par l'hôte avant son effet, puis son résultat.
+  assert.deepEqual(evs.filter((e) => e.type === "effect").map((e) => [e.kind, e.tool ?? e.status]), [["intent", "write_file"], ["result", "ok"]]);
 });

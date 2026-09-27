@@ -35,8 +35,9 @@ projections, `report.json` et `report.md`, voir « Amendements ») :
 - `policy.json` — la politique d'accès et sa version (ajouté par #11,
   même grammaire, module propriétaire commun).
 - `proofs.jsonl` — journal en ajout seul (motifs B plein et C minimal) :
-  une ligne JSON par événement, cinq types exactement (le quatrième
-  ajouté par #30, le cinquième par #29, voir « Amendements ») — `contract`
+  une ligne JSON par événement, six types exactement (le quatrième
+  ajouté par #30, le cinquième par #29, le sixième par #10, voir
+  « Amendements ») — `contract`
   (création ou changement d'état d'un contrat), `approval` (qui, quand,
   quelle empreinte), `verdict` (résultat d'une vérification, avec
   l'empreinte des fichiers vérifiés au moment du verdict ; champs fixés
@@ -44,7 +45,9 @@ projections, `report.json` et `report.md`, voir « Amendements ») :
   (lecture d'une fiche de méthode installée : son nom, l'empreinte du
   contenu servi et celle du contrat), `plan` (plan d'implémentation
   proposé par l'agent, contenu entier et empreinte, puis chaque écart au
-  plan approuvé). Un verdict dont
+  plan approuvé), `effect` (journal d'effets : chaque action du modèle
+  enregistrée avant son effet, puis son résultat, et l'état incertain
+  qu'en constate l'hôte à la reprise). Un verdict dont
   les fichiers ont changé depuis est périmé par construction : la
   péremption se constate en comparant les empreintes, elle n'est jamais un
   champ modifiable.
@@ -276,3 +279,39 @@ antérieur à #29 classe un journal qui contient un événement `plan` en
 de lecture, jamais une approbation perdue en silence.
 
 Cet amendement est accepté par la fusion de la pull request du ticket #29.
+
+### 2026-09-27 — ticket #10 : sixième événement `effect`, lignes synchronisées
+
+Écart déclaré à « cinq types exactement », dans le module propriétaire
+`src/harness/store.ts`, schéma inchangé (`smolcoder/proof/v1`). C'est le
+journal d'effets que la rubrique « conséquences » réservait à #10 ; décision
+complète : `docs/decision-reprise-durable.md`.
+
+- Sixième type d'événement, `effect`, quatre natures (`kind`) fermées :
+  `intent` (écrit avant l'effet : `id` de douze caractères hexadécimaux,
+  `session`, `call` — l'identifiant de l'appel d'outil —, `tool` parmi
+  `write_file`, `edit_file`, `run_command`, `task` ; pour un fichier `path`
+  relatif au workspace, `before` et `expected`, empreintes SHA-256 ou null ;
+  pour une commande `command`, 2 000 caractères au plus), `result` (après
+  l'effet : `status` `ok` ou `error`, `observed`, première ligne du retour de
+  l'outil sur 300 caractères au plus, `after` facultatif pour un fichier),
+  `uncertain` (écrit par l'hôte à l'ouverture d'une session pour une
+  intention sans résultat : `evidence` parmi `before`, `expected`, `neither`,
+  `none`, et `current` facultatif) et `resolved` (la décision de l'hôte :
+  `by`, une des autorités d'approbation). Champs fermés et bornés ; `fingerprint`
+  reste l'empreinte du contrat de la session qui écrit.
+- Toute ligne du journal est désormais écrite puis synchronisée sur le disque
+  (`fsync`) avant que l'appelant ne continue : une intention précède toujours
+  son effet. Le fichier est créé en mode 0600.
+
+Pourquoi le journal existant plutôt qu'un fichier d'effets : la règle de la
+rubrique « conséquences » ; un seul journal garde un seul ordre, une seule
+borne et une seule réparation à la main. Le coût : chaque effet ajoute deux
+lignes (quelques centaines d'octets), loin de la borne de 8 Mio pour une
+mission ; la borne atteinte refuse l'intention, donc l'effet (fail-closed).
+
+Compatibilité : un binaire antérieur à #10 lit un journal qui contient un
+événement `effect` comme `unknown-schema`, refus explicite prévu par les
+règles de lecture.
+
+Cet amendement est accepté par la fusion de la pull request du ticket #10.

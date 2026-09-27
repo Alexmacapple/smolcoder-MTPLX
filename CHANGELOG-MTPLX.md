@@ -1795,7 +1795,7 @@ Rouge constaté avant le code : provenance `undefined` pour les cinq messages.
 `npm test` 345/345 (343 et 2 nouveaux), aucun test sauté, sous un HOME et un
 cache npm temporaires.
 
-### (ce commit) — Schéma de session v2 et migration — Réf #10
+### `ff56e7d` — Schéma de session v2 et migration — Réf #10
 
 `src/session-state.ts` (nouveau), `src/session.ts`, `src/agent.ts`,
 `src/tools/index.ts`, `src/tools/read-tracker.ts`, `src/web/store.ts`,
@@ -1849,6 +1849,65 @@ fichier de test : cinq échecs (schéma absent, `alwaysAllowedList` absente,
 révision Git absente, archive absente, schéma inconnu accepté), les deux
 tests de provenance verts. `npm test` 350/350 (345 et 5 nouveaux), aucun test
 sauté, sous un HOME et un cache npm temporaires. SHA `f507022` reporté sur
+l'entrée précédente.
+
+### (ce commit) — Journal d'effets et état incertain — Réf #10
+
+`src/harness/resume.ts` (nouveau), `src/harness/store.ts`,
+`src/harness/mission.ts`, `src/agent.ts`, `src/session.ts`, `src/index.ts`,
+`test/reprise.test.js`, `test/mission.test.js`,
+`docs/decision-reprise-durable.md` (nouveau),
+`docs/decision-stockage-hote.md`, `docs/profil-mission.md`. Ticket #10
+(H05), troisième commit : le journal d'effets et l'état incertain, sous
+`--mission`. Hors profil, rien ne change.
+
+- C2 : chaque effet du modèle (`write_file`, `edit_file`, `run_command`,
+  `task` `start`) est enregistré au journal de l'hôte avant l'effet
+  (`intent`, avec identifiant, et pour un fichier les empreintes d'avant et
+  attendue), puis son résultat observé (`result`). Chaque ligne est écrite
+  puis synchronisée sur le disque. Un journal qui refuse l'intention empêche
+  l'effet ; un résultat qui ne s'écrit pas arrête les effets de la session.
+- C3 : à l'ouverture d'une session du profil, une intention sans résultat
+  devient `uncertain`, enregistrée par l'hôte avec l'indice des fichiers,
+  jamais une conclusion. Écritures, commandes, tâches et vérifications sont
+  alors refusées par la porte de la mission ; lectures, plan et terminal web
+  restent ouverts. Seul l'hôte résout (`/resolve`, `--resolve <id>`,
+  événement `resolved`) ; aucune reprise automatique, aucun rejeu. Une
+  dernière ligne tronquée suspend sans être interprétée. Les preuves datées
+  par d'autres fichiers sont annoncées périmées à la reprise.
+- C7 : un seul contrat de reprise pour le terminal, le web (à la construction
+  de la session) et le headless (avant toute recherche de modèle, ligne
+  `[resume] {…}` sur stderr, sortie 6 si suspendu). Sur une session web
+  reprise, un appel resté sans réponse est raconté par le journal (jamais
+  lancé, terminé, incertain) au lieu du message générique.
+- Point d'injection d'une coupure aux trois moments du protocole :
+  `MissionResume.crash` en processus, `SMOLCODER_TEST_CRASH_AT` sur le vrai
+  binaire.
+
+Grammaire, amendée explicitement dans `docs/decision-stockage-hote.md`
+(section du 2026-09-27, ticket #10) : sixième événement `effect` et ses quatre
+natures, lignes synchronisées. Décision, alternatives écartées et migration :
+`docs/decision-reprise-durable.md`. Test existant adapté, dit ici : « H01 AC5
+headless » comparait le journal entier après une écriture ; il filtre
+désormais les événements `effect` pour son assertion d'origine et vérifie à
+part l'intention et le résultat de l'écriture.
+
+Vérifications. Huit tests « H05 » de plus : coupure injectée avant l'effet,
+après l'écriture et avant le reçu, après le reçu (fichier, journal, indice,
+transcript raconté, suspension, résolution par `/resolve`, aucune action
+rejouée) ; Qwen simulé qui affirme l'échec, change son plan, retente
+l'écriture, une commande et une tâche (état toujours incertain, aucune
+résolution, rien d'exécuté) ; dernière ligne tronquée (détectée, jamais lue
+comme un résultat, incertaine après réparation) ; budget après coupure ;
+preuve périmée annoncée et `not_run (stale)` ; vrai CLI headless (sortie 6
+avant tout modèle, `--resolve` inconnu refusé, `--resolve <id>` enregistré
+par `headless-flag`). Rouge constaté sur l'arbre du commit précédent,
+construit à part avec le même fichier de test : sept échecs sur l'API
+absente (`mission.resume`, `openResume`), le test de budget vert sur la base
+(garantie déjà tenue par #8) et son rouge montré par mutation du code
+compilé (budget remis à zéro à la préparation : 0 au lieu de 3), `dist/`
+reconstruit ensuite. `npm test` 358/358 (350 et 8 nouveaux), aucun test
+sauté, sous un HOME et un cache npm temporaires. SHA `ff56e7d` reporté sur
 l'entrée précédente.
 
 ## Hors dépôt (machine locale)

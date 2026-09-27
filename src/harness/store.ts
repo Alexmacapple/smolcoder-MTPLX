@@ -35,7 +35,7 @@ export type ContractStatus = (typeof CONTRACT_STATUSES)[number];
  * un fichier du workspace ou un label de ticket. */
 export const APPROVAL_AUTHORITIES = ["headless-flag", "terminal-human", "web-human"] as const;
 export type ApprovalAuthority = (typeof APPROVAL_AUTHORITIES)[number];
-export const PROOF_TYPES = ["contract", "approval", "verdict", "fiche", "plan"] as const;
+export const PROOF_TYPES = ["contract", "approval", "verdict", "fiche", "plan", "effect"] as const;
 
 /** Statut d'un critère d'acceptation (#9, docs/decision-preuves-acceptation.md).
  * `passed` : contrôle exécuté, sorti de lui-même avec 0, au moins un test
@@ -186,8 +186,63 @@ export interface PlanDeviationInput {
 
 export type PlanInput = PlanProposedInput | PlanDeviationInput;
 
+// ---- journal d'effets (ticket #10) ----
+//
+// Chaque action du modèle qui a un effet sur le projet (écriture de fichier,
+// commande, tâche de fond lancée) est enregistrée avec un identifiant AVANT
+// l'effet (`intent`), puis son résultat observé APRÈS (`result`). Au
+// redémarrage, une intention sans résultat devient `uncertain`, enregistré
+// par l'hôte avec ce que les fichiers en disent ; seul l'hôte (humain au
+// terminal ou dans la page web, appelant headless) la résout (`resolved`).
+// Le modèle n'écrit jamais ici : aucune phrase ne résout un état incertain.
+
+/** Les outils dont les appels sont des effets. `task` : seulement `start`. */
+export const EFFECT_TOOLS = ["write_file", "edit_file", "run_command", "task"] as const;
+export type EffectTool = (typeof EFFECT_TOOLS)[number];
+export const EFFECT_KINDS = ["intent", "result", "uncertain", "resolved"] as const;
+export type EffectKind = (typeof EFFECT_KINDS)[number];
+/** Ce que les fichiers disent d'une intention sans résultat : le fichier est
+ * tel qu'avant l'action (`before`), tel que l'action l'aurait laissé
+ * (`expected`), ni l'un ni l'autre (`neither`), ou rien (`none` : commande). */
+export const EFFECT_EVIDENCE = ["before", "expected", "neither", "none"] as const;
+export type EffectEvidence = (typeof EFFECT_EVIDENCE)[number];
+export const EFFECT_ID_RE = /^[0-9a-f]{12}$/;
+const OBSERVED_MAX = 300;
+const CALL_ID_MAX = 128;
+
+/** Une action enregistrée avant son effet. Fichier : `path` (relatif au
+ * workspace), l'empreinte `before` du contenu d'avant (null : absent) et celle
+ * du contenu `expected` que l'écriture laissera (null : inconnue, edit_file).
+ * Commande ou tâche : `command`. `session` : la session qui agit ; `call` :
+ * l'identifiant de l'appel d'outil dans le transcript. */
+export interface EffectIntentInput {
+  type: "effect";
+  fingerprint: string;
+  kind: "intent";
+  id: string;
+  session: string;
+  call: string;
+  tool: EffectTool;
+  path?: string;
+  before?: string | null;
+  expected?: string | null;
+  command?: string;
+}
+
+export type EffectInput =
+  | EffectIntentInput
+  // Le résultat observé : `ok` ou `error` selon le retour de l'outil, sa
+  // première ligne, et pour un fichier l'empreinte constatée après (null : absent).
+  | { type: "effect"; fingerprint: string; kind: "result"; id: string; status: "ok" | "error"; observed: string; after?: string | null }
+  // Constaté par l'hôte au redémarrage : aucune conclusion, seulement ce que
+  // les fichiers disent, et l'empreinte actuelle du fichier visé.
+  | { type: "effect"; fingerprint: string; kind: "uncertain"; id: string; evidence: EffectEvidence; current?: string | null }
+  // La décision de l'hôte : l'état actuel du workspace est accepté comme base.
+  | { type: "effect"; fingerprint: string; kind: "resolved"; id: string; by: ApprovalAuthority };
+
 export type ProofInput =
   | { type: "contract"; fingerprint: string; id: string; status: ContractStatus; reason?: string }
+  | EffectInput
   // `verifiers` (#9) : l'empreinte des entrées du vérificateur figées par
   // cette approbation ; null quand elles n'ont pas pu l'être. `plan` (#29) :
   // l'empreinte du plan approuvé avec le contrat, absente sans plan.
@@ -553,12 +608,59 @@ function checkVerdict(event: Record<string, unknown>): void {
   if (changes !== undefined && (!Array.isArray(changes) || changes.length > CHANGES_MAX || !changes.every((c) => typeof c === "string" && c.length <= VERIFIER_PATH_MAX + 20))) throw bad("changes");
 }
 
+/** Champs fermés d'un événement `effect` (#10). */
+function checkEffectEvent(event: Record<string, unknown>): void {
+  const bad = (field: string) => new ContractError(`proof field "${field}" of an effect event is invalid`);
+  if (!EFFECT_KINDS.includes(event.kind as EffectKind)) throw bad("kind");
+  if (typeof event.id !== "string" || !EFFECT_ID_RE.test(event.id)) throw bad("id");
+  const line = (v: unknown, max: number) => typeof v === "string" && v.length <= max && !/[\x00-\x08\x0a-\x1f\x7f]/.test(v);
+  switch (event.kind) {
+    case "intent": {
+      onlyFields(event, ["schema", "type", "at", "fingerprint", "kind", "id", "session", "call", "tool", "path", "before", "expected", "command"]);
+      if (typeof event.session !== "string" || !EFFECT_ID_RE.test(event.session)) throw bad("session");
+      if (!line(event.call, CALL_ID_MAX)) throw bad("call");
+      if (!EFFECT_TOOLS.includes(event.tool as EffectTool)) throw bad("tool");
+      if (event.tool === "write_file" || event.tool === "edit_file") {
+        if (!isRelativeWorkspacePath(event.path)) throw bad("path");
+        if (!hexOrNull(event.before)) throw bad("before");
+        if (!hexOrNull(event.expected)) throw bad("expected");
+        if (event.command !== undefined) throw bad("command");
+      } else {
+        if (typeof event.command !== "string" || !event.command.trim() || event.command.length > TEXT_MAX) throw bad("command");
+        if (event.path !== undefined || event.before !== undefined || event.expected !== undefined) throw bad("path");
+      }
+      return;
+    }
+    case "result":
+      onlyFields(event, ["schema", "type", "at", "fingerprint", "kind", "id", "status", "observed", "after"]);
+      if (event.status !== "ok" && event.status !== "error") throw bad("status");
+      if (!line(event.observed, OBSERVED_MAX)) throw bad("observed");
+      if (event.after !== undefined && !hexOrNull(event.after)) throw bad("after");
+      return;
+    case "uncertain":
+      onlyFields(event, ["schema", "type", "at", "fingerprint", "kind", "id", "evidence", "current"]);
+      if (!EFFECT_EVIDENCE.includes(event.evidence as EffectEvidence)) throw bad("evidence");
+      if (event.current !== undefined && !hexOrNull(event.current)) throw bad("current");
+      return;
+    default:
+      onlyFields(event, ["schema", "type", "at", "fingerprint", "kind", "id", "by"]);
+      if (!APPROVAL_AUTHORITIES.includes(event.by as ApprovalAuthority)) throw bad("by");
+  }
+}
+
+/** La première ligne d'un retour d'outil, sans caractère de contrôle, bornée. */
+export function observedLine(output: string): string {
+  const first = String(output ?? "").split("\n").find((l) => l.trim()) ?? "";
+  return first.replace(/[\x00-\x1f\x7f]/g, " ").slice(0, OBSERVED_MAX);
+}
+
 function checkEvent(event: Record<string, unknown>): void {
   if (!PROOF_TYPES.includes(event.type as (typeof PROOF_TYPES)[number])) throw new ContractError(`unknown proof event type ${JSON.stringify(event.type)}`);
   if (typeof event.at !== "string" || Number.isNaN(Date.parse(event.at))) throw new ContractError('proof field "at" must be a date');
   if (typeof event.fingerprint !== "string" || !HEX64.test(event.fingerprint)) throw new ContractError('proof field "fingerprint" must be 64 hexadecimal characters');
   if (event.type === "verdict") return checkVerdict(event);
   if (event.type === "plan") return checkPlanEvent(event);
+  if (event.type === "effect") return checkEffectEvent(event);
   if (event.type === "contract") {
     onlyFields(event, ["schema", "type", "at", "fingerprint", "id", "status", "reason"]);
     if (typeof event.id !== "string" || !ID_RE.test(event.id)) throw new ContractError('proof field "id" is invalid');
@@ -729,7 +831,15 @@ export function appendProof(dir: string, input: ProofInput): ProofEvent {
     if (last[0] !== 0x0a) throw new HarnessStoreError("truncated-tail", `${file} ends with a truncated line (truncated-tail): repair it by hand before anything else is recorded`);
   }
   if (size + Buffer.byteLength(line) > MAX_PROOFS_BYTES) throw new HarnessStoreError("unreadable", `${file} would exceed its ${MAX_PROOFS_BYTES}-byte read bound`);
-  fs.appendFileSync(file, line);
+  // #10 : la ligne est sur le disque avant que l'appelant n'agisse (une
+  // intention précède toujours son effet) : écrite puis synchronisée.
+  const fd = fs.openSync(file, "a", 0o600);
+  try {
+    fs.writeSync(fd, line);
+    fs.fsyncSync(fd);
+  } finally {
+    fs.closeSync(fd);
+  }
   return event as ProofEvent;
 }
 

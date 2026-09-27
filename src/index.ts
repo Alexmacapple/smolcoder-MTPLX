@@ -18,6 +18,7 @@ import { keepHostProbesOutOf } from "./harness/host-probe";
 import { BYPASS_UNDER_MISSION, decisionReport, POLICY_SUSPENDED_EXIT_CODE, PolicySuspension } from "./harness/policy";
 import { VERDICT_EXIT_CODE, verdictExitCode, verdictSummary } from "./harness/proofs";
 import { isolationLine, missionExecutor } from "./harness/sandbox-executor";
+import { RESUME_SUSPENDED_EXIT_CODE } from "./harness/resume";
 import { ContextManager } from "./context";
 import { EventBus } from "./events";
 import { terminalLogo } from "./logo";
@@ -70,6 +71,9 @@ interface CliArgs {
   /** Run headless de proposition du plan (#29) : lecture seule, sous un
    * contrat proposé, jamais approuvé. */
   proposePlan?: boolean;
+  /** Résolution headless des actions restées incertaines (#10) : leurs
+   * identifiants exacts, tels que la ligne [resume] les donne. */
+  resolve?: string[];
   effort?: Effort | null; // null = explicit "default"
   web?: boolean;
   webPort?: number;
@@ -143,6 +147,14 @@ function parseArgs(argv: string[]): CliArgs {
         process.exit(1);
       }
     } else if (a === "--propose-plan") args.proposePlan = true;
+    else if (a === "--resolve") {
+      const ids = String(argv[++i] ?? "").split(",").map((x) => x.trim()).filter(Boolean);
+      if (!ids.length || !ids.every((x) => /^[0-9a-f]{12}$/.test(x))) {
+        console.error("--resolve needs the identifier of an uncertain action: 12 hexadecimal characters, as printed in the [resume] line (several separated by commas).");
+        process.exit(1);
+      }
+      args.resolve = [...(args.resolve ?? []), ...ids];
+    }
     else if (a === "--install-fiches") args.installFiches = true;
     else if (a === "--print" || a === "-p") args.print = argv[++i];
     else if (a === "--web") {
@@ -198,6 +210,10 @@ ${c.bold("Options:")}
                                contract in ~/.smolcoder/harness/) decides every tool,
                                check and web-terminal line; a -p run whose next step
                                needs a human decision stops with exit code 4
+  --resolve <id>               headless, under --mission: the host resolves an action a
+                               restart left uncertain (id from the [resume] line); the
+                               workspace as it is now becomes the baseline. While an
+                               action is uncertain, a -p run stops with exit code 6
   --install-fiches             copy the method sheets of this smol's clone (docs/skills/)
                                into ~/.smolcoder/fiches, then exit; new sessions on any
                                workspace list them and read_file serves "fiche:<name>"
@@ -290,6 +306,10 @@ async function main(): Promise<void> {
     console.error("--approve-plan approves the proposed plan together with the contract: it requires -p, --mission and --approve <contract fingerprint>. In the terminal or web UI, type /approve.");
     process.exit(1);
   }
+  if (args.resolve !== undefined && (!args.mission || args.print === undefined || args.web)) {
+    console.error("--resolve is the headless caller's resolution of an uncertain action: it requires -p and --mission. In the terminal or web UI, type /resolve.");
+    process.exit(1);
+  }
   if (args.proposePlan) {
     if (!args.mission || args.print === undefined || args.web) {
       console.error("--propose-plan is a headless preparation run: it requires -p and --mission. In the terminal or web UI, ask the agent to propose its plan, then type /approve.");
@@ -377,6 +397,30 @@ async function runHeadless(args: CliArgs, mission: Mission | null): Promise<void
       return;
     }
     ui.status(`· ${gate.message}`);
+    // #10 : la reprise durable, avant tout modèle — même contrat que le
+    // terminal et le web. Une action incertaine suspend le run (sortie 6),
+    // sauf résolution explicite de l'appelant (--resolve <id>).
+    const resume = mission.openResume("headless");
+    if (args.resolve?.length) {
+      try {
+        const done = resume.resolve(args.resolve, "headless-flag");
+        if (done.length) ui.status(`· resolved by the caller: ${done.join(", ")} — the workspace as it is now is the baseline`);
+      } catch (err: any) {
+        process.stderr.write(`[resume] ${JSON.stringify(resume.summary())}\n`);
+        ui.error(`Nothing was run. ${err?.message ?? err}.`);
+        ui.close();
+        process.exitCode = RESUME_SUSPENDED_EXIT_CODE;
+        return;
+      }
+    }
+    process.stderr.write(`[resume] ${JSON.stringify(resume.summary())}\n`);
+    for (const line of resume.lines()) ui.warn(line);
+    if (resume.state().suspended && !args.proposePlan) {
+      ui.error(`Nothing was run. ${resume.state().reason}.`);
+      ui.close();
+      process.exitCode = RESUME_SUSPENDED_EXIT_CODE;
+      return;
+    }
     // #9 : le run part, mais aucun contrôle décisif ne passera tant que les
     // entrées du vérificateur ne sont pas celles que l'hôte a figées.
     const v = (gate as { verifiers?: ReturnType<typeof authorizeHeadless>["verifiers"] }).verifiers;

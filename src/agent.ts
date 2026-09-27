@@ -6,7 +6,7 @@
 import { Attachment, renderAttachmentsForModel } from "./attachments";
 import { ContextManager } from "./context";
 import { EventBus } from "./events";
-import { ChatResult, Msg, Provider, ToolSpec } from "./providers/types";
+import { ChatResult, Msg, Provider, ToolCall, ToolSpec } from "./providers/types";
 import {
   buildToolSpecs,
   executeTool,
@@ -45,6 +45,7 @@ import {
   verifierStamps,
 } from "./harness/proofs";
 import { appendProof, writeReportFiles } from "./harness/store";
+import { EffectHandle, SimulatedCrash } from "./harness/resume";
 
 /** Supplied by the caller, never generated or changed by a model tool. */
 export interface Verification {
@@ -178,7 +179,9 @@ export class Agent {
 
   /** Resume a saved session: the transcript (without its system message) and
    * the two requests the compaction note is built around. */
-  restoreTranscript(messages: Msg[], originalRequest: string, currentRequest: string): void {
+  /** `explain` (#10, profil mission) : ce que le journal d'effets de l'hôte
+   * dit d'un appel resté sans réponse, à la place du message générique. */
+  restoreTranscript(messages: Msg[], originalRequest: string, currentRequest: string, explain?: (call: ToolCall) => string | null): void {
     this.ctxMgr.cancelBackground(true);
     this.messages = [this.messages[0], ...messages];
     this.originalRequest = originalRequest;
@@ -187,7 +190,8 @@ export class Agent {
     // #19 : ce que la session a vu ne décrit pas la conversation reprise.
     this.toolCtx.reads?.clear();
     this.ctxMgr.resetAnchor();
-    this.repairTranscript("[Tool execution was interrupted by a restart. Its outcome is unknown. Inspect files or command state before retrying; do not assume it failed or rerun it blindly.]");
+    const generic = "[Tool execution was interrupted by a restart. Its outcome is unknown. Inspect files or command state before retrying; do not assume it failed or rerun it blindly.]";
+    this.repairTranscript(explain ? (call) => explain(call) ?? generic : generic);
   }
 
   cancel(): void {
@@ -756,7 +760,7 @@ export class Agent {
               while (this.messages[end]?.role === "tool") end--;
               this.ctxMgr.prepareBackground(this.messages.slice(0, end), this.tools, this.provider, this.compactState());
             }
-            output = await this.gateAndExecute(call.name, call.args, signal);
+            output = await this.gateAndExecute(call.name, call.args, signal, call.id);
             observedOutput = output; // fingerprint real evidence before coaching/reminders
             toolCallsThisTurn++;
             stats.toolCalls++;
@@ -991,7 +995,8 @@ export class Agent {
   private async gateAndExecute(
     name: string,
     args: Record<string, any>,
-    signal?: AbortSignal
+    signal?: AbortSignal,
+    callId = ""
   ): Promise<string> {
     if (this.reanchor && isEffectCall(name, args)) {
       if (this.toolCtx.plan.exists) {
@@ -999,7 +1004,7 @@ export class Agent {
       }
       this.reanchor = null;
     }
-    const out = await this.runGated(name, args, signal);
+    const out = await this.runGated(name, args, signal, callId);
     if (name === "plan" && !out.startsWith("Error")) this.reanchor = null;
     return out;
   }
@@ -1007,7 +1012,8 @@ export class Agent {
   private async runGated(
     name: string,
     args: Record<string, any>,
-    signal?: AbortSignal
+    signal?: AbortSignal,
+    callId = ""
   ): Promise<string> {
     // Profil mission : la décision d'accès (contrat puis politique) remplace
     // la porte du mode, y compris en bypass, et répond avant toute demande
@@ -1021,9 +1027,29 @@ export class Agent {
       if (!auth.ok) return auth.message;
       if (signal?.aborted) throw signal.reason;
       if (!this.tools.some((t) => t.name === name)) return `Error: ${name} is no longer available in ${MODE_LABELS[this.mode]} mode.`;
+      // #10 : un effet est enregistré au journal de l'hôte avant d'avoir
+      // lieu, son résultat observé après ; un journal qui refuse l'intention
+      // empêche l'effet.
+      let effect: EffectHandle | null = null;
+      if (isEffectCall(name, args)) {
+        try {
+          effect = mission.resume.begin({ id: callId, name, args });
+        } catch (err: any) {
+          if (err instanceof SimulatedCrash) throw err;
+          return `Error: ${name} was not run: the host could not record it before acting (${err?.message ?? err}). Nothing was changed.`;
+        }
+      }
       // Chaque lecture de fiche est tracée au journal avant d'être servie (#30) ;
       // le plan structuré passe par l'hôte (#29).
-      return executeTool(name, args, { ...this.toolCtx, exec: auth.decision.exec, protect: auth.decision.protect, onFicheRead: (fiche, sha256) => mission.recordFiche(fiche, sha256), planHooks: mission.planHooks() }, signal);
+      let out: string;
+      try {
+        out = await executeTool(name, args, { ...this.toolCtx, exec: auth.decision.exec, protect: auth.decision.protect, onFicheRead: (fiche, sha256) => mission.recordFiche(fiche, sha256), planHooks: mission.planHooks() }, signal);
+      } catch (err: any) {
+        if (effect) mission.resume.end(effect, `Error: ${err?.message ?? err}`);
+        throw err;
+      }
+      if (effect) mission.resume.end(effect, out);
+      return out;
     }
     const command = commandOf(name, args);
     // Gate everywhere except bypass (defense-in-depth: in ro mode exec tools are
@@ -1052,7 +1078,7 @@ export class Agent {
     return executeTool(name, args, this.toolCtx, signal);
   }
 
-  private repairTranscript(reason: string): void {
+  private repairTranscript(reason: string | ((call: ToolCall) => string)): void {
     const repaired: Msg[] = [];
     for (let i = 0; i < this.messages.length; i++) {
       const m = this.messages[i];
@@ -1061,7 +1087,7 @@ export class Agent {
       if (!m.toolCalls?.length) continue;
       const results = new Map<string | undefined, Msg>();
       while (this.messages[i + 1]?.role === "tool") { const t = this.messages[++i]; results.set(t.toolCallId, t); }
-      for (const call of m.toolCalls) repaired.push(results.get(call.id) ?? { role: "tool", toolCallId: call.id, toolName: call.name, content: reason });
+      for (const call of m.toolCalls) repaired.push(results.get(call.id) ?? { role: "tool", toolCallId: call.id, toolName: call.name, content: typeof reason === "string" ? reason : reason(call) });
     }
     this.messages = repaired;
   }

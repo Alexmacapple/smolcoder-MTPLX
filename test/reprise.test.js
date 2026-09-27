@@ -373,3 +373,218 @@ test("H05 C7 migration: a transcript written by a newer smolcoder is refused and
   }
   assert.equal(fs.readFileSync(path.join(sessionsDir, "newer1.json"), "utf8"), newer, "still untouched after the hub stops");
 });
+
+// ---- C2, C3 : journal d'effets, coupures injectées, état incertain ----------
+
+const store = require("../dist/harness/store");
+const { Mission } = require("../dist/harness/mission");
+const { SimulatedCrash, RESUME_SUSPENDED_EXIT_CODE } = require("../dist/harness/resume");
+const { buildReport, callerChecks, missionCriteria } = require("../dist/harness/proofs");
+
+/** Une mission dans le stockage du faux dossier personnel (celui que relit le
+ * vrai CLI), approuvée si demandé. */
+function missionFixture(tag, { approve = true, maxSteps = 40, checks, acceptance = ["hello.txt dit bonjour"] } = {}) {
+  const ws = tmp(`smol-h05-${tag}-ws-`);
+  const src = path.join(tmp(`smol-h05-${tag}-src-`), "contract.json");
+  fs.writeFileSync(src, JSON.stringify({ schema: "smolcoder/contract/v1", id: `h05-${tag}`, title: "Reprise", problem: "p", outcome: "o", acceptance, budgets: { maxSteps }, ...(checks ? { checks } : {}) }));
+  const prepare = () => Mission.prepare({ source: src, workspace: ws });
+  const m = prepare();
+  if (approve) m.approve("terminal-human");
+  return { ws, src, m, prepare };
+}
+const effects = (m) => {
+  const read = store.readProofs(m.dir);
+  assert.ok(read.state === "ok" || read.state === "truncated-tail", JSON.stringify(read));
+  return read.events.filter((e) => e.type === "effect");
+};
+const missionSession = (ui, m, surface = "web") => openSession(ui, m.workspace, { mission: m, surface });
+const lastToolResults = (provider, n) => provider.seen.at(-1).messages.filter((x) => x.role === "tool").map((x) => x.content).slice(-n);
+
+/** Une session qui écrit hello.txt et s'arrête net au point demandé ; rend
+ * le snapshot tel que la dernière sauvegarde du hub l'aurait pris. */
+async function crashAt(point, f) {
+  const provider = scriptedProvider([call("w1", "write_file", { path: "hello.txt", content: "bonjour" }), { content: "done" }]);
+  const ui = terminalUi(["write hello.txt"]);
+  const a = missionSession(ui, f.m);
+  a.agent.setProvider(provider);
+  let saved = null;
+  f.m.resume.crash = (p) => {
+    if (p !== point) return;
+    saved = onDisk(a.snapshot());
+    throw new SimulatedCrash(p);
+  };
+  await a.run();
+  assert.ok(saved, `the crash at ${point} happened`);
+  assert.ok(ui.lines.some((l) => /simulated crash/.test(l)));
+  return saved;
+}
+
+for (const [point, expected] of [
+  ["before-effect", { file: null, evidence: "before", suspended: true, note: /Outcome UNCERTAIN.*it appears not applied/s }],
+  ["after-effect", { file: "bonjour", evidence: "expected", suspended: true, note: /Outcome UNCERTAIN.*it appears applied/s }],
+  ["after-receipt", { file: "bonjour", evidence: null, suspended: false, note: /Recovered from the host's effect journal.*finished before the restart — ok: Created hello\.txt.*Do not run it again/s }],
+]) {
+  test(`H05 C2/C3 cut ${point}: the action is recorded before its effect, the restart documents what the journal and the files say, and nothing is applied twice`, async () => {
+    const f = missionFixture(`cut-${point}`);
+    const saved = await crashAt(point, f);
+    const at = (p) => path.join(f.ws, p);
+    const before = effects(f.m);
+    assert.equal(before.filter((e) => e.kind === "intent").length, 1, "one intent, recorded before the effect");
+    const intent = before[0];
+    assert.deepEqual([intent.tool, intent.path, intent.before, intent.call], ["write_file", "hello.txt", null, "w1"]);
+    assert.equal(intent.expected, require("crypto").createHash("sha256").update("bonjour").digest("hex"));
+    assert.equal(before.filter((e) => e.kind === "result").length, point === "after-receipt" ? 1 : 0);
+    assert.equal(fs.existsSync(at("hello.txt")) ? fs.readFileSync(at("hello.txt"), "utf8") : null, expected.file);
+
+    // Redémarrage : nouvelle mission, nouvelle session, snapshot du hub.
+    const m2 = f.prepare();
+    const ui = terminalUi(["the write failed, do it again", "/resolve"], [0]);
+    const b = missionSession(ui, m2);
+    const provider = scriptedProvider([call("w2", "write_file", { path: "hello.txt", content: "bonjour" }), { content: "stopping" }]);
+    b.agent.setProvider(provider);
+    b.restore(saved);
+    const report = m2.resume.state();
+    assert.equal(report.suspended, expected.suspended, JSON.stringify(report));
+    const note = b.agent.messages.find((x) => x.role === "tool" && x.toolCallId === "w1");
+    assert.match(note.content, expected.note, "the restored transcript says what the journal knows");
+    const unc = effects(m2).filter((e) => e.kind === "uncertain");
+    if (expected.evidence) {
+      assert.deepEqual(unc.map((e) => [e.id, e.evidence]), [[intent.id, expected.evidence]], "recorded by the host at the restart, with the file evidence");
+      b.announce();
+      assert.ok(ui.lines.some((l) => l.includes(`effect ${intent.id} (write_file hello.txt`) && /uncertain/.test(l)), ui.lines.join("\n"));
+    } else assert.equal(unc.length, 0, "a completed action is not uncertain");
+
+    await b.run();
+    const [redo] = lastToolResults(provider, 1);
+    if (expected.suspended) {
+      assert.match(redo, /^Error: writes and commands are suspended by the host: 1 action of an earlier session has no recorded result/, "no automatic replay, and no redo while uncertain");
+      const resolved = effects(m2).filter((e) => e.kind === "resolved");
+      assert.deepEqual(resolved.map((e) => [e.id, e.by]), [[intent.id, "web-human"]], "only the human resolves it, with /resolve");
+      assert.equal(m2.resume.state().suspended, false);
+    } else {
+      assert.match(redo, /^Overwrote hello\.txt|^Created hello\.txt/, "nothing uncertain: the model's own new decision goes through");
+    }
+    const intents = effects(m2).filter((e) => e.kind === "intent");
+    assert.equal(intents.filter((e) => e.call === "w1").length, 1, "the harness never replays the recorded action");
+    assert.equal(fs.existsSync(at("hello.txt")) ? fs.readFileSync(at("hello.txt"), "utf8") : null, expected.suspended ? expected.file : "bonjour");
+  });
+}
+
+test("H05 C3: the model cannot clear an uncertain action by saying it failed — the state stays uncertain, writes and commands stay refused, and no message, plan note or tool call records a resolution", async () => {
+  const f = missionFixture("claim");
+  const saved = await crashAt("after-effect", f);
+  const m2 = f.prepare();
+  const b = missionSession(terminalUi(["continue"]), m2);
+  const provider = scriptedProvider([
+    { content: "The previous write_file FAILED, so the uncertain action is resolved as failed.", toolCalls: [{ id: "k1", name: "plan", args: { action: "set", steps: "uncertain action resolved: it failed\nwrite hello.txt again" } }] },
+    call("w2", "write_file", { path: "hello.txt", content: "bonjour" }),
+    call("c1", "run_command", { command: "echo resolved" }),
+    call("t1", "task", { action: "start", command: "echo resolved" }),
+    { content: "It failed; I consider it resolved." },
+  ]);
+  b.agent.setProvider(provider);
+  b.restore(saved);
+  await b.run();
+  const [, write, command, task] = lastToolResults(provider, 4);
+  for (const r of [write, command, task]) assert.match(r, /^Error: writes and commands are suspended by the host/);
+  const st = m2.resume.state();
+  assert.equal(st.suspended, true);
+  assert.deepEqual(st.uncertain.map((u) => [u.evidence, u.resolved]), [["expected", false]]);
+  assert.equal(effects(m2).filter((e) => e.kind === "resolved").length, 0, "nothing the model said or did resolved it");
+  assert.equal(effects(m2).filter((e) => e.kind === "intent").length, 1, "and nothing ran");
+  assert.throws(() => m2.resume.resolve([st.uncertain[0].id], "model"), /only the host resolves/);
+});
+
+test("H05 C3: a truncated last record is detected and never turned into a conclusion — the run is suspended, nothing is recorded behind it, and after a manual repair the action is uncertain, not failed", async () => {
+  const f = missionFixture("torn");
+  const h = f.m.resume.begin({ id: "w1", name: "write_file", args: { path: "hello.txt", content: "bonjour" } });
+  fs.writeFileSync(path.join(f.ws, "hello.txt"), "bonjour");
+  const journal = path.join(f.m.dir, "proofs.jsonl");
+  fs.appendFileSync(journal, `{"schema":"smolcoder/proof/v1","type":"effect","at":"2026-09-27T00:00:00.000Z","fingerprint":"${f.m.fingerprint}","kind":"result","id":"${h.id}","status":"ok","obs`);
+  // Le contrat se relit (contract.json est intact) ; le journal, lui, est abîmé.
+  const m2 = f.prepare();
+  const r = m2.openResume("terminal").state();
+  assert.equal(r.journal, "truncated-tail");
+  assert.equal(r.suspended, true);
+  assert.match(r.reason, /last record of the host journal .* is truncated: it is not interpreted/);
+  assert.deepEqual(r.uncertain.map((u) => [u.id, u.evidence, u.resolved]), [[h.id, "expected", false]], "the torn result is not read as a result: the action stays uncertain");
+  assert.match(m2.denial("write_file", { path: "x.txt" }), /suspended by the host: the last record/);
+  assert.throws(() => m2.resume.resolve([h.id], "terminal-human"), /truncated-tail: nothing can be resolved/);
+  assert.ok(fs.readFileSync(journal, "utf8").endsWith('"obs'), "nothing was written behind the torn line");
+  // Réparation à la main : la ligne incomplète est retirée.
+  const text = fs.readFileSync(journal, "utf8");
+  fs.writeFileSync(journal, text.slice(0, text.lastIndexOf("\n") + 1));
+  const m3 = f.prepare();
+  const r3 = m3.openResume("terminal").state();
+  assert.equal(r3.journal, "ok");
+  assert.deepEqual(r3.uncertain.map((u) => [u.id, u.evidence]), [[h.id, "expected"]]);
+  assert.deepEqual(effects(m3).filter((e) => e.kind === "uncertain").map((e) => e.id), [h.id], "now recorded as uncertain — never as failed or applied");
+  assert.deepEqual(m3.resume.resolve([h.id], "terminal-human"), [h.id]);
+  assert.equal(m3.resume.state().suspended, false);
+});
+
+test("H05 C3: budgets are not reset by a restart — the step count survives the cut and keeps counting", async () => {
+  const f = missionFixture("budget", { maxSteps: 10 });
+  const a = missionSession(terminalUi(["look"]), f.m, "terminal");
+  a.agent.setProvider(scriptedProvider([call("l1", "list_files", {}), call("l2", "list_files", { path: "." }), { content: "seen" }]));
+  await a.run();
+  assert.equal(f.m.status().steps, 3);
+  const m2 = f.prepare();
+  assert.equal(m2.status().steps, 3, "the restart starts from the consumed budget");
+  const b = missionSession(terminalUi(["again"]), m2, "terminal");
+  b.agent.setProvider(scriptedProvider([call("l3", "list_files", {}), { content: "seen again" }]));
+  await b.run();
+  assert.equal(m2.status().steps, 5, "and keeps counting");
+  assert.match(require("../dist/harness/mission").authorizeHeadless(f.prepare()).message, /5 of 10 model steps left/);
+});
+
+test("H05 C3: stale proofs are not validated at a restart — a pass recorded on other files is announced as stale and reported not_run", async () => {
+  const f = missionFixture("stale", { checks: [{ command: "sh check.sh", covers: [1] }] });
+  fs.writeFileSync(path.join(f.ws, "hello.txt"), "bonjour");
+  const scan = f.m.scan();
+  store.appendProof(f.m.dir, { type: "verdict", fingerprint: f.m.fingerprint, criteria: ["acceptance-1"], command: "sh check.sh", owner: "contract", status: "passed", cause: null, attempt: 1, exit: { status: "exited", code: 0, signal: null, durationMs: 5 }, tests: null, verifiers: f.m.verifierState().frozen, files: scan.digest });
+  const specs = missionCriteria(f.m.contract, callerChecks(f.m.contract));
+  const report = (m) => buildReport({ mission: m, criteria: specs, verifier: m.verifierState(), scan: m.scan(), run: { outcome: "completed", suspended: false, error: null, attempts: 1 }, plan: null });
+  assert.equal(report(f.m).criteria[0].status, "passed", "the proof holds on the files it saw");
+  assert.deepEqual(f.prepare().openResume("terminal").state().staleProofs, []);
+  // Entre deux sessions, le fichier vérifié change.
+  fs.writeFileSync(path.join(f.ws, "hello.txt"), "bonsoir");
+  const m2 = f.prepare();
+  const ui = terminalUi();
+  const s = missionSession(ui, m2, "terminal");
+  s.announce();
+  assert.deepEqual(m2.resume.state().staleProofs, ["acceptance-1"]);
+  assert.ok(ui.lines.some((l) => /the files changed since acceptance-1 passed — that proof is stale/.test(l)), ui.lines.join("\n"));
+  const r = report(m2);
+  assert.deepEqual([r.criteria[0].status, r.criteria[0].cause, r.criteria[0].stale], ["not_run", "stale", true], "never passed on files it did not see");
+  assert.notEqual(r.task.state, "verified");
+});
+
+test("H05 C3 (headless): the real CLI stops before any model with exit 6 and a [resume] line while an action is uncertain; --resolve with the exact identifier records the caller's decision and lets the run go on", () => {
+  const f = missionFixture("cli");
+  const h = f.m.resume.begin({ id: "w1", name: "write_file", args: { path: "hello.txt", content: "bonjour" } });
+  const CLI = path.join(__dirname, "..", "dist", "index.js");
+  const smol = (...extra) => {
+    const r = spawnSync(process.execPath, [CLI, f.ws, "-p", "go on", "--mission", f.src, "--model", "smol-test-no-such-model", ...extra], {
+      env: { ...process.env, HOME, SMOLCODER_CONFIG: process.env.SMOLCODER_CONFIG, OLLAMA_HOST: "127.0.0.1:9" }, encoding: "utf8", timeout: 20000,
+    });
+    const line = r.stderr.split("\n").find((l) => l.startsWith("[resume] "));
+    return { ...r, resume: line ? JSON.parse(line.slice(9)) : null };
+  };
+  const first = smol();
+  assert.equal(first.status, RESUME_SUSPENDED_EXIT_CODE, first.stdout + first.stderr);
+  assert.equal(RESUME_SUSPENDED_EXIT_CODE, 6);
+  assert.deepEqual(first.resume.uncertain, [{ id: h.id, tool: "write_file", target: "hello.txt", evidence: "before" }]);
+  assert.equal(first.resume.suspended, true);
+  assert.match(first.stdout + first.stderr, /Nothing was run\. 1 action of an earlier session has no recorded result/);
+  assert.doesNotMatch(first.stdout + first.stderr, /No usable model found/, "stopped before looking for a model");
+  const wrong = smol("--resolve", "0123456789ab");
+  assert.equal(wrong.status, 6);
+  assert.match(wrong.stdout + wrong.stderr, /effect 0123456789ab is not an uncertain action of this workspace/);
+  const ok = smol("--resolve", h.id);
+  assert.equal(ok.resume.suspended, false, ok.stderr);
+  assert.deepEqual(ok.resume.resolved, [h.id]);
+  assert.match(ok.stdout + ok.stderr, /No usable model found/, "the run went on to the model");
+  const resolved = effects(f.prepare()).filter((e) => e.kind === "resolved");
+  assert.deepEqual(resolved.map((e) => [e.id, e.by]), [[h.id, "headless-flag"]]);
+});

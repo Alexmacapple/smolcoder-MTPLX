@@ -433,6 +433,31 @@ de l'agent repart, à chaque session sous le même contrat, de la version
 courante du plan approuvé (ou de celui qui attend l'approbation), étapes non
 cochées ; `/clear` la rétablit, comme le contrat.
 
+## Reprise durable (ticket #10)
+
+Sous le profil, chaque action du modèle qui a un effet sur le projet
+(`write_file`, `edit_file`, `run_command`, `task` `start`) est enregistrée au
+journal de l'hôte avant son effet, puis son résultat observé après
+(événement `effect`, `docs/decision-stockage-hote.md`). À l'ouverture d'une
+session — terminal, web ou headless, même contrat —, une action sans
+résultat devient incertaine : l'hôte l'enregistre avec ce que les fichiers en
+disent (tel qu'avant, conforme à l'écriture, ni l'un ni l'autre ; rien pour
+une commande), sans jamais conclure. Tant qu'elle l'est, écritures,
+commandes, tâches et vérifications sont refusées ; le modèle peut lire et
+planifier, et rien de ce qu'il dit ne lève la suspension. L'humain la lève
+par `/resolve` (terminal, web), l'appelant headless par `--resolve <id>`,
+l'identifiant venant de la ligne `[resume] {…}` que tout run headless du
+profil écrit sur stderr ; l'état actuel du workspace devient alors la base,
+rien n'est rejoué ni défait. Une session web reprise raconte chaque appel
+resté sans réponse d'après le journal : jamais lancé, terminé (« ne pas le
+relancer ») ou incertain.
+
+Une dernière ligne tronquée du journal suspend de même, sans être lue comme
+un résultat, jusqu'à la réparation à la main. Les preuves datées par
+d'autres fichiers que ceux de la reprise sont annoncées périmées (#9) ; le
+budget consommé (`usage.steps`) repart de sa valeur, jamais de zéro.
+Décision complète, alternatives et limites : `docs/decision-reprise-durable.md`.
+
 ## Budget de pas
 
 `budgets.maxSteps` compte les appels au modèle effectués sous un contrat
@@ -465,6 +490,10 @@ le reprend en tête, relu dans le stockage hôte au moment de la compaction
   aussi 3 : le contrat reste proposé, le plan attend l'hôte ;
 - 4 : suspendu sur une décision « ask » de la politique d'accès, rien n'a été
   exécuté pour cette action ; il prime sur 5 ;
+- 6 (#10) : suspendu par la reprise, avant toute recherche de modèle — une
+  action d'une session précédente est restée incertaine, ou le journal de
+  l'hôte ne permet pas de conclure (dernière ligne tronquée, illisible) ;
+  `--resolve <id>` inconnu aussi. Il vient après 3 (le contrat d'abord) ;
 - 5 (#9) : le run est allé à son terme ou s'est arrêté, mais la tâche n'est
   pas `verified` — critère en échec, non couvert, non exécuté, en erreur,
   preuve périmée, vérificateur modifié, ou rapport non écrit. Avant #9, un
@@ -502,7 +531,8 @@ le reprend en tête, relu dans le stockage hôte au moment de la compaction
   ticket). Un run `--propose-plan` appelle le modèle sans débiter le budget
   de pas, le contrat n'étant pas approuvé ; il reste borné par le plafond de
   pas du headless et ne peut rien écrire. La progression du plan (étapes
-  cochées) ne survit pas à la session : la reprise (#10) la persistera.
+  cochées) ne survit pas à une session terminal ou headless : la reprise (#10)
+  ne persiste que le transcript des sessions web (snapshot v2).
 - Les écarts au plan ne voient que les outils de fichiers du modèle : un
   fichier créé ou modifié par une commande (`run_command`, tâche de fond,
   script de build) n'est pas comparé au plan. Une session web reprise

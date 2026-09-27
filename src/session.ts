@@ -12,6 +12,7 @@ import { EventBus } from "./events";
 import { findModelsOnNetwork, FlowUI, manageHosts } from "./network";
 import { Mission, MissionPrefs } from "./harness/mission";
 import { BYPASS_UNDER_MISSION } from "./harness/policy";
+import { readPolicy } from "./harness/store";
 import { IsolatedExecutor, isolationLine, isolationState, missionExecutor } from "./harness/sandbox-executor";
 import { Plan, PlanStep } from "./plan";
 import { buildSystemPrompt, loadAgentsMdDetails } from "./prompt";
@@ -60,6 +61,7 @@ export interface SessionPrefs {
 export const MISSION_COMMANDS: SlashCommand[] = [
   { name: "mission", desc: "Show the mission contract and its state" },
   { name: "approve", desc: "Approve the mission contract (your decision, not the model's)" },
+  { name: "resolve", desc: "Resolve an action left uncertain by a restart (your decision)" },
 ];
 
 export const SLASH_COMMANDS: SlashCommand[] = [
@@ -399,6 +401,9 @@ export class Session {
     this.surface = opts.surface ?? "terminal";
     this.commands = this.mission ? [...SLASH_COMMANDS, ...MISSION_COMMANDS] : SLASH_COMMANDS;
     this.agent = new Agent(provider, mode0, this.sysPrompt(mode0), this.toolCtx, this.ctxMgr, this.bus, ui, true, 1000, undefined, this.mission);
+    // #10 : sous le profil, la reprise durable s'ouvre avec la session — même
+    // contrat pour le terminal, le web et le headless (src/harness/resume.ts).
+    this.mission?.openResume(this.surface);
 
     ui.slashCommands = this.commands;
     ui.hintLeft = workspace.replace(os.homedir(), "~");
@@ -515,7 +520,42 @@ export class Session {
       );
       if (this.executor) ui.status(isolationLine(this.executor.status, this.executor.listening()));
       this.noteBypassUnderMission();
+      for (const line of this.mission.resume.lines()) ui.warn(line);
     }
+  }
+
+  /** La résolution humaine d'une action restée incertaine (#10) : chaque
+   * effet sans résultat est montré avec ce que les fichiers en disent, puis
+   * l'humain accepte l'état actuel du workspace comme base, ou non. */
+  private async resolveUncertain(): Promise<void> {
+    const { ui } = this;
+    const resume = this.mission!.resume;
+    const open = resume.state().uncertain.filter((u) => !u.resolved);
+    const r = resume.state();
+    if (!open.length) {
+      ui.status(r.suspended ? `· nothing to resolve here: ${r.reason}` : "· no uncertain action: nothing to resolve");
+      return;
+    }
+    const by = this.surface === "web" ? "web-human" : "terminal-human";
+    for (const u of open) {
+      ui.status(`· effect ${u.id}: ${u.tool} ${u.target} (${u.at}) — no recorded result. Evidence: ${u.meaning}.`);
+      const pick = await ui.select(`Resolve effect ${u.id}? The workspace as it is now becomes the baseline; nothing is replayed or undone.`, [
+        { label: "Accept the workspace as it is now", hint: "record my decision; writes resume once nothing else is uncertain" },
+        { label: "Leave it uncertain", hint: "writes and commands stay suspended" },
+      ]);
+      if (pick !== 0) {
+        ui.status(`· effect ${u.id} left uncertain — writes and commands stay suspended`);
+        continue;
+      }
+      try {
+        resume.resolve([u.id], by);
+        ui.status(`· effect ${u.id} resolved (${by})`);
+      } catch (err: any) {
+        ui.error(String(err?.message ?? err));
+      }
+    }
+    const after = resume.state();
+    ui.status(after.suspended ? `· still suspended: ${after.reason}` : "· nothing is uncertain any more: writes and commands follow the contract again");
   }
 
   /** L'approbation humaine du terminal ou de la page web : la vue du
@@ -640,8 +680,18 @@ export class Session {
       approvals: { alwaysAllowed: this.agent.alwaysAllowedList() },
       views,
       head: readGitHead(this.workspace),
+      ...(this.mission ? { mission: this.missionRef() } : {}),
       savedAt: new Date().toISOString(),
     };
+  }
+
+  /** La référence à l'état hôte (#10) : le stockage hôte fait foi. */
+  private missionRef(): { contract: string; plan: string | null; steps: number; policy: string | null } {
+    const m = this.mission!;
+    const st = m.status();
+    const plan = m.planView();
+    const policy = readPolicy(m.dir);
+    return { contract: m.fingerprint, plan: plan.state === "approved" ? plan.fingerprint : null, steps: st.steps, policy: policy.state === "ok" ? policy.version : null };
   }
 
   /** A model-written name for this session, or null to keep the fallback. */
@@ -660,7 +710,10 @@ export class Session {
     if (read.state === "unknown-schema") throw new Error(`this session was saved with an unknown schema (${JSON.stringify(read.schema)}), probably by a newer smolcoder: it is not resumed, and nothing is overwritten`);
     if (read.state === "unreadable") throw new Error(`this saved session cannot be read (${read.reason}): it is not resumed`);
     const s = read.snapshot;
-    this.agent.restoreTranscript(s.messages ?? [], s.originalRequest ?? "", s.currentRequest ?? "");
+    // Profil mission : un appel resté sans réponse est raconté par le journal
+    // d'effets de l'hôte (fini, jamais lancé, ou incertain), pas deviné.
+    const resume = this.mission?.resume;
+    this.agent.restoreTranscript(s.messages ?? [], s.originalRequest ?? "", s.currentRequest ?? "", resume ? (call) => resume.explainCall(call.id, call.name, call.args) : undefined);
     this.toolCtx.plan.steps = (s.plan ?? []).map((p) => ({ text: String(p.text), done: !!p.done,
       ...(typeof p.note === "string" ? { note: p.note.slice(0, 1000) } : {}) }));
     for (const f of s.filesTouched ?? []) this.toolCtx.filesTouched.add(f);
@@ -833,6 +886,10 @@ export class Session {
           case "approve":
             if (!this.mission) ui.warn(`Unknown command /${cmd} — try /help`);
             else await this.approveMission();
+            break;
+          case "resolve":
+            if (!this.mission) ui.warn(`Unknown command /${cmd} — try /help`);
+            else await this.resolveUncertain();
             break;
           default:
             ui.warn(`Unknown command /${cmd} — try /help`);
