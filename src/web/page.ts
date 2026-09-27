@@ -2,7 +2,7 @@
 // no dependencies) served by the hub. Structure only — the styling lives in
 // styles.ts and the behaviour in client.ts.
 
-import { LOGO_TEXT } from "../logo";
+import { WEB_LOGO_TEXT } from "../logo";
 import { CLIENT_JS } from "./client";
 import { STYLES } from "./styles";
 
@@ -29,7 +29,7 @@ export const PAGE_HTML = `<!doctype html>
 <body>
 <aside id="side">
   <div class="sidehdr">
-    <div class="brand" role="img" aria-label="smolcoder">${LOGO_TEXT}</div>
+    <div class="brand" role="img" aria-label="Alex">${WEB_LOGO_TEXT}</div>
     <span class="grow"></span>
     <button class="iconbtn" id="sidecollapse" title="hide sidebar (ctrl+b)">«</button>
   </div>
@@ -46,7 +46,7 @@ export const PAGE_HTML = `<!doctype html>
   </div>
   <div id="logwrap" tabindex="0" role="region" aria-label="Session messages">
     <div id="welcome" hidden>
-      <div id="logo" role="img" aria-label="smolcoder">${LOGO_TEXT}   <span class="coder">coder — web</span></div>
+      <div id="logo" role="img" aria-label="Alex coder, web">${WEB_LOGO_TEXT}   <span class="coder">coder — web</span></div>
       <h1>What are we building?</h1>
       <div class="row"><button class="primary" id="welcomeopen">Open a folder</button></div>
       <div id="recent"></div>

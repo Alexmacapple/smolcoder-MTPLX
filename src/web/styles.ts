@@ -1,10 +1,10 @@
 // Compact workspace chrome, with monospace reserved for code and commands.
 
-import { LOGO_ROWS } from "../logo";
+import { WEB_LOGO_ROWS } from "../logo";
 
 // The logo as a CSS string: "\A " is a newline whose trailing space is eaten
 // by the escape, so each row starts where it should.
-const LOGO_CSS = LOGO_ROWS.map((r) => r.trimEnd()).join("\\A ");
+const LOGO_CSS = WEB_LOGO_ROWS.map((r) => r.trimEnd()).join("\\A ");
 
 export const STYLES = String.raw`
   :root {
