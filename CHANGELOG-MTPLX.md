@@ -1014,7 +1014,7 @@ auprès des sondes (« no planted program ran on the host », `bin-docker`).
 comptées avant et après : inchangées. SHA `79ef236` reporté sur l'entrée
 précédente.
 
-### (ce commit) — Harnais de la campagne OS — Réf #18
+### `c74f005` — Harnais de la campagne OS — Réf #18
 
 `bench/campagne-os/campagne.sh`, `criteres.json`, `rapporteur.mjs`,
 `manifeste.cjs` (nouveaux), `scripts/test.cjs`,
@@ -1050,6 +1050,35 @@ OS existants, classement des statuts, rapporteur sur une fixture, verrou
 tenu sans rien lancer, chaîne complète avec un faux npm) ; `shellcheck`
 sans avertissement ; `npm test` 275/275 (270 et 5 nouveaux). SHA `449e22f`
 reporté sur l'entrée précédente.
+
+### (ce commit) — Campagne OS jouée sur macOS réel — Closes #18
+
+`docs/campagne-os-2026-09-27.md`, `README.md`. Ticket #18 (H03-4), dernier
+sous-ticket du chapeau #12 : critère de fin atteint — les six critères du
+chapeau rejoués sur macOS réel, résultats archivés au format du banc.
+
+Campagne jouée par `bench/campagne-os/campagne.sh` sur `c74f005`, arbre
+propre : run `20260927T115022Z-campagne-os.eici8E`, sortie 0, statut
+`succes` ; macOS 27.0 (26A428), arm64, `/usr/bin/sandbox-exec` présent ;
+`npm test` 275/275 en 10 s, `npm run test:os` 20/20 en 57 s ; AC1, AC2, AC5
+et AC6 `refus_securite_attendu`, AC3 et AC4 `succes`, chacun avec ses tests
+nommés ; 100 880 entrées dans le vrai `~/.npm` et 17 dans le vrai
+`~/.smolcoder`, avant comme après. Manifeste cité avec son SHA-256 dans
+`docs/campagne-os-2026-09-27.md`, qui ajoute le résultat et les limites
+(une seule machine, faux modèle scripté, interface terminal sous
+pseudo-terminal, page web par son état et sa pastille, sortie 4 headless par
+ses briques, écoute joignable du réseau local, pas de campagne Linux ou
+Windows) ; le dossier du run est local et ignoré par Git, à copier hors du
+dépôt avant de supprimer le worktree. Le README ajoute l'isolation OS aux
+fonctionnalités et la retire des chantiers restants.
+
+Vérification visuelle ponctuelle, hors campagne : le vrai binaire
+`--web --mission` (faux modèle, politique `listen`) rend, capturé par un
+Chrome headless jetable piloté par CDP, la pastille verte « isolated ·
+listens localhost:5173 » à côté du mode, la ligne complète au survol ; le
+même binaire hors profil garde la barre d'état historique, sans pastille.
+Documentation seule dans ce commit, `npm test` et `npm run test:os`
+inchangés depuis `c74f005`. SHA `c74f005` reporté sur l'entrée précédente.
 
 ## Hors dépôt (machine locale)
 

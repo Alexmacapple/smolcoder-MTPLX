@@ -201,3 +201,59 @@ et que ses deux suites sortent à 0 sans échec ; `echec_test` dès qu'un test
 correspondants, classement des statuts (réussite, échec, test absent,
 sauté ou ambigu, blocage), rapporteur sur une fixture, verrou tenu (rien ne
 tourne, verrou intact) et chaîne complète avec un faux npm.
+
+## Résultat de la campagne du 27 septembre 2026
+
+Run `20260927T115022Z-campagne-os.eici8E`, de 11:50:22Z à 11:51:35Z, sortie
+0. Manifeste `manifeste.json`, SHA-256
+`6feb76df94c601f9aff7d2db37154bddc07721a34573337d68bf8ca2fdaaea45` ;
+rapport des tests OS `tests-os.jsonl`, SHA-256
+`40f1957ebc821e6bef23d6aa0d3be5ddf9eb18e943e40fe8a43ff9cad13a2ccd`. Dossier
+local, ignoré par Git :
+`bench/campagne-os/resultats/20260927T115022Z-campagne-os.eici8E/`.
+
+- Statut : `succes` — « Six critères du chapeau #12 prouvés sur macOS réel ;
+  npm test 275/275, npm run test:os 20/20 ».
+- Harnais : `c74f0053329c370599b229ece548d75b15561c67`, arbre propre
+  (`working_tree_dirty: false`), branche `feature/18-integration-campagne`.
+- Machine : macOS 27.0 (build 26A428), arm64, node v26.9.0, npm 11.19.1,
+  `/usr/bin/sandbox-exec` présent.
+- Suites : `npm test` sortie 0 en 10 s, 275 réussis sur 275, aucun sauté ;
+  `npm run test:os` sortie 0 en 57 s, 20 réussis sur 20, aucun sauté.
+- Critères (statut, durée cumulée de leurs tests) :
+  - AC1 `refus_securite_attendu`, 1,4 s — « H03-2 OS AC1 », « H03-3 OS AC2 » ;
+  - AC2 `refus_securite_attendu`, 3,7 s — « H03-2 OS AC2 », « H03-3 OS AC4 » ;
+  - AC3 `succes`, 19,2 s — « H03-2 OS AC3 (partial…) », « H03-3 OS AC1 »,
+    « H03-3 OS AC2 », « H03-3 OS AC6 », « H03-4 OS AC3 (headless) » ;
+  - AC4 `succes`, 4,7 s — « H03-2 OS AC4 », « H03-2 OS AC4 (known limit) » ;
+  - AC5 `refus_securite_attendu`, 8,2 s — « H03-2 OS AC5 », « H03-4 OS AC5
+    (headless) », « (web) », « (terminal) » ;
+  - AC6 `refus_securite_attendu`, 0,25 s — « H03-2 OS », « H03-2 OS AC6 ».
+- Hors critères, tous réussis : « H03-2 OS (known limit, #17) » (git),
+  « H03-3 OS AC3 » (`tools`), « H03-3 OS AC5 » et « (worktree) » (`git:
+  "read"`).
+- Dossier personnel réel : 100 880 entrées dans `~/.npm` et 17 dans
+  `~/.smolcoder`, avant comme après ; les journaux de npm sont dans
+  `npm-journaux/` du run.
+
+## Limites et ce qui reste non vérifié
+
+- Une seule machine (macOS 27.0, Apple Silicon, Homebrew sous
+  `/opt/homebrew`) ; `sandbox-exec` reste un mécanisme déprécié qu'Apple peut
+  retirer (la sonde le constaterait, le profil bloquerait).
+- Le modèle est un faux serveur OpenAI-compatible scripté : aucun run contre
+  MTPLX ni contre un modèle qui choisit ses commandes ; la frontière ne
+  dépend pas du modèle, mais la campagne ne le montre pas avec lui.
+- Interface terminal éprouvée sous un pseudo-terminal (`script`), pas dans
+  un émulateur de terminal réel ; page web éprouvée par l'état qu'elle reçoit
+  et la fonction qui dessine la pastille (et une capture ponctuelle du
+  27 septembre, hors campagne), pas par un navigateur dans la campagne.
+- La suspension headless sur « ask » (sortie 4) reste testée par ses
+  briques, pas par le vrai binaire.
+- L'écoute accordée reste joignable du réseau local quand le serveur écoute
+  sur toutes les interfaces (mesuré depuis cette machine seulement) ; un
+  descendant détaché par `setsid` survit à l'arrêt, confiné.
+- Linux et Windows : comportement non supporté prouvé par les tests
+  unitaires (`npm test`), aucune campagne sur ces systèmes.
+- Le dossier du run vit dans le worktree de #18 : à copier hors du dépôt
+  avant de supprimer ce worktree, pour toute qualification.
