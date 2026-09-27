@@ -1546,7 +1546,7 @@ de ses suites sont dans le HOME temporaire). Non vérifié : aucun essai
 contre MTPLX ni Qwen réel, donc aucun effet mesuré sur la conduite du
 modèle ; une seule machine. SHA `88aa128` reporté sur l'entrée précédente.
 
-### (ce commit) — Exception log:<n> dans la décision d'accès — Réf #19
+### `f85b7fe` — Exception log:<n> dans la décision d'accès — Réf #19
 
 `src/harness/policy.ts`, `src/agent.ts`, `test/command-log.test.js`,
 `docs/profil-mission.md`. Correction demandée à la revue de #19, avant la
@@ -1586,6 +1586,23 @@ requêtes — lecture de `log:1`, de `log:99`, écriture et édition de `log:1`
 328/328 (326 et 2 nouveaux) et `npm run test:os` 22/22, aucun test sauté,
 sous un HOME et un cache npm temporaires neufs. SHA `f93de98` reporté sur
 l'entrée précédente.
+
+### (ce commit) — Tests : journaux npm hors du vrai HOME — Closes #41
+
+`scripts/test.cjs`, `test/suite-hors-home.test.js` (nouveau). La suite
+écrivait dans le vrai dossier personnel : un passage de
+`test/verification.test.js`, qui fait lancer `npm run …` par le harnais dans
+des workspaces temporaires, déposait 11 journaux npm dans `~/.npm/_logs`
+(mesuré par comparaison des noms : npm ne garde que ses 10 derniers
+journaux, compter les fichiers ne montrait rien). Sur la suite complète,
+c'était la seule écriture hors des dossiers temporaires : cache npm,
+`~/.smolcoder` et `~/.smolcoder.json` intacts. Le lanceur donne désormais à
+toute la suite un cache npm jetable (`npm_config_cache`), où npm range aussi
+ses journaux, supprimé à la fin ; la correction couvre les tests à venir.
+Rouge d'abord : le nouveau test, qui exige un cache npm sous le dossier
+temporaire, échouait (« npm_config_cache is not set », 328 verts et 1
+échec). Après correctif : 329/329, aucun nouveau journal dans `~/.npm/_logs`,
+aucun cache jetable restant. SHA `f85b7fe` reporté sur l'entrée précédente.
 
 ## Hors dépôt (machine locale)
 
