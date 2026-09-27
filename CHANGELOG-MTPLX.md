@@ -2415,7 +2415,7 @@ de `copie-figee`). Le profil mission gagne l'effet mesuré du plan dans ses
 limites. SHA `e2a33f9` reporté sur l'entrée précédente. Documentation
 seule.
 
-### (ce commit) — Logo ALEX dans l'interface web
+### `2502efb` — Logo ALEX dans l'interface web
 
 `src/logo.ts`, `src/web/page.ts`, `src/web/styles.ts`,
 `test/branding.test.js`. Demande d'Alex : s'approprier l'interface web.
@@ -2426,6 +2426,17 @@ d'une session vide passe de SMOL à ALEX, dans la même police
 l'accueil. La bannière du terminal garde SMOL. Rouge d'abord : trois tests
 du web échouaient (logo absent), les quatre du terminal restaient verts.
 Après : `npm test` 375/375. SHA `dca4b4f` reporté sur l'entrée précédente.
+
+### (ce commit) — Document de reprise pour Codex
+
+`docs/reprise-codex-2026-09-28.md` (nouveau). Passage de relais de fin de
+session Claude : dépôt et conventions, état au 2026-09-28 00 h 15, les deux
+campagnes en cours (#52 sécurité sous `--mission`, verdict attendu « non
+protégé » ; #53 confirmation de `copie-figee`) avec leurs processus, SHA
+complets et consignes d'analyse issues des relectures indépendantes, la
+procédure de fin de campagne, les décisions en attente d'Alex et les
+pièges connus. SHA `2502efb` reporté sur l'entrée précédente.
+Documentation seule.
 
 ## Hors dépôt (machine locale)
 
