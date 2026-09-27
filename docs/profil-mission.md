@@ -115,8 +115,9 @@ données) est refusée.
 
 ### Schéma
 
-Fermé, tous les champs obligatoires sauf `network` : une politique partielle
-est illisible, jamais complétée en silence. La politique par défaut :
+Fermé, tous les champs obligatoires sauf `network`, `tools`, `git` et
+`listen` : une politique partielle est illisible, jamais complétée en
+silence. La politique par défaut :
 
 ```json
 {
@@ -145,6 +146,24 @@ est illisible, jamais complétée en silence. La politique par défaut :
   `["localhost:5173"]`) ; absent, aucune — son absence ne change pas la
   version d'une politique écrite avant lui. Seatbelt ne sait pas filtrer un
   hôte distant : toute autre forme rend la politique illisible.
+- `tools` (facultatif, #17) : dossiers absolus hors du workspace, écrits sous
+  leur forme normale, que les commandes isolées lisent et exécutent sans
+  jamais les écrire — node installé sous le dossier personnel (nvm), cache
+  npm d'une installation hors ligne (`~/.npm/_cacache`), `.git` du dépôt
+  principal quand le workspace est un worktree. Un dossier qui contient le
+  dossier personnel est refusé au lancement.
+- `git` (facultatif, #17) : `"read"` rend le contenu de `.git` lisible par
+  les commandes isolées, jamais modifiable (ni commit, ni index, ni hook) ;
+  git y tourne sans lire la configuration du compte. Lire `.git`, c'est lire
+  `.git/config` : retirer d'abord tout jeton d'une URL de remote.
+- `listen` (facultatif, #17) : ports `localhost:<port>` sur lesquels les
+  commandes isolées peuvent écouter (serveur de développement). Seatbelt ne
+  borne pas l'interface : un serveur qui écoute sur toutes les interfaces
+  est joignable du réseau local, ce que dit la ligne d'ouverture.
+
+Ces trois champs, comme `network`, ne règlent que le bac des commandes :
+absents, rien n'est accordé et la version de la politique ne change pas.
+Justification entrée par entrée et mesures : `docs/allowlist-outils.md`.
 
 La politique par défaut est celle du sandbox courant, en plus strict (secrets
 `.env*` et métadonnées `.git` protégés, tâches de fond soumises à décision
@@ -180,11 +199,13 @@ néanmoins le même environnement minimal.
 
 Sous le profil, les quatre surfaces lancent leurs commandes par le backend
 Seatbelt (`sandbox-exec`), dont le profil est généré depuis la politique à
-chaque lancement : lecture du système et du workspace, écriture dans le
-workspace et un TMPDIR privé à la session, noms protégés et stockage hôte
-refusés, réseau fermé sauf les destinations de `network`. La session
-l'annonce à l'ouverture (`· isolation: macOS Seatbelt …`) ; le headless
-écrit aussi une ligne `[isolation] {…}` sur stderr.
+chaque lancement : lecture de l'allow-list de l'empreinte des outils
+(`docs/allowlist-outils.md`) et du workspace, écriture dans le workspace et
+un TMPDIR privé à la session, noms protégés et stockage hôte refusés, réseau
+fermé sauf les destinations de `network` et les écoutes de `listen`. La
+session l'annonce à l'ouverture (`· isolation: macOS Seatbelt …`, avec les
+ports d'écoute accordés et leur limite) ; le headless écrit aussi une ligne
+`[isolation] {…}` sur stderr.
 
 Backend absent ou inopérant (autre système que macOS, `sandbox-exec`
 introuvable, sonde en échec, workspace qui contient le dossier personnel) :
@@ -245,7 +266,7 @@ le reprend en tête, relu dans le stockage hôte au moment de la compaction
   (#16) prive ces faux négatifs d'effet sur ce qu'il protège : le système
   refuse la lecture quel que soit le texte de la commande ; ses limites
   (réseau, écoute, descendants détachés, git) sont dans
-  `docs/decision-backend-isole.md`.
+  `docs/decision-backend-isole.md` et `docs/allowlist-outils.md`.
 - La politique n'est pas liée à l'approbation : l'appelant qui la modifie
   après approbation change les droits sans nouvelle approbation (la version
   figure dans chaque décision). `policyRef` du contrat reste réservé.

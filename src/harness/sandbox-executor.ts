@@ -17,21 +17,52 @@ import { CONFIG_PATH, DATA_DIR } from "../config";
 import type { PathRules } from "../sandbox";
 import { CommandResult, ExecRequest, Execution, Executor, launch, LaunchSpec, pickShell, probeSync, ProbeResult, shellArgs } from "./executor";
 import type { Mission } from "./mission";
-import { isNetworkDestination, readPolicy } from "./store";
+import { isNetworkDestination, isToolFolder, readPolicy } from "./store";
 
 export const SANDBOX_EXEC = "/usr/bin/sandbox-exec";
 
-/** Lecture du contenu : le système et les outils installés, jamais le
- * dossier personnel. /etc, /var et /tmp sont des liens vers /private, et le
- * noyau compare des chemins réels. */
-export const SYSTEM_READ_ROOTS = ["/usr", "/bin", "/sbin", "/System", "/Library", "/opt", "/private/etc", "/private/var/select", "/private/var/db/timezone", "/dev"];
-/** Sous ces racines, les données des services locaux (bases de Homebrew). */
-const SERVICE_DATA = ["/opt/homebrew/var", "/usr/local/var"];
-/** Services Mach : annuaire des comptes (getpwuid), notifications, journal.
- * Ni trousseau, ni LaunchServices (`open`), ni presse-papiers, ni Apple
- * Events, ni launchd : autant de sorties du bac. */
-const MACH_SERVICES = ["com.apple.system.opendirectoryd.libinfo", "com.apple.system.notification_center", "com.apple.system.logger", "com.apple.logd"];
-const DEV_WRITE = ["/dev/null", "/dev/zero", "/dev/tty", "/dev/dtracehelper"];
+export interface FootprintEntry {
+  /** Nom stable, cité par la documentation et les tests. */
+  id: string;
+  /** Ses règles, chacune une ligne entière du profil. */
+  rules: readonly string[];
+}
+
+/** L'allow-list de l'empreinte des outils de développement (#17) : tout ce
+ * que le profil accorde au-delà du workspace et du TMPDIR borné, une règle
+ * par ligne, pour que retirer une entrée retire exactement ses règles.
+ * Chaque entrée a un cas positif qui échoue sans elle sur macOS réel
+ * (test/os/seatbelt.os.test.js) ; justification et mesures dans
+ * docs/allowlist-outils.md. Le noyau compare des chemins réels : /etc, /var
+ * et /tmp sont des liens vers /private. Jamais le dossier personnel, ni
+ * trousseau, LaunchServices (`open`), presse-papiers, Apple Events ou
+ * launchd : autant de sorties du bac. */
+export const TOOL_FOOTPRINT: readonly FootprintEntry[] = [
+  { id: "process-fork", rules: ["(allow process-fork)"] },
+  { id: "process-exec", rules: ["(allow process-exec)"] },
+  { id: "signal", rules: ["(allow signal (target same-sandbox))"] },
+  { id: "sysctl-read", rules: ["(allow sysctl-read)"] },
+  { id: "user-directory", rules: ['(allow mach-lookup (global-name "com.apple.system.opendirectoryd.libinfo"))'] },
+  { id: "file-metadata", rules: ["(allow file-read-metadata)"] },
+  { id: "root-folder", rules: ['(allow file-read* (literal "/"))'] },
+  { id: "usr", rules: ['(allow file-read* (subpath "/usr"))'] },
+  { id: "system", rules: ['(allow file-read* (subpath "/System"))'] },
+  { id: "developer-tools", rules: ['(allow file-read* (subpath "/Library/Developer"))'] },
+  { id: "homebrew", rules: ['(allow file-read* (subpath "/opt"))'] },
+  { id: "homebrew-openssl", rules: ['(allow file-read* (subpath "/opt/homebrew/etc/openssl@3"))'] },
+  { id: "etc", rules: ['(allow file-read* (subpath "/private/etc"))'] },
+  { id: "timezone", rules: ['(allow file-read* (subpath "/private/var/db/timezone"))'] },
+  { id: "dev-null", rules: ['(allow file-read* file-write* (literal "/dev/null"))'] },
+  { id: "dev-sources", rules: ['(allow file-read* (literal "/dev/zero") (literal "/dev/random") (literal "/dev/urandom"))'] },
+  { id: "dev-fd", rules: ['(allow file-read* file-write* (regex #"^/dev/fd/"))'] },
+];
+/** Sous les racines accordées, les données et la configuration des services
+ * de Homebrew (bases, my.cnf, odbc.ini…) : refusées, sauf la configuration
+ * OpenSSL que l'entrée homebrew-openssl rouvre après ce refus.
+ * `/usr/local/etc` (Homebrew sur Intel) reste tel quel : non mesuré ici. */
+const SERVICE_DATA = ["/opt/homebrew/var", "/opt/homebrew/etc", "/usr/local/var"];
+/** Les entrées placées après le refus des données de services. */
+const AFTER_SERVICE_DATA = new Set(["homebrew-openssl"]);
 
 export class SandboxProfileError extends Error {}
 
@@ -87,43 +118,58 @@ export interface SeatbeltGrants {
   network: string[];
   /** Contrôles de l'hôte : ni lus ni modifiés, même dans le workspace. */
   hostPaths: string[];
+  /** Dossiers d'outils nommés par la politique (chemins réels) : lecture
+   * seule. Absent : aucun. */
+  tools?: string[];
+  /** `git: "read"` de la politique : le contenu de `.git` lisible, jamais
+   * modifiable. */
+  git?: boolean;
+  /** Ports `localhost:<port>` d'écoute nommés par la politique. */
+  listen?: string[];
 }
 
 /** Le profil Seatbelt d'une commande, depuis la politique. L'ordre compte :
  * la dernière règle qui correspond l'emporte. */
 export function seatbeltProfile(g: SeatbeltGrants): string {
-  for (const d of g.network) {
+  const tools = g.tools ?? [];
+  const listen = g.listen ?? [];
+  for (const d of [...g.network, ...listen]) {
     if (!isNetworkDestination(d)) throw new SandboxProfileError(`network destination ${JSON.stringify(d)} is not localhost:<port>`);
+  }
+  for (const t of tools) {
+    if (!isToolFolder(t)) throw new SandboxProfileError(`tool folder ${JSON.stringify(t)} is not an absolute folder in normal form`);
   }
   const sub = (p: string) => `(subpath ${sbString(p)})`;
   const re = (r: string) => `(regex ${sbString(r)})`;
   const rule = (head: string, filters: string[]) => (filters.length ? [`(${head} ${filters.join(" ")})`] : []);
   const prot = protectedPathRules(g.workspace, g.rules);
+  // git en lecture : le refus de `.git` est levé pour la lecture seule, sauf
+  // sous un autre nom protégé (un `.env` rangé dans `.git` reste fermé).
+  const gitRe = protectedPathRules(g.workspace, { protect: [".git"], except: [] }).deny[0];
+  const gitRead = g.git && prot.deny.includes(gitRe)
+    ? ["; git en lecture (git: \"read\") : .git lisible, jamais modifiable", `(allow file-read-data (require-all ${re(gitRe)}${prot.deny.filter((r) => r !== gitRe).map((r) => ` (require-not ${re(r)})`).join("")}))`]
+    : [];
   return [
     "(version 1)",
     "; smolcoder, profil mission (#16) : généré depuis la politique d'accès",
     "(deny default)",
-    "(allow process-fork)",
-    "(allow process-exec)",
-    "(allow signal (target same-sandbox))",
-    "(allow process-info* (target same-sandbox))",
-    "(allow sysctl-read)",
-    ...rule("allow mach-lookup", MACH_SERVICES.map((n) => `(global-name ${sbString(n)})`)),
-    "; lecture : métadonnées partout (stat, realpath), contenu du système seulement",
-    "(allow file-read-metadata)",
-    ...rule("allow file-read*", ['(literal "/")', ...SYSTEM_READ_ROOTS.map(sub)]),
+    "; empreinte des outils (#17) : chaque entrée est justifiée dans docs/allowlist-outils.md",
+    ...TOOL_FOOTPRINT.filter((e) => !AFTER_SERVICE_DATA.has(e.id)).flatMap((e) => e.rules),
     ...rule("deny file-read*", SERVICE_DATA.map(sub)),
+    ...TOOL_FOOTPRINT.filter((e) => AFTER_SERVICE_DATA.has(e.id)).flatMap((e) => e.rules),
     "; workspace et TMPDIR borné : lecture et écriture",
     `(allow file-read* file-write* ${sub(g.workspace)} ${sub(g.tmpDir)})`,
-    ...rule("allow file-write*", [...DEV_WRITE.map((p) => `(literal ${sbString(p)})`), '(regex #"^/dev/fd/")']),
-    '(allow file-ioctl (literal "/dev/dtracehelper") (literal "/dev/tty"))',
+    "; dossiers d'outils nommés par la politique (tools) : lecture seule",
+    ...rule("allow file-read*", tools.map(sub)),
     "; noms protégés de la politique (contenu et écriture), puis leurs exceptions",
     ...prot.deny.map((r) => `(deny file-read-data file-write* ${re(r)})`),
     ...prot.except.map((e) => `(allow file-read-data file-write* (require-all ${re(e.leaf)} ${e.notUnder.map((n) => `(require-not ${re(n)})`).join(" ")}))`),
+    ...gitRead,
     "; contrôles de l'hôte : ni lus ni modifiés, quoi qu'accordent les règles précédentes",
     ...rule("deny file-read* file-write*", g.hostPaths.map(sub)),
-    "; réseau : fermé, sauf les destinations nommées par la politique",
+    "; réseau : fermé, sauf les destinations et les écoutes nommées par la politique",
     ...rule("allow network-outbound", g.network.map((d) => `(remote ip ${sbString(d)})`)),
+    ...rule("allow network-inbound", listen.map((d) => `(local ip ${sbString(d)})`)),
     "",
   ].join("\n");
 }
@@ -139,11 +185,14 @@ export interface IsolatedExecutor extends Executor {
   readonly status: IsolationStatus;
   /** Le TMPDIR privé des commandes ; null quand le backend refuse. */
   readonly tmpDir: string | null;
+  /** Les ports d'écoute que la politique accorde en ce moment ; vide quand
+   * le backend refuse ou que la politique est illisible. */
+  listening(): string[];
 }
 
 /** La politique au moment du lancement : ce qu'en tire le profil, ou le
  * motif qui empêche de la lire. */
-export type SandboxPolicy = { rules: PathRules; network: string[] } | string;
+export type SandboxPolicy = { rules: PathRules; network: string[]; tools?: string[]; git?: boolean; listen?: string[] } | string;
 
 export interface SandboxDeps {
   platform?: NodeJS.Platform;
@@ -179,7 +228,7 @@ function refusal(reason: string): string {
 
 /** Un exécuteur qui refuse tout : backend absent, ou surface sans backend. */
 export function unavailableExecutor(reason: string): IsolatedExecutor {
-  return { status: { backend: "seatbelt", state: "unavailable", reason }, tmpDir: null, start: () => refused(refusal(reason)) };
+  return { status: { backend: "seatbelt", state: "unavailable", reason }, tmpDir: null, start: () => refused(refusal(reason)), listening: () => [] };
 }
 
 function real(p: string): string {
@@ -259,20 +308,34 @@ export function createSandboxExecutor(opts: SandboxOptions): IsolatedExecutor {
   return {
     status: { backend: "seatbelt", state: "ready", reason: `${sandboxExec} probed: the host store stays out of reach` },
     tmpDir: bounded,
+    listening() {
+      const policy = opts.policy();
+      return typeof policy === "string" ? [] : [...(policy.listen ?? [])];
+    },
     start(req: ExecRequest): Execution {
       // Relue à chaque lancement, comme la décision : le profil suit la politique.
       const policy = opts.policy();
       if (typeof policy === "string") return refused(`the access policy cannot be read (${policy}): no sandbox profile can be built, so nothing was run`);
+      // Le noyau compare des chemins réels ; un dossier d'outils qui contient
+      // le dossier personnel l'ouvrirait en entier.
+      const tools = [...new Set((policy.tools ?? []).map(real))];
+      for (const t of tools) {
+        const home = homes().find((h) => inside(h, t));
+        if (home) return refused(`the tool folder ${t} named by the access policy holds the home folder ${home}, which the sandbox must keep unreadable, so nothing was run`);
+      }
       let profile: string;
       try {
-        profile = seatbeltProfile({ workspace, tmpDir: bounded, rules: policy.rules, network: policy.network, hostPaths });
+        profile = seatbeltProfile({ workspace, tmpDir: bounded, rules: policy.rules, network: policy.network, hostPaths, tools, git: policy.git, listen: policy.listen });
       } catch (err: any) {
         return refused(`the sandbox profile cannot be built (${err?.message ?? err}), so nothing was run`);
       }
+      // Ajouts à l'environnement demandé : le TMPDIR que ce bac accorde, et,
+      // quand la politique ouvre .git en lecture, une configuration globale
+      // vide pour git, qui s'arrête sinon sur un ~/.gitconfig illisible.
+      const env = { ...req.env, TMPDIR: `${bounded}/`, ...(policy.git ? { GIT_CONFIG_GLOBAL: "/dev/null" } : {}) };
       return run(req, () => {
         const shell = pickShell();
-        // Seul ajout à l'environnement demandé : le TMPDIR que ce bac accorde.
-        return { exe: sandboxExec, args: ["-p", profile, shell.exe, ...shellArgs(shell, req)], env: { ...req.env, TMPDIR: `${bounded}/` } };
+        return { exe: sandboxExec, args: ["-p", profile, shell.exe, ...shellArgs(shell, req)], env };
       });
     },
   };
@@ -287,7 +350,7 @@ export function missionExecutor(mission: Mission, deps: SandboxDeps = {}): Isola
     workspace: mission.workspace,
     policy: () => {
       const r = readPolicy(mission.dir);
-      if (r.state === "ok") return { rules: r.policy.paths, network: r.policy.network ?? [] };
+      if (r.state === "ok") return { rules: r.policy.paths, network: r.policy.network ?? [], tools: r.policy.tools ?? [], git: r.policy.git === "read", listen: r.policy.listen ?? [] };
       return r.state === "absent" ? "missing from the host store" : r.state === "unknown-schema" ? `unknown schema ${JSON.stringify(r.schema)}` : r.reason;
     },
     hostPaths: [path.dirname(path.dirname(mission.dir)), DATA_DIR, CONFIG_PATH],
@@ -295,9 +358,13 @@ export function missionExecutor(mission: Mission, deps: SandboxDeps = {}): Isola
   });
 }
 
-/** La ligne d'état montrée à l'ouverture d'une session du profil. */
-export function isolationLine(s: IsolationStatus): string {
-  return s.state === "ready"
-    ? "· isolation: macOS Seatbelt — commands read the system and the workspace, write only there and in a private temporary folder, and reach no network beyond the loopback ports the policy names"
-    : `· isolation unavailable (${s.reason}) — under the mission profile no command runs`;
+/** La ligne d'état montrée à l'ouverture d'une session du profil, avec les
+ * écoutes que la politique accorde à ce moment : Seatbelt ne sait pas les
+ * borner au loopback (mesuré, docs/allowlist-outils.md), la ligne le dit. */
+export function isolationLine(s: IsolationStatus, listening: string[] = []): string {
+  if (s.state !== "ready") return `· isolation unavailable (${s.reason}) — under the mission profile no command runs`;
+  const base = "· isolation: macOS Seatbelt — commands read the system and the workspace, write only there and in a private temporary folder, and reach no network beyond the loopback ports the policy names";
+  return listening.length
+    ? `${base}; they may listen on ${listening.join(", ")}, which the local network can reach when the server listens on every interface (Seatbelt cannot keep a listener on the loopback)`
+    : base;
 }

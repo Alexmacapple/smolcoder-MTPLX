@@ -668,7 +668,7 @@ Restes : isolation réelle (#16), empreinte des outils (#17), intégration et
 campagne OS (#18) ; aucun appelant ne choisit encore d'exécuteur ; les sondes
 de `check.ts` et `detect.ts` restent hors de l'exécuteur, à trancher avec #16.
 
-### (ce commit) — Backend macOS isolé (Seatbelt) — Réf #16
+### `d8aecbb` — Backend macOS isolé (Seatbelt) — Réf #16
 
 `src/harness/sandbox-executor.ts` (nouveau), `src/harness/executor.ts`,
 `src/harness/store.ts`, `src/session.ts`, `src/index.ts`, `src/web/hub.ts`,
@@ -746,6 +746,82 @@ couvert que pour l'arbre du groupe ; filtrage des hôtes distants (proxy),
 écoute d'un serveur de développement, git et outils sous le dossier
 personnel (#17) ; indication dans l'interface et campagne archivée (#18) ;
 les sondes de `check.ts` et `detect.ts` restent hors de l'exécuteur.
+
+### (ce commit) — Allow-list de l'empreinte des outils — Closes #17
+
+`src/harness/sandbox-executor.ts`, `src/harness/store.ts`, `src/index.ts`,
+`src/session.ts`, `docs/allowlist-outils.md` (nouveau),
+`docs/decision-backend-isole.md`, `docs/profil-mission.md`,
+`test/allowlist.test.js` (nouveau), `test/os/seatbelt.os.test.js`,
+`test/sandbox-executor.test.js`. Ticket #17 (H03-3), troisième sous-ticket
+du chapeau #12, sur le backend Seatbelt (#16).
+
+Mesure d'abord : expériences jetables hors dépôt sur ce Mac, chaque cas
+comparé hors du bac — un banc de 35 commandes de développement courantes,
+une matrice où chaque autorisation du profil de #16 est retirée une à une,
+le journal des refus du noyau pendant un `npm test` de fixture. Décision et
+mesures citées : `docs/allowlist-outils.md`.
+
+Le profil accorde désormais une allow-list explicite, `TOOL_FOOTPRINT`
+(dix-sept entrées nommées, une règle par ligne), dont chaque entrée a un cas
+positif qui échoue sans elle. Retirés faute de besoin mesuré : informations
+de processus, services de notification et de journal, lecture de `/bin`,
+`/sbin` et `/private/var/select` (un Mach-O s'exécute sans que son fichier
+soit lisible, mesuré), écriture de `/dev/zero`, `/dev/tty`,
+`/dev/dtracehelper` et leurs `file-ioctl`. Resserrés : `/dev` entier devient
+des nœuds nommés — le profil de #16 laissait le bac ouvrir en lecture un
+autre terminal du compte (`exec 3</dev/ttys002` : « opened-read=yes ») ;
+`/Library` devient `/Library/Developer` ; `/opt/homebrew/etc` est refusé
+(`my.cnf`, `odbc.ini`), sauf `openssl@3` que node lit au démarrage.
+
+Trois champs facultatifs de `policy.json`, absents par défaut (rien
+d'accordé, version inchangée : `smolcoder/policy/v1@b8568bb66a5429ae` pour
+la politique par défaut, fixée par un test) : `tools` (dossiers en lecture
+seule : node sous le dossier personnel, cache npm hors ligne, `.git` du
+dépôt principal d'un worktree ; un dossier qui contient le dossier personnel
+est refusé), `git: "read"` (`.git` lisible, jamais modifiable ; l'exécuteur
+ajoute `GIT_CONFIG_GLOBAL=/dev/null`) et `listen` (écoute port par port,
+`network-inbound` seul). Arbitrages : écoute accordée par nom, avec sa
+limite mesurée (un serveur qui écoute sur toutes les interfaces répond à
+l'adresse du réseau local) dite dans la ligne d'ouverture et dans
+`[isolation] {…, "listen": […]}` ; git en lecture seule sur champ explicite,
+qui couvre les commandes des fiches de revue et de vérification finale
+(`git status --short`, `git diff <point>`, `git diff <point>...HEAD`,
+`git log <point>..HEAD --oneline`, `git rev-parse <point>`, mesurées), sans
+jamais lire `~/.gitconfig` ni écrire `.git` ; aucun registre distant, un
+registre local se nomme dans `network` avec un cache borné au TMPDIR ;
+jamais le cache npm du compte en écriture.
+
+Écarts déclarés. Le profil de #16 est resserré : Ruby système, les
+configurations de formules Homebrew et les données de `/Library` ne sont
+plus lisibles par défaut (l'appelant les rouvre par `tools`). Une assertion
+d'un test existant change : la liste des racines lisibles de « H03-2 AC1 »
+(`test/sandbox-executor.test.js`) ne cite plus `/bin` ni `/Library` entier.
+L'exécuteur ajoute `GIT_CONFIG_GLOBAL` sous `git: "read"`, en plus de
+`TMPDIR`. `IsolatedExecutor` gagne `listening()` ; le champ `listen` de la
+ligne `[isolation]` du headless n'est couvert par aucun test.
+
+Vérifications. Rouge d'abord : les dix tests unitaires « H03-3 AC1 » à
+« H03-3 AC3 » échouent avant le code (`TOOL_FOOTPRINT` absent,
+`unknown field "tools"`, `process-info` encore accordé) ; les sept tests
+OS « H03-3 OS » échouent contre la base `43a189a` construite
+(`TOOL_FOOTPRINT` absent, `list-homebrew-etc: LEAK`, `unknown field`
+`tools`, `git`, `listen`), les neuf de #16 y restent verts. Après :
+`npm test` 264/264 (254 existants et 10 nouveaux), aucun test sauté ;
+`npm run test:os` 16/16, dont « H03-3 OS AC1 » (chaque entrée retirée fait
+échouer son cas : « fork: Operation not permitted », « unable to load
+libxcrun », « BIO_new_file:Operation not permitted »…), « AC2 » (`npm test`
+de fixture sous la seule allow-list, et sept accès hors liste refusés, témoin
+hôte à l'appui), « AC3 » à « AC6 » (`tools`, cache et registre, git dont un
+workspace-worktree, écoute). Deux mutations du code compilé, `git: "read"`
+qui ouvrirait l'écriture puis un dossier d'outils contenant le dossier
+personnel accepté, font échouer respectivement trois et deux de ces tests.
+
+Restes : mesures sur un seul Mac (Apple Silicon ; Homebrew sur Intel non
+mesuré) ; `ps` et `pgrep` inopérants sous isolation ; sous `git: "read"`,
+un jeton dans une URL de remote devient lisible ; l'écoute accordée reste
+joignable du réseau local ; indication dans l'interface, campagne archivée
+et sondes de `check.ts` et `detect.ts` relèvent de #18.
 
 ## Hors dépôt (machine locale)
 

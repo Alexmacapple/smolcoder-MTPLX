@@ -331,6 +331,343 @@ test("H03-2 OS (known limit, #17): git does not work under isolation — an exis
   assert.match(init.output, /repo\/\.git: Operation not permitted/, "creating .git is refused like any protected name");
 });
 
+// ---- H03-3 (#17) : l'allow-list de l'empreinte des outils ------------------
+//
+// Chaque entrée de TOOL_FOOTPRINT a son cas positif, mesuré : il passe hors
+// du bac et sous le profil complet, et échoue quand on retire l'entrée du
+// profil. Les champs facultatifs de la politique (tools, git, listen, network)
+// sont éprouvés de même : présents, le cas passe ; absents, il échoue ; et ce
+// qui reste hors de la liste reste refusé.
+
+const { spawnSync, execFileSync } = require("child_process");
+const sbx = require("../../dist/harness/sandbox-executor");
+
+/** Le cas positif de chaque entrée : une commande et ce qu'elle doit rendre. */
+const FOOTPRINT_CASES = {
+  "process-fork": ["echo a | tr a b", (o) => o === "b"],
+  "process-exec": ["/bin/echo exec-ok", (o) => o === "exec-ok"],
+  signal: ["sleep 5 & kill $!; wait $!; echo code=$?", (o) => /code=143/.test(o)],
+  "sysctl-read": [`node -e "console.log(require('os').cpus().length > 0)"`, (o) => o === "true"],
+  "user-directory": ["id -un", (o) => o === os.userInfo().username],
+  "file-metadata": ["cd meta-dir && echo cd-ok", (o) => o === "cd-ok"],
+  "root-folder": ["/bin/echo root-ok", (o) => o === "root-ok"],
+  usr: ["/usr/bin/shasum -a 1 /dev/null | cut -c1-8", (o) => o === "da39a3ee"],
+  system: ["/usr/bin/perl -e 'print 6*7'", (o) => o === "42"],
+  "developer-tools": ["GIT_CONFIG_GLOBAL=/dev/null git --version | cut -c1-11", (o) => o === "git version"],
+  homebrew: [`node -e "console.log(40 + 2)"`, (o) => o === "42"],
+  "homebrew-openssl": [`node -e "console.log(40 + 2)"`, (o) => o === "42"],
+  etc: ["curl --version | head -1 | cut -c1-4", (o) => o === "curl"],
+  timezone: ["TZ=Europe/Paris date -r 0 +%H", (o) => o === "01"],
+  "dev-null": ["cat < /dev/null && echo x > /dev/null && echo null-ok", (o) => o === "null-ok"],
+  "dev-sources": ["for d in zero random urandom; do head -c 4 /dev/$d | wc -c | tr -d ' '; done | tr '\\n' ,", (o) => o === "4,4,4,"],
+  "dev-fd": ["echo fd-ok > /dev/stderr; /bin/bash -c 'cat <(echo ps-ok)'", (o) => o.split("\n").sort().join(",") === "fd-ok,ps-ok"],
+};
+
+/** La fixture d'un `npm test` sans dépendance, partagée par plusieurs cas. */
+function npmFixture(f) {
+  const dir = path.join(f.ws, "fixture17");
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(path.join(dir, "package.json"), JSON.stringify({ name: "fixture17", version: "1.0.0", scripts: { test: "node --test" } }));
+  fs.writeFileSync(path.join(dir, "a.test.js"), 'require("node:test")("adds", () => require("node:assert").equal(1 + 1, 2));\n');
+  return "fixture17";
+}
+
+/** Une commande sous un profil donné, lancée comme l'exécuteur la lance. */
+function underProfile(f, profile, cmd) {
+  const r = spawnSync("/usr/bin/sandbox-exec", ["-p", profile, "/bin/sh", "-c", cmd], { cwd: f.ws, env: { ...env(), TMPDIR: `${f.iso.tmpDir}/` }, encoding: "utf8", timeout: 60000 });
+  return { code: r.status, out: `${r.stdout ?? ""}${r.stderr ?? ""}`.trim() };
+}
+function hostRun(f, cmd) {
+  const r = spawnSync("/bin/sh", ["-c", cmd], { cwd: f.ws, env: { ...env(), TMPDIR: `${f.iso.tmpDir}/` }, encoding: "utf8", timeout: 60000 });
+  return { code: r.status, out: `${r.stdout ?? ""}${r.stderr ?? ""}`.trim() };
+}
+const profileOf = (f, extra = {}) => sbx.seatbeltProfile({ workspace: f.ws, tmpDir: f.iso.tmpDir, rules: store.DEFAULT_POLICY.paths, network: [], hostPaths: [path.dirname(path.dirname(f.m.dir))], ...extra });
+
+/** La politique de la fixture, élargie le temps d'un test puis rétablie. */
+async function withPolicy(f, extra, fn) {
+  const file = path.join(f.m.dir, "policy.json");
+  const before = fs.readFileSync(file, "utf8");
+  store.writePolicy(f.m.dir, { ...store.readPolicy(f.m.dir).policy, ...extra });
+  try {
+    return await fn();
+  } finally {
+    fs.writeFileSync(file, before);
+  }
+}
+
+test("H03-3 OS AC1: every entry of the documented allow-list is needed — its positive case passes outside the sandbox and under the full profile, and fails once the entry is removed", { skip, timeout: 180000 }, async () => {
+  const f = await fixture();
+  fs.mkdirSync(path.join(f.ws, "meta-dir"), { recursive: true });
+  const node = fs.realpathSync.native(execFileSync("/bin/sh", ["-c", "command -v node"], { env: env(), encoding: "utf8" }).trim());
+  assert.match(node, /^\/opt\/homebrew\//, "this campaign measures Homebrew's node, whose library and OpenSSL configuration live under /opt/homebrew");
+  assert.deepEqual(Object.keys(FOOTPRINT_CASES).sort(), sbx.TOOL_FOOTPRINT.map((e) => e.id).sort(), "one positive case per entry, no more");
+  const full = profileOf(f);
+  const report = [];
+  for (const entry of sbx.TOOL_FOOTPRINT) {
+    const [cmd, ok] = FOOTPRINT_CASES[entry.id];
+    const host = hostRun(f, cmd);
+    assert.ok(ok(host.out), `${entry.id}: the case itself holds outside the sandbox (${host.out})`);
+    const inside = underProfile(f, full, cmd);
+    assert.ok(ok(inside.out), `${entry.id}: passes under the full profile (exit ${inside.code}: ${inside.out})`);
+    const without = full.split("\n").filter((l) => !entry.rules.includes(l)).join("\n");
+    assert.notEqual(without, full, `${entry.id}: its rules are lines of the profile`);
+    const cut = underProfile(f, without, cmd);
+    assert.ok(!ok(cut.out), `${entry.id}: still passes without the entry, so the entry is not justified (${cut.out})`);
+    report.push(`${entry.id}: ${cut.out.split("\n").pop().slice(0, 100) || `exit ${cut.code}`}`);
+  }
+  // Le TMPDIR borné, accordé par l'exécuteur : même épreuve.
+  const tmpCase = 'f=$(mktemp) && echo tmp-ok > "$f" && cat "$f"';
+  assert.equal(underProfile(f, full, tmpCase).out, "tmp-ok");
+  const noTmp = full.replace(` (subpath ${JSON.stringify(f.iso.tmpDir)})`, "");
+  assert.notEqual(noTmp, full);
+  assert.match(underProfile(f, noTmp, tmpCase).out, /Operation not permitted/);
+  console.log(`# removed entry → failure of its case:\n# ${report.join("\n# ")}`);
+});
+
+test("H03-3 OS AC2: an npm test of a fixture passes under isolation with the documented allow-list only, while what lies outside it stays refused — home, Homebrew's service configuration, /Library's data, the account's terminals", { skip, timeout: 180000 }, async () => {
+  const f = await fixture();
+  fs.writeFileSync(path.join(HOME, ".npmrc"), `//registry.npmjs.org/:_authToken=${SECRET.home}\n`);
+  const r = await run(f, `cd ${npmFixture(f)} && npm test`);
+  assert.equal(r.exitCode, 0, r.output);
+  assert.match(plain(r.output), /pass 1/);
+  assert.ok(!r.output.includes(SECRET.home), "the npm token of ~/.npmrc never enters");
+  // Hors de la liste : chaque tentative, témoin hôte à l'appui.
+  const tty = fs.readdirSync("/dev").filter((n) => /^ttys\d+$/.test(n)).map((n) => `/dev/${n}`).find((p) => fs.statSync(p).uid === process.getuid());
+  assert.ok(tty, "a terminal of this account exists (the campaign runs from a terminal session)");
+  const attempts = {
+    "read-npmrc": `cat "$HOME/.npmrc"`,
+    "list-homebrew-etc": "ls /opt/homebrew/etc",
+    "list-library-data": "ls '/Library/Application Support'",
+    "list-library-preferences": "ls /Library/Preferences",
+    "open-account-tty": `exec 3< ${tty}`,
+    "read-bin-file": "cat /bin/ls",
+    "list-dev": "ls /dev",
+  };
+  const tryAll = Object.entries(attempts).map(([name, cmd]) => `if ( ${cmd} ) >/dev/null 2>&1; then echo ${name}=LEAK; else echo ${name}=denied; fi`).join("\n");
+  const host = results(hostRun(f, tryAll).out);
+  const inside = results((await run(f, tryAll)).output);
+  for (const name of Object.keys(attempts)) {
+    assert.equal(host[name], "LEAK", `${name}: allowed outside the sandbox, so the refusal below is the sandbox's`);
+    assert.equal(inside[name], "denied", `${name}: refused under isolation`);
+  }
+  assert.equal((await run(f, "/bin/ls -d / >/dev/null && echo exec-ok")).output.trim(), "exec-ok", "a program of /bin still runs, though its file is not readable");
+});
+
+test("H03-3 OS AC3: a node installed under the home folder (nvm layout) runs only when the policy names its folder in tools — read-only, its siblings stay unreadable, and a folder holding the home folder is refused", { skip, timeout: 180000 }, async () => {
+  const f = await fixture();
+  const src = path.dirname(path.dirname(fs.realpathSync.native(process.execPath)));
+  const nvm = path.join(HOME, ".nvm", "versions", "node", path.basename(src));
+  if (!fs.existsSync(nvm)) {
+    fs.mkdirSync(path.dirname(nvm), { recursive: true });
+    execFileSync("/bin/cp", ["-Rc", src, nvm]); // clone APFS : instantané
+  }
+  const nodeCmd = `"${path.join(nvm, "bin", "node")}" -e "console.log('nvm-node', process.version)"`;
+  const denied = await run(f, nodeCmd);
+  assert.notEqual(denied.exitCode, 0, denied.output);
+  assert.match(denied.output, /sandbox blocked open|Operation not permitted/, "without the entry the library of this node cannot load");
+  await withPolicy(f, { tools: [nvm] }, async () => {
+    const ok = await run(f, nodeCmd);
+    assert.equal(ok.exitCode, 0, ok.output);
+    assert.equal(ok.output.trim(), `nvm-node ${process.version}`);
+    const npm = await run(f, `PATH="${path.join(nvm, "bin")}:$PATH"; cd ${npmFixture(f)} && npm test`);
+    assert.equal(npm.exitCode, 0, npm.output);
+    const probe = await run(f, `cat "$HOME/.ssh/id_fake" || echo sibling=denied; echo x > "${path.join(nvm, "planted")}" || echo write=denied`);
+    assert.match(probe.output, /sibling=denied/);
+    assert.match(probe.output, /write=denied/);
+    assert.ok(!probe.output.includes(SECRET.home));
+    assert.ok(!fs.existsSync(path.join(nvm, "planted")), "the tool folder is never writable");
+  });
+  await withPolicy(f, { tools: [HOME] }, async () => {
+    const wide = await run(f, "echo ran > wide.marker");
+    assert.deepEqual({ started: wide.started, status: wide.status }, { started: false, status: "spawn_error" });
+    assert.match(wide.error, /holds the home folder/);
+    assert.ok(!fs.existsSync(path.join(f.ws, "wide.marker")));
+  });
+});
+
+test("H03-3 OS AC4: npm cache and registry — an offline install reads the host cache only when tools names it, never writing it; a registry answers only as a named loopback destination, with a bounded cache; a remote registry is never reached", { skip, timeout: 180000 }, async (t) => {
+  const f = await fixture();
+  // Registre jetable, lancé par l'hôte : un paquet, un tarball.
+  const pkg = tmp("smol-os-pkg-");
+  fs.writeFileSync(path.join(pkg, "package.json"), JSON.stringify({ name: "smol-leftpad", version: "1.0.0", main: "index.js" }));
+  fs.writeFileSync(path.join(pkg, "index.js"), 'module.exports = (s, n) => String(s).padStart(n, "0");\n');
+  execFileSync("npm", ["pack", "--pack-destination", pkg], { cwd: pkg, env: { ...Object.fromEntries(Object.entries(process.env).filter(([k]) => !/^npm_/i.test(k))), HOME, npm_config_cache: path.join(pkg, ".cache") }, stdio: "ignore" });
+  const tgz = fs.readFileSync(path.join(pkg, "smol-leftpad-1.0.0.tgz"));
+  const hits = [];
+  const registry = http.createServer((q, r) => {
+    hits.push(q.url);
+    if (q.url === "/smol-leftpad") return r.end(JSON.stringify({ name: "smol-leftpad", "dist-tags": { latest: "1.0.0" }, versions: { "1.0.0": { name: "smol-leftpad", version: "1.0.0", main: "index.js", dist: { tarball: `http://${q.headers.host}/smol-leftpad/-/smol-leftpad-1.0.0.tgz`, integrity: "sha512-" + require("crypto").createHash("sha512").update(tgz).digest("base64") } } } }));
+    if (q.url.endsWith(".tgz")) return r.end(tgz);
+    r.statusCode = 404;
+    r.end("{}");
+  });
+  await new Promise((r) => registry.listen(0, "127.0.0.1", r));
+  t.after(() => registry.close());
+  const port = registry.address().port;
+  const dir = path.join(f.ws, "fixture-dep");
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(path.join(dir, "package.json"), JSON.stringify({ name: "fixture-dep", version: "1.0.0", scripts: { test: "node --test" }, dependencies: { "smol-leftpad": "1.0.0" } }));
+  fs.writeFileSync(path.join(dir, "a.test.js"), 'require("node:test")("pads", () => require("node:assert").equal(require("smol-leftpad")(7, 3), "007"));\n');
+  // Le cache de l'hôte, chauffé hors du bac (~/.npm du faux dossier personnel).
+  // Asynchrone : le registre répond depuis ce même processus. Sans les
+  // variables npm_* qu'exporte `npm run`, qui viseraient le vrai ~/.npm.
+  const cache = path.join(HOME, ".npm", "_cacache");
+  const hostEnv = { ...Object.fromEntries(Object.entries(process.env).filter(([k]) => !/^npm_/i.test(k))), HOME, npm_config_cache: path.join(HOME, ".npm") };
+  await require("util").promisify(require("child_process").execFile)("npm", ["install", "--registry", `http://127.0.0.1:${port}`, "--no-audit", "--no-fund"], { cwd: dir, env: hostEnv });
+  fs.rmSync(path.join(dir, "node_modules"), { recursive: true, force: true });
+  const snapshot = () => execFileSync("/usr/bin/find", [cache, "-type", "f"], { encoding: "utf8" }).split("\n").sort().join("\n");
+  const cached = snapshot();
+  assert.ok(cached.includes("content-v2"), "the host cache holds the package");
+  // 1. npm test n'a besoin d'aucun cache (AC2) ; une installation hors ligne, si.
+  const offline = "cd fixture-dep && npm ci --offline --no-audit --no-fund && npm test";
+  const noCache = await run(f, offline);
+  assert.notEqual(noCache.exitCode, 0, "the host cache is out of reach by default");
+  assert.match(noCache.output, /EPERM|operation not permitted|root-owned/i, noCache.output);
+  await withPolicy(f, { tools: [cache] }, async () => {
+    const ok = await run(f, offline);
+    assert.equal(ok.exitCode, 0, ok.output);
+    assert.match(plain(ok.output), /pass 1/);
+  });
+  assert.equal(snapshot(), cached, "the host cache was only read: no file added or removed");
+  // 2. Un registre : seulement comme destination loopback nommée, cache borné.
+  const online = `cd fixture-dep && rm -rf node_modules && npm install --registry http://127.0.0.1:${port} --cache "$TMPDIR/npm-cache" --no-audit --no-fund --fetch-retries=0 && npm test`;
+  hits.length = 0;
+  const closed = await run(f, online);
+  assert.notEqual(closed.exitCode, 0, "no destination named: the registry is out of reach");
+  assert.deepEqual(hits, [], "not a single request reached it");
+  await withPolicy(f, { network: [...(store.readPolicy(f.m.dir).policy.network ?? []), `localhost:${port}`] }, async () => {
+    const ok = await run(f, online);
+    assert.equal(ok.exitCode, 0, ok.output);
+    assert.match(plain(ok.output), /pass 1/);
+    assert.ok(hits.length > 0);
+    // 3. Un registre distant : jamais, quelle que soit la politique (sans
+    // verrou ni cache, qui renverraient au registre loopback).
+    const remote = await run(f, 'npm view left-pad version --registry https://registry.npmjs.org/ --cache "$TMPDIR/npm-remote" --fetch-retries=0 --fetch-timeout=5000', 60000);
+    assert.notEqual(remote.exitCode, 0, remote.output);
+    assert.match(remote.output, /ENOTFOUND|EPERM|EAI_AGAIN|ECONNREFUSED/, remote.output);
+  });
+});
+
+/** Les commandes de lecture que demandent les fiches de revue et de
+ * vérification finale (docs/skills), sur une branche et son point de départ. */
+const REVIEW_GIT = "git status --short && git diff main --stat | tail -1 && git diff main...HEAD --stat | tail -1 && git log main..HEAD --oneline | wc -l | tr -d ' ' && git rev-parse main && git config --global --list; echo status-code=$?";
+const hostGit = (cwd) => (...a) => execFileSync("git", ["-c", "user.name=t", "-c", "user.email=t@t", ...a], { cwd, env: { ...process.env, HOME, GIT_CONFIG_GLOBAL: "/dev/null" }, encoding: "utf8" });
+function reviewRepo(dir) {
+  const git = hostGit(dir);
+  git("init", "-q", "-b", "main");
+  git("commit", "-q", "--allow-empty", "-m", "base");
+  git("switch", "-q", "-c", "feature");
+  fs.writeFileSync(path.join(dir, "f.txt"), "a\n");
+  git("add", "f.txt");
+  git("commit", "-qm", "feat");
+  return git;
+}
+function assertReview(out, main) {
+  assert.match(out, /^ M f\.txt$/m, out);
+  assert.match(out, /1 file changed, 2 insertions/, "git diff <point>: the branch and the working tree");
+  assert.match(out, /1 file changed, 1 insertion\(\+\)$/m, "git diff <point>...HEAD: the branch only");
+  assert.match(out, /^1$/m, "git log <point>..HEAD: one commit");
+  assert.ok(out.includes(main), "git rev-parse <point>");
+  assert.match(out, /status-code=0/, "git config --global reads /dev/null, not ~/.gitconfig");
+}
+
+test("H03-3 OS AC5: git — refused by default; with git read, the review commands (status, diff <point>, diff <point>...HEAD, log <point>..HEAD, rev-parse) work without reading the user's ~/.gitconfig, while commit, index, hooks and other protected names inside .git stay closed", { skip, timeout: 180000 }, async () => {
+  const f = await fixture();
+  const repo = path.join(f.ws, "repo17");
+  let git = hostGit(repo);
+  if (!fs.existsSync(repo)) {
+    fs.mkdirSync(repo);
+    git = reviewRepo(repo);
+    fs.writeFileSync(path.join(repo, ".git", ".env"), `TOKEN=${SECRET.env}\n`);
+  }
+  fs.writeFileSync(path.join(repo, "f.txt"), "a\nb\n");
+  fs.writeFileSync(path.join(HOME, ".gitconfig"), `[user]\n\tname = ${SECRET.git}\n`);
+  const head = git("rev-parse", "HEAD").trim();
+  const main = git("rev-parse", "main").trim();
+  const cmd = `cd repo17 && ${REVIEW_GIT}`;
+  const off = await run(f, cmd);
+  assert.match(off.output, /unable to access '.*\.gitconfig': Operation not permitted/, "default: git stops on the unreadable ~/.gitconfig");
+  await withPolicy(f, { git: "read" }, async () => {
+    const on = await run(f, cmd);
+    assertReview(on.output, main);
+    assert.ok(!on.output.includes(SECRET.git), "the user's configuration never enters");
+    const writes = await run(f, "cd repo17 && git commit -qam second; echo commit=$?; echo evil > .git/hooks/pre-commit || echo hook=denied; cat .git/.env || echo dotenv=denied");
+    assert.match(writes.output, /index\.lock': Operation not permitted/);
+    assert.match(writes.output, /hook=denied/);
+    assert.match(writes.output, /dotenv=denied/, "a protected name inside .git stays closed");
+    assert.ok(!writes.output.includes(SECRET.env));
+    // Limite connue, observée : lire .git, c'est lire .git/config.
+    const cfg = await run(f, "cat .git/config");
+    assert.ok(cfg.output.includes(SECRET.git), "known limit: under git read, a token in a remote URL of .git/config is readable");
+  });
+  assert.equal(git("rev-parse", "HEAD").trim(), head, "no commit was made");
+  assert.ok(!fs.existsSync(path.join(repo, ".git", "hooks", "pre-commit")));
+  const back = await run(f, "cat .git/config");
+  assert.ok(!back.output.includes(SECRET.git), "policy restored: .git is closed again");
+  fs.rmSync(path.join(HOME, ".gitconfig"));
+});
+
+test("H03-3 OS AC5 (worktree): a workspace that is a git worktree keeps its git folder outside — git read alone fails; naming the main repository's .git in tools makes the review commands work, still read-only", { skip, timeout: 180000 }, async () => {
+  const mainRepo = tmp("smol-os-mainrepo-");
+  const git = reviewRepo(mainRepo);
+  git("switch", "-q", "main");
+  const wt = path.join(tmp("smol-os-wt-"), "wt");
+  git("worktree", "add", "-q", wt, "feature");
+  fs.writeFileSync(path.join(wt, "f.txt"), "a\nb\n");
+  const main = git("rev-parse", "main").trim();
+  const contract = path.join(tmp("smol-os-src-"), "contract.json");
+  fs.writeFileSync(contract, JSON.stringify({ schema: "smolcoder/contract/v1", id: "os-worktree", title: "Worktree", problem: "p", outcome: "o", acceptance: ["a"], budgets: { maxSteps: 50 } }));
+  const m = Mission.prepare({ source: contract, workspace: wt, dataDir: tmp("smol-os-data-") });
+  m.approve("terminal-human");
+  const inWt = (iso, cmd) => runCommandResult(cmd, fs.realpathSync.native(wt), undefined, 60000, { env: env(), login: false }, iso, "command");
+  store.writePolicy(m.dir, { ...store.DEFAULT_POLICY, git: "read" });
+  const alone = await inWt(missionExecutor(m), REVIEW_GIT);
+  assert.match(alone.output, /not a git repository: .*smol-os-mainrepo-.*worktrees/, alone.output);
+  store.writePolicy(m.dir, { ...store.DEFAULT_POLICY, git: "read", tools: [path.join(mainRepo, ".git")] });
+  const iso = missionExecutor(m);
+  assertReview((await inWt(iso, REVIEW_GIT)).output, main);
+  const commit = await inWt(iso, "git commit -qam second; echo commit=$?");
+  assert.match(commit.output, /index\.lock': Operation not permitted/, "the main repository stays read-only");
+  assert.equal(git("log", "--oneline", "main..feature").trim().split("\n").length, 1, "no commit was made");
+});
+
+test("H03-3 OS AC6: listening — refused unless the policy names the port; a named port serves the host, another port stays refused, the status line says so; known limit: listening on every interface is accepted and reachable at the local network address", { skip, timeout: 180000 }, async () => {
+  const f = await fixture();
+  fs.writeFileSync(path.join(f.ws, "server17.cjs"), String.raw`const http = require("http");
+const [host, port] = [process.argv[2], Number(process.argv[3])];
+const s = http.createServer((q, r) => r.end("pong-sandboxed"));
+s.on("error", (e) => { console.log("listen=" + e.code); process.exit(0); });
+s.listen(port, host, () => { console.log("listen=LISTENING " + s.address().address); setTimeout(() => process.exit(0), 3000); });
+`);
+  const free = () => new Promise((r) => { const s = net.createServer().listen(0, "127.0.0.1", () => { const p = s.address().port; s.close(() => r(p)); }); });
+  const port = await free();
+  const get = (host) => new Promise((done) => http.get({ host, port, timeout: 1000 }, (r) => { let b = ""; r.on("data", (d) => (b += d)); r.on("end", () => done(b)); }).on("error", (e) => done(e.code)).on("timeout", function () { this.destroy(); done("TIMEOUT"); }));
+  async function serve(host) {
+    const running = run(f, `node server17.cjs ${host} ${port}`, 20000);
+    let seen = "";
+    const end = Date.now() + 2500;
+    while (Date.now() < end && seen !== "pong-sandboxed") { seen = await get("127.0.0.1"); await sleep(100); }
+    const lan = Object.values(os.networkInterfaces()).flat().find((i) => i && i.family === "IPv4" && !i.internal)?.address;
+    const viaLan = lan ? await get(lan) : null;
+    return { out: (await running).output.trim(), loopback: seen, lan, viaLan };
+  }
+  const closed = await serve("127.0.0.1");
+  assert.equal(closed.out, "listen=EPERM", "default: nothing listens");
+  await withPolicy(f, { listen: [`localhost:${port}`] }, async () => {
+    const named = await serve("127.0.0.1");
+    assert.match(named.out, /^listen=LISTENING 127\.0\.0\.1$/);
+    assert.equal(named.loopback, "pong-sandboxed", "the host reaches the server of the sandbox");
+    if (named.lan) assert.notEqual(named.viaLan, "pong-sandboxed", "bound to the loopback, unreachable at the LAN address");
+    const other = await run(f, `node server17.cjs 127.0.0.1 ${port + 1}`);
+    assert.equal(other.output.trim(), "listen=EPERM", "another port stays refused");
+    assert.match(sbx.isolationLine(f.iso.status, f.iso.listening()), new RegExp(`listen on localhost:${port}, which the local network can reach`));
+    const every = await serve("0.0.0.0");
+    assert.match(every.out, /^listen=LISTENING 0\.0\.0\.0$/, "known limit: Seatbelt accepts listening on every interface");
+    if (every.lan) assert.equal(every.viaLan, "pong-sandboxed", `known limit, observed: reachable at the local network address ${every.lan}`);
+  });
+  assert.deepEqual(f.iso.listening(), [], "policy restored: no listening");
+});
+
 test.after(() => {
   for (const s of [F?.allowed, F?.forbidden, F?.localApi]) s?.close();
 });
