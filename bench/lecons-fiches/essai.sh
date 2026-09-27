@@ -263,9 +263,10 @@ ESSAI_NOYAU_SHA="$(shasum -a 256 "$MAISON/.smolcoder/AGENTS.md" | cut -d' ' -f1)
 ESSAI_CONFIG_SHA="$(shasum -a 256 "$MAISON/.smolcoder.json" | cut -d' ' -f1)"
 export ESSAI_NOYAU_SHA ESSAI_CONFIG_SHA
 
-# Variante des fiches : les fiches de main, plus le correctif figé en série B.
+# Variante des fiches : les fiches A du protocole (docs/skills/ au commit de
+# pré-enregistrement, fiches-a.sh), plus le correctif figé en série B.
 SOURCE_FICHES="$(mktemp -d "$TMP_BASE/etude-fiches.XXXXXX")" || terminer blocage_harnais "Source des fiches impossible" 4
-cp "$REPO/docs/skills/"*.md "$SOURCE_FICHES/" || terminer blocage_harnais "Copie des fiches de main impossible" 4
+"$B/fiches-a.sh" "$SOURCE_FICHES" || terminer blocage_harnais "Extraction des fiches A impossible" 4
 python3 - "$PROTOCOLE" "$SOURCE_FICHES" <<'PY' || terminer blocage_harnais "Les fiches de main ne sont plus celles du protocole" 4
 import hashlib
 import json

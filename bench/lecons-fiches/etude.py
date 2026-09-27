@@ -686,12 +686,13 @@ def controler_protocole(depot):
     protocole = lire_protocole()
     depot = Path(depot)
     ecarts = []
-    fiches = {
-        p.name: sha256_fichier(p)
-        for p in sorted((depot / "docs" / "skills").glob("*.md"))
-    }
+    # Les fiches A sont celles du commit de pré-enregistrement (fiches-a.sh),
+    # pas le docs/skills/ vivant, que les tickets suivants modifient.
+    with tempfile.TemporaryDirectory() as dossier:
+        subprocess.run([str(ICI / "fiches-a.sh"), dossier], check=True)
+        fiches = {p.name: sha256_fichier(p) for p in sorted(Path(dossier).glob("*.md"))}
     if fiches != protocole["fiches_a"]:
-        ecarts.append("docs/skills/ diffère des fiches A du protocole")
+        ecarts.append("les fiches A extraites diffèrent du protocole")
     for nom, lecon in protocole["lecons"].items():
         if sha256_fichier(ICI / lecon["fichier_b"]) != lecon["sha256_b"]:
             ecarts.append(f"fiche B modifiée : {nom}")
