@@ -23,6 +23,7 @@ lent_proposition (30 s avant de répondre), variante :
   plan propose (le point signalé par la revue de #29) ;
 - « rate » : alertes-stock avec <= au lieu de < (tests visibles verts,
   contrôle caché en échec) ;
+- « coche » : le travail coche une étape (plan done) avant les tests ;
 et rate_avec_n : les N premiers runs de travail avec plan approuvé ratent.
 Usage : faux-mtplx.py <fichier du port> <fichier de pilotage>
 """
@@ -228,6 +229,8 @@ def sequence(tache, proposition, plan_approuve, variante):
         seq.append(
             ("write_file", {"path": "NOTES.md", "content": "Notes de travail.\n"})
         )
+    if variante == "coche":
+        seq.append(("plan", {"action": "done"}))
     seq.append(("run_command", {"command": TESTS[tache]}))
     return seq
 

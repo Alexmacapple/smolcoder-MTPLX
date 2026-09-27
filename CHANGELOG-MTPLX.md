@@ -2332,7 +2332,7 @@ main, les limites et ce qui reste non vérifié. Documentation seule :
 runner, protocole, `src/`, `test/` et `docs/skills/` inchangés. SHA
 `c64cc80` reporté sur l'entrée précédente.
 
-### (ce commit) — Mesure #29 : runner et écarts déclarés
+### `cb507fa` — Mesure #29 : runner et écarts déclarés
 
 `bench/mesure-plan-approuve/` (nouveau : `plan.json`, `essai.sh`,
 `mesure.py`, `campagne.sh`, `analyse.py`, `test-mesure.sh`,
@@ -2372,6 +2372,36 @@ sans avertissement. `npm test` 374/374 (un premier passage avait eu un
 fois puis en suite complète). `src/`, `test/`, `docs/skills/` et le
 protocole inchangés. Aucun essai MTPLX à ce commit. SHA `8f89ba1` reporté
 sur l'entrée précédente.
+
+### (ce commit) — Mesure #29 : ni effet ni blocage — Réf #29
+
+`docs/mesure-plan-approuve-2026-09-27.md`, `bench/mesure-plan-approuve/`
+(`mesure.py`, `faux-mtplx.py`, `test-mesure.sh`). Campagne jouée sur
+`cb507fa` avec le binaire figé `ed4ba0b`, sous le verrou du banc :
+30 essais en 58 min 01 s, aucun invalide, aucun rejeu, même modèle,
+noyau et configuration partout, aucune requête d'un autre client. Règle
+appliquée sans retouche (`analyse.py --etape verdict`) : faisabilité
+tenue (plan proposé dans 15 runs sur 15), réussites 15 avec plan contre
+15 sans (5 contre 5 par tâche), aucun fichier hors périmètre dans aucun
+bras, aucun blocage, aucun effet démontré, coût 2,5 fois les appels au
+modèle (255 contre 102), aucune extension due. Issue : ni effet ni
+blocage, garder la décision de #29 (plan facultatif) ; la décision
+revient à Alex. Point de la revue : au travail sans plan, Qwen n'a jamais
+appelé `plan propose` (0 sur 15). Le rapport ajoute les résultats bruts
+par tâche et par bras, la faisabilité (deux propositions refusées pour
+des « \n » littéraux dans `files`, reproposées), les écarts `steps` sans
+motif, la relecture à la main, les limites (plafond de réussite, dérive
+nulle) et ce qui reste non vérifié.
+
+Correction déclarée, hors règle : le lecteur de trace de `mesure.py`
+attribuait à `plan done`, `set` ou `add` la ligne « ✓ » d'un appel
+suivant (champ descriptif `resultat`) ; le résultat se cherche désormais
+avant l'appel suivant. Rouge : `test-mesure.sh` avec l'ancien `mesure.py`,
+1 échec (le nouveau cas `plan done`) ; vert : PASS, 29 contrôles. Les
+manifestes de la campagne sont inchangés. `npm test` 374/374 ;
+`shellcheck -S warning` et `ruff` sans avertissement. `src/`, `test/`,
+`docs/skills/` et le protocole inchangés. SHA `cb507fa` reporté sur
+l'entrée précédente.
 
 ## Hors dépôt (machine locale)
 

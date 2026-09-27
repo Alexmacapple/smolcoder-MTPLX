@@ -127,7 +127,17 @@ def lire_run(dossier, nom):
         m = APPEL.match(ligne)
         if not m or m.group(1) == "verification":
             continue
-        resultat = next((l for l in lignes[i + 1 :] if RESULTAT.match(l)), "")
+        # Le résultat suit l'appel, avant l'appel suivant ; un plan accepté
+        # (set, done, add) affiche sa checklist au lieu d'une ligne ✓ : pas
+        # de résultat alors (corrigé après la campagne, qui prenait la ligne
+        # ✓ d'un appel suivant ; mesure descriptive, hors règle).
+        resultat = ""
+        for suivante in lignes[i + 1 :]:
+            if APPEL.match(suivante):
+                break
+            if RESULTAT.match(suivante):
+                resultat = suivante
+                break
         appels.append(m.group(1))
         if m.group(1) == "plan":
             action = (m.group(2).split() or [""])[0].rstrip(":")

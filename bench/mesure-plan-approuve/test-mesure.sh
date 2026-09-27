@@ -183,6 +183,17 @@ assert sa["status"] == "succes", sa["status_reason"]
 assert av["execution"]["travail"]["trace"]["propose"] == 0 and av["status"] == "succes"
 PY
 
+# 4 bis. Une étape cochée (la checklist s'affiche, sans ligne ✓) : aucun
+# résultat attribué à plan done, jamais la ligne ✓ de l'appel suivant.
+piloter '{"variante": "coche"}'
+essai "$TMP/coche" avec alertes-stock
+python3 - "$(manifeste_de "$TMP/coche")" <<'PY' && ok "plan done au travail : aucun résultat pris à l'appel suivant (lecteur de trace corrigé)" || echec "plan done : résultat mal attribué"
+import json, sys
+m = json.load(open(sys.argv[1]))
+assert m["status"] == "succes", m["status_reason"]
+assert m["execution"]["travail"]["trace"]["appels_plan"] == [{"action": "done", "resultat": "", "erreur": False}], m["execution"]["travail"]["trace"]["appels_plan"]
+PY
+
 # 5. Réussite réelle, pas le verdict de smol : tests visibles verts, contrôle caché en échec.
 piloter '{"variante": "rate"}'
 essai "$TMP/rate" sans alertes-stock
