@@ -1435,7 +1435,7 @@ restauré (SHA-256). `npm test` 321/321 (317 et 4 nouveaux) et `npm run
 test:os` 22/22, aucun test sauté. SHA `700a4e7` reporté sur l'entrée
 précédente.
 
-### (ce commit) — Péremption de lecture avant édition — Réf #19
+### `88aa128` — Péremption de lecture avant édition — Réf #19
 
 `src/tools/read-tracker.ts` (nouveau), `src/tools/fs-tools.ts`,
 `src/tools/index.ts`, `src/agent.ts`, `test/stale-read.test.js` (nouveau).
@@ -1484,6 +1484,67 @@ du test restée verte, l'édition réussie suivante évinçant aussi la lecture 
 test resserré sur l'instant du signal, puis rouge), `dist/` restauré
 (SHA-256). `npm test` 326/326 (321 et 5 nouveaux) et `npm run test:os`
 22/22, aucun test sauté. SHA `35ed672` reporté sur l'entrée précédente.
+
+### (ce commit) — Protocole de mesure appariée de #19 — Réf #19
+
+`docs/protocole-mesure-retours-outils.md` (nouveau),
+`docs/protocole-mesure-retours-outils/` (nouveau : fixtures des trois
+tâches, consignes, `injecter.sh`, `mesures.py`), `README.md`. Ticket #19
+(H07), dernier commit : le critère 4 du ticket (effet mesuré au banc sur
+tâches appariées, refus de sécurité intacts) n'est pas joué — MTPLX est
+occupé par l'étude #33 sous le verrou de campagne. Le protocole est écrit
+à la place, règle de décision figée avant tout essai.
+
+Binaires figés par leur SHA : avant `cdd6e4c` (sans #19), après `88aa128`
+(dernier commit de code), construits hors du dépôt par `git archive`, avec
+les empreintes attendues de `dist/` (construction vérifiée reproductible).
+Trois tâches appariées, cinq répétitions, ordre alterné : deux-produits
+(old_text ambigu probable), journal-long (3 006 lignes, cause à la ligne
+1 602), modif-humaine (ajout d'une personne injecté après la lecture de
+`config.py`) ; plus les scénarios de sécurité `destructif`, `secret` et
+`injection` du banc existant, trois fois par binaire. Mesures lues dans les
+fichiers de l'essai : réussite réelle par vérification indépendante,
+appels d'outils, durée, relectures, échecs d'édition, modification externe
+conservée, statuts de sécurité. Règle : NO-GO sur toute violation de
+sécurité, toute modification externe perdue par le binaire après, ou deux
+réussites de moins sur une tâche ; effet démontré seulement sur des écarts
+d'au moins deux essais ; sinon « sans effet mesuré », décision à Alex.
+Fixtures, consignes, observateur d'injection et script de mesures sont des
+fichiers figés à côté du protocole, hors de `bench/` (zone de l'étude #33),
+à y porter ensuite. Éprouvés sans modèle : sur les deux binaires, le
+binaire avant rend l'ambiguïté de T1 sans ligne ni extrait et perd le cas
+défaillant du journal de T2 (rendu de 8 108 caractères), le binaire après
+localise les occurrences et remonte les deux cas défaillants en tête (8 007
+caractères), avec l'appel de lecture ciblée ; les tests de T3 échouent
+avant la tâche et passent après une solution minimale ; l'observateur
+n'injecte qu'à la lecture de `config.py` et rien si smol finit sans la
+lire ; `mesures.py` rend les compteurs attendus d'un échantillon écrit au
+format headless. Le déroulé complet d'un essai n'a pas été joué. Le README
+range #19 dans les fonctionnalités et laisse sa mesure dans les chantiers
+restants.
+
+Correspondance des critères du ticket. Après une lecture (chemin, portion
+lue, moyen de poursuivre) : déjà tenu par `renderRead`, inchangé,
+`test/read-budget.test.js` vert. Après un échec de modification : les
+quatre « H07 AC1 » (`700a4e7`), dont le critère d'acceptation 1 —
+fournisseur simulé qui corrige au tour suivant sans relire le fichier.
+Après un test ou une commande, et critère 2 (erreur au milieu d'un long
+journal) : les quatre « H07 AC2 » (`35ed672`). Péremption et critère 3
+(modification externe injectée entre lecture et écriture) : les cinq « H07
+AC3 » (`88aa128`). Critère 4 : protocole seul, non joué. Refus de sécurité
+: politique, isolation et verdicts de #9 inchangés, les suites existantes
+passent sans modification.
+
+Vérifications. `npm test` 326/326 et `npm run test:os` 22/22 (313 et 22 au
+départ), aucun test sauté, sous un HOME et un cache npm temporaires ; le
+vrai `~/.smolcoder` n'a reçu aucune écriture depuis le début du chantier.
+Dans le vrai `~/.npm/_logs`, seul le journal de `npm ci` du worktree vient
+de ce chantier ; onze journaux de `test/verification.test.js` datés de
+13:27Z y figurent aussi, écrits par une suite lancée par un autre processus
+(la dernière suite de ce chantier s'est achevée à 13:24:57Z ; les journaux
+de ses suites sont dans le HOME temporaire). Non vérifié : aucun essai
+contre MTPLX ni Qwen réel, donc aucun effet mesuré sur la conduite du
+modèle ; une seule machine. SHA `88aa128` reporté sur l'entrée précédente.
 
 ## Hors dépôt (machine locale)
 

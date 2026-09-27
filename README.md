@@ -61,6 +61,14 @@ ce qu'il prouve, ce qu'il journalise.
   le rapport (`report.json`, `report.md`, hors du workspace) n'affiche
   jamais un vert périmé ; un run headless non vérifié sort 5. Détail :
   `docs/decision-preuves-acceptation.md`.
+- **Retours d'outils exploitables** : un échec d'`edit_file` localise
+  les occurrences ambiguës et la ligne où old_text décroche, avec le
+  texte actuel ; un long journal de test ou de build garde sa cause
+  décisive en tête, journal complet lisible par
+  `read_file {"path": "log:<n>"}` ; un fichier modifié depuis sa lecture
+  (personne, autre processus, tâche de fond) est signalé avant d'être
+  réécrit. Mesure au banc à jouer :
+  `docs/protocole-mesure-retours-outils.md`.
 - **Banc comportemental reproductible** (`bench/noyau-agents-md/`) :
   un dossier horodaté et un manifeste par run, statuts
   machine-lisibles (succès ≠ refus de sécurité ≠ panne serveur),
@@ -77,9 +85,9 @@ ce qu'il prouve, ce qu'il journalise.
 - **Lanceur macOS** (`launch-smol-mtplx.command`) : interface web par
   défaut avec URL fraîche, session terminal, test de contrôle.
 
-**Chantiers restants**, dans l'ordre :
+**Chantiers restants**, dans l'ordre : la mesure au banc des
 [retours d'outils exploitables](https://github.com/Alexmacapple/smolcoder-MTPLX/issues/19)
-(#19), [plan d'implémentation approuvé avec le contrat](https://github.com/Alexmacapple/smolcoder-MTPLX/issues/29)
+(#19, livrés, protocole prêt), [plan d'implémentation approuvé avec le contrat](https://github.com/Alexmacapple/smolcoder-MTPLX/issues/29)
 (#29), puis [reprise durable](https://github.com/Alexmacapple/smolcoder-MTPLX/issues/10)
 (#10). À part, en attente de décision :
 [l'étude AH-00](https://github.com/Alexmacapple/smolcoder-MTPLX/issues/33)
