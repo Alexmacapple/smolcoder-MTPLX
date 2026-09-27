@@ -10,6 +10,7 @@ import { isFicheRef, readInstalledFiche } from "../fiches";
 import { syntaxCheck } from "./check";
 import { ExecOptions, runCommand } from "./shell";
 import { CommandLogs, isLogRef, logReadOnly } from "./command-log";
+import type { ReadTracker } from "./read-tracker";
 import type { Executor } from "../harness/executor";
 import { TaskManager } from "./tasks";
 import { PathRules, resolveInWorkspace, SandboxError } from "../sandbox";
@@ -174,6 +175,10 @@ export interface ToolContext {
    * read_file sert sous `log:<n>` ; fixés par l'hôte (l'agent les crée),
    * absents = aucun journal gardé, `log:<n>` reste un chemin ordinaire. */
   logs?: CommandLogs;
+  /** Péremption de lecture (#19) : ce que l'agent a vu de chaque fichier,
+   * comparé au disque juste avant une écriture. Fixé par l'hôte (l'agent le
+   * crée) ; absent = aucun signal. */
+  reads?: ReadTracker;
 }
 
 export async function executeTool(
@@ -203,7 +208,7 @@ export async function executeTool(
           }
           result = renderRead(log, { ...args, path: String(args.path).trim() }, maxChars);
         } else {
-          result = readFile(ctx.workspace, args, maxChars);
+          result = readFile(ctx.workspace, args, maxChars, ctx.reads?.hooks());
         }
         break;
       }
@@ -228,7 +233,7 @@ export async function executeTool(
       case "write_file":
         if (ctx.fichesDir && isFicheRef(args.path)) return ficheReadOnly(args.path);
         if (ctx.logs && isLogRef(args.path)) return logReadOnly(args.path);
-        result = writeFile(ctx.workspace, args);
+        result = writeFile(ctx.workspace, args, ctx.reads?.hooks());
         if (!result.startsWith("Error")) {
           ctx.filesTouched.add(String(args.path));
           result += afterWrite(ctx.workspace, String(args.path));
@@ -237,7 +242,7 @@ export async function executeTool(
       case "edit_file":
         if (ctx.fichesDir && isFicheRef(args.path)) return ficheReadOnly(args.path);
         if (ctx.logs && isLogRef(args.path)) return logReadOnly(args.path);
-        result = editFile(ctx.workspace, args);
+        result = editFile(ctx.workspace, args, ctx.reads?.hooks());
         if (!result.startsWith("Error")) {
           ctx.filesTouched.add(String(args.path));
           result += afterWrite(ctx.workspace, String(args.path));

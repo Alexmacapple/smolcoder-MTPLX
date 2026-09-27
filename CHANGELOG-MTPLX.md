@@ -1384,7 +1384,7 @@ test existant de l'extrait voisin passe inchangé. `npm test` 317/317 (313
 et 4 nouveaux) et `npm run test:os` 22/22, aucun test sauté, sous un HOME
 temporaire. SHA `2d74f9b` reporté sur l'entrée précédente.
 
-### (ce commit) — Journal de commande : la cause reste visible — Réf #19
+### `35ed672` — Journal de commande : la cause reste visible — Réf #19
 
 `src/harness/executor.ts`, `src/tools/command-log.ts` (nouveau),
 `src/tools/shell.ts`, `src/tools/index.ts`, `src/agent.ts`,
@@ -1434,6 +1434,56 @@ code compilé (écriture sur `log:<n>` acceptée ; stock non borné), `dist/`
 restauré (SHA-256). `npm test` 321/321 (317 et 4 nouveaux) et `npm run
 test:os` 22/22, aucun test sauté. SHA `700a4e7` reporté sur l'entrée
 précédente.
+
+### (ce commit) — Péremption de lecture avant édition — Réf #19
+
+`src/tools/read-tracker.ts` (nouveau), `src/tools/fs-tools.ts`,
+`src/tools/index.ts`, `src/agent.ts`, `test/stale-read.test.js` (nouveau).
+Ticket #19 (H07), troisième commit : un fichier modifié depuis la dernière
+lecture de l'agent est signalé avant une nouvelle édition. Rien de tel
+n'existait : seule la réécriture par l'agent lui-même évinçait ses lectures
+antérieures du contexte (`evictStaleReads`) ; une modification par une
+personne, un autre processus, une tâche de fond ou une commande passait
+inaperçue, et `write_file` pouvait l'écraser en silence.
+
+Le suivi retient, fichier par fichier, le contenu que l'agent a vu en
+dernier — lu par `read_file`, ou écrit par lui-même (empreinte SHA-256,
+contenu gardé jusqu'à 256 Kio, 500 fichiers au plus, clé résolue par
+`realpath`, y compris pour un fichier supprimé depuis). Juste avant une
+écriture de `write_file` ou d'`edit_file`, il compare au disque : si le
+contenu diffère, la première écriture est refusée — « was changed on disk
+after you last read it », « No file was changed » — avec la région changée
+(préfixe et suffixe communs, quinze lignes au plus), ou le constat d'une
+suppression ; puis le nouvel état vaut comme vu, et l'écriture suivante,
+faite en connaissance de cause, passe. Au même moment, les lectures
+antérieures encore en contexte sont évincées comme après une réécriture. Un
+signal, pas un verrou ni un journal d'effets (#10) : le suivi vit dans le
+contexte d'outils de la session, en mémoire, vidé par `/clear` et à la
+reprise d'une session ; il ne dit rien d'un fichier que l'agent n'a jamais
+vu, ni d'un simple changement de date. Sous `--mission`, la décision
+d'accès reste prise avant (un refus de la politique précède tout contrôle
+de péremption) ; aucun fichier n'est écrit par le suivi.
+
+Vérifications. Cinq tests « H07 AC3 », modification externe injectée par
+le test entre la lecture et l'écriture : édition (signal, région changée
+localisée, édition non appliquée, nouvel essai appliqué, modification
+externe conservée, lecture périmée évincée dès le signal) ; écrasement par
+`write_file` (la ligne de l'autre processus survit) ; suppression ; fichier
+réécrit par une commande de l'agent ; aucune fausse alerte (écritures de
+l'agent lui-même, chemin `./a.js`, simple `touch`, fichier jamais lu,
+fichier créé par l'agent). Rouge constaté sur le code d'avant pour les
+trois premiers écrits (« Edited app.js: replaced 1 occurrence. »,
+« Overwrote notes.md (was 4 lines, now 4 lines). »). Le cas de la
+suppression a d'abord échoué sur ce code même : la clé `realpath` d'un
+fichier supprimé retombait sur le chemin non résolu (`/var` au lieu de
+`/private/var` sous macOS) ; test ajouté rouge, puis clé résolue par le
+dossier. Le test sans fausse alerte, vert avant comme après, et l'éviction
+au signal sont montrés rouges par mutation du code compilé (mise à jour
+après écriture de l'agent retirée ; éviction retirée — première version
+du test restée verte, l'édition réussie suivante évinçant aussi la lecture ;
+test resserré sur l'instant du signal, puis rouge), `dist/` restauré
+(SHA-256). `npm test` 326/326 (321 et 5 nouveaux) et `npm run test:os`
+22/22, aucun test sauté. SHA `35ed672` reporté sur l'entrée précédente.
 
 ## Hors dépôt (machine locale)
 

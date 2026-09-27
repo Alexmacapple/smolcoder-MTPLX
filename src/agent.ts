@@ -24,6 +24,7 @@ import { createHash } from "crypto";
 import * as os from "os";
 import { commandPassed, CommandResult, ExecOptions, renderCommandResult, runCommandResult } from "./tools/shell";
 import { CommandLogs } from "./tools/command-log";
+import { isStaleNotice, ReadTracker } from "./tools/read-tracker";
 import { failureSignature, projectVerification } from "./verification";
 import type { Mission } from "./harness/mission";
 import { AccessRequest, decide, Decision, PolicySuspension } from "./harness/policy";
@@ -121,6 +122,8 @@ export class Agent {
     // sous `log:<n>`. Posés sur le contexte d'outils lui-même, pour que ses
     // copies par appel (profil mission) partagent le même stock.
     this.toolCtx.logs ??= new CommandLogs();
+    // #19 : péremption de lecture, au niveau de la boucle de l'agent.
+    this.toolCtx.reads ??= new ReadTracker();
   }
 
   /** #19 : rendu d'une vérification à la taille des résultats d'outils, son
@@ -160,6 +163,7 @@ export class Agent {
     this.toolCtx.filesTouched.clear();
     this.toolCtx.commandsRun.length = 0;
     this.toolCtx.logs?.clear();
+    this.toolCtx.reads?.clear();
     this.ctxMgr.resetAnchor();
   }
 
@@ -171,6 +175,8 @@ export class Agent {
     this.originalRequest = originalRequest;
     this.currentRequest = currentRequest;
     this.planNudged = false;
+    // #19 : ce que la session a vu ne décrit pas la conversation reprise.
+    this.toolCtx.reads?.clear();
     this.ctxMgr.resetAnchor();
     this.repairTranscript("[Tool execution was interrupted by a restart. Its outcome is unknown. Inspect files or command state before retrying; do not assume it failed or rerun it blindly.]");
   }
@@ -732,6 +738,10 @@ export class Agent {
               this.ctxMgr.evictStaleReads(this.messages, call.args.path);
               repeatedReads.clear();
               readsSinceAction = 0;
+            } else if ((call.name === "write_file" || call.name === "edit_file") && typeof call.args?.path === "string" && isStaleNotice(output)) {
+              // #19 : le fichier a changé depuis sa lecture ; les lectures
+              // antérieures encore en contexte sont périmées, elles aussi.
+              this.ctxMgr.evictStaleReads(this.messages, call.args.path);
             }
             // Keep the plan honest: small models forget to mark steps done
             // mid-flow, leaving the checklist stale for minutes. A periodic

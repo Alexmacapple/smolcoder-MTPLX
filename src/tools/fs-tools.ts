@@ -45,6 +45,16 @@ function isProbablyBinary(filePath: string): boolean {
   return false;
 }
 
+/** Ce que l'agent vient de lire ou d'écrire, et le dernier mot avant une
+ * écriture (#19, péremption de lecture). Fixés par l'hôte, jamais par un
+ * argument du modèle ; absents = comportement courant. */
+export interface FileHooks {
+  /** Le contenu entier que l'agent vient de lire ou d'écrire. */
+  seen?: (abs: string, content: string) => void;
+  /** Juste avant d'écrire : un retour à rendre au lieu d'écrire, ou null. */
+  beforeWrite?: (abs: string, shownPath: string) => string | null;
+}
+
 /** Les fichiers voisins d'un chemin absent : de quoi corriger une faute de
  * frappe sans lister tout le workspace. */
 function nearbyFiles(root: string, abs: string): string {
@@ -58,7 +68,7 @@ function nearbyFiles(root: string, abs: string): string {
   }
 }
 
-export function readFile(root: string, args: any, maxChars = READ_CHAR_LIMIT): string {
+export function readFile(root: string, args: any, maxChars = READ_CHAR_LIMIT, hooks?: FileHooks): string {
   const charLimit = Math.max(128, Math.min(READ_CHAR_LIMIT, Math.floor(maxChars)));
   const abs = resolveInWorkspace(root, args.path);
   if (!fs.existsSync(abs)) {
@@ -73,7 +83,9 @@ export function readFile(root: string, args: any, maxChars = READ_CHAR_LIMIT): s
     return `Error: "${args.path}" looks like a binary file (${stat.size} bytes) and cannot be read as text.`;
   }
 
-  return renderRead(fs.readFileSync(abs, "utf8"), args, charLimit);
+  const content = fs.readFileSync(abs, "utf8");
+  hooks?.seen?.(abs, content);
+  return renderRead(content, args, charLimit);
 }
 
 /** Une lecture présentée au modèle : la tranche demandée (offset, limit),
@@ -119,7 +131,7 @@ export function renderRead(content: string, args: any, maxChars = READ_CHAR_LIMI
   );
 }
 
-export function writeFile(root: string, args: any): string {
+export function writeFile(root: string, args: any, hooks?: FileHooks): string {
   const abs = resolveInWorkspace(root, args.path);
   if (typeof args.content !== "string") {
     return 'Error: content is required and must be a string. Example: {"path": "notes.txt", "content": "hello"}';
@@ -130,10 +142,13 @@ export function writeFile(root: string, args: any): string {
   if (fs.existsSync(abs) && fs.statSync(abs).isDirectory()) {
     return `Error: "${args.path}" is an existing folder; cannot write a file there.`;
   }
+  const refused = hooks?.beforeWrite?.(abs, String(args.path));
+  if (refused) return refused;
   const existed = fs.existsSync(abs);
   const prevLines = existed ? fs.readFileSync(abs, "utf8").split("\n").length : 0;
   fs.mkdirSync(path.dirname(abs), { recursive: true });
   fs.writeFileSync(abs, args.content, "utf8");
+  hooks?.seen?.(abs, args.content);
   const newLines = args.content.split("\n").length;
   return existed
     ? `Overwrote ${args.path} (was ${prevLines} lines, now ${newLines} lines).`
@@ -251,7 +266,7 @@ function divergence(fileLines: string[], oldLines: string[]): { at: number; matc
 
 const clip = (s: string) => JSON.stringify(s.length > 200 ? s.slice(0, 200) + "…" : s);
 
-export function editFile(root: string, args: any): string {
+export function editFile(root: string, args: any, hooks?: FileHooks): string {
   const abs = resolveInWorkspace(root, args.path);
   if (!fs.existsSync(abs)) {
     return `Error: file "${args.path}" does not exist. No file was changed. Use write_file to create a new file.${nearbyFiles(root, abs)}`;
@@ -277,6 +292,14 @@ export function editFile(root: string, args: any): string {
   const oldNorm = oldText.replace(/\r\n/g, "\n");
   const newNorm = newText.replace(/\r\n/g, "\n");
   const serialize = (s: string) => (crlf ? s.replace(/\n/g, "\r\n") : s);
+  /** L'écriture, précédée du dernier mot de l'hôte (#19). */
+  const commit = (text: string, done: string): string => {
+    const refused = hooks?.beforeWrite?.(abs, String(args.path));
+    if (refused) return refused;
+    fs.writeFileSync(abs, text, "utf8");
+    hooks?.seen?.(abs, text);
+    return done;
+  };
 
   const fileLines = content.split("\n");
   const oldLines = oldNorm.split("\n");
@@ -284,8 +307,7 @@ export function editFile(root: string, args: any): string {
   // Tier 1: exact match.
   const occurrences = content.split(oldNorm).length - 1;
   if (occurrences === 1) {
-    fs.writeFileSync(abs, serialize(content.replace(oldNorm, newNorm)), "utf8");
-    return `Edited ${args.path}: replaced 1 occurrence.`;
+    return commit(serialize(content.replace(oldNorm, newNorm)), `Edited ${args.path}: replaced 1 occurrence.`);
   }
   if (occurrences > 1) {
     const starts: number[] = [];
@@ -304,8 +326,7 @@ export function editFile(root: string, args: any): string {
       ...newNorm.split("\n"),
       ...fileLines.slice(start + oldLines.length),
     ].join("\n");
-    fs.writeFileSync(abs, serialize(replaced), "utf8");
-    return `Edited ${args.path}: replaced 1 occurrence (whitespace differences in old_text were ignored).`;
+    return commit(serialize(replaced), `Edited ${args.path}: replaced 1 occurrence (whitespace differences in old_text were ignored).`);
   }
   if (matches.length > 1) {
     return ambiguous(String(args.path), fileLines, matches, oldLines.length, false);
