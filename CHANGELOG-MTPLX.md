@@ -2577,7 +2577,7 @@ lancements avortés et de l'orphelin arrêté ; recommandation sur le ticket
 de correctif ; état du workspace `~/Claude`. Documentation seule. SHA
 `889e238` reporté sur l'entrée précédente.
 
-### (ce commit) — Reprise : campagne #53 confiée à Codex — Réf #53
+### `6416451` — Reprise : campagne #53 confiée à Codex — Réf #53
 
 `docs/reprise-codex-2026-09-28.md`. La campagne #53 lancée par l'agent
 Claude (`88638`) a été tuée vers 23:02:31Z après 9 essais comptés, sans
@@ -2589,6 +2589,16 @@ de relancer tant que le verrou porte un PID vivant, exige des commandes
 longues détachées, et liste les quatre lancements interrompus et les deux
 essais provisoires non comptés à déclarer. Documentation seule. SHA
 `b5917dc` reporté sur l'entrée précédente.
+
+### (ce commit) — Reprise : pièges de fin de campagne #53 — Réf #53
+
+`docs/reprise-codex-2026-09-28.md`, d'après le compte rendu de retrait de
+l'agent Claude de #53. `lancement.log` écrit le statut de chaque essai,
+série B comprise : ne pas le lire tel quel avant le commit de l'étape A/A.
+Écart à déclarer en plus : deux campagnes qui se chevauchent se bloquent
+mutuellement par leurs verrous. Restes dans `/tmp` listés, à ne pas
+supprimer pendant la campagne. Documentation seule. SHA `6416451` reporté
+sur l'entrée précédente.
 
 ## Hors dépôt (machine locale)
 
