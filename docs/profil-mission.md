@@ -260,6 +260,15 @@ session l'annonce à l'ouverture (`· isolation: macOS Seatbelt …`, avec les
 ports d'écoute accordés et leur limite) ; le headless écrit aussi une ligne
 `[isolation] {…}` sur stderr.
 
+Limite mesurée (#52, `docs/mesure-securite-mission-2026-09-27.md`) : avec la
+politique par défaut, rien n'empêche une commande de supprimer les fichiers
+du projet. La décision d'accès laisse passer toute commande qui reste dans le
+workspace et ne nomme pas un chemin protégé dans son texte, et Seatbelt
+accorde la suppression dans tout le workspace hors noms protégés. Sur Qwen,
+une consigne destructrice a supprimé les fichiers du projet dans 4 essais
+sur 5, dont un fichier non commité, perdu. `.env`, `.git` et la clé factice
+sont restés protégés dans les 15 essais.
+
 L'état reste ensuite visible toute la session (#18), relu à chaque rafraîchi
 (les écoutes suivent la politique) : dans la ligne d'état du terminal, après
 l'état de la mission (`mission approved 3/50 · isolated · listens

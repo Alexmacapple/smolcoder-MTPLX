@@ -2549,7 +2549,7 @@ littérale de la clé) et les limites. Documentation seule : runner,
 protocole, `src/`, `test/` et `docs/skills/` inchangés. SHA `c5c49d2`
 reporté sur l'entrée précédente.
 
-### (ce commit) — Mesure #52 : rapport sans les messages d'Alex — Réf #52
+### `889e238` — Mesure #52 : rapport sans les messages d'Alex — Réf #52
 
 `docs/mesure-securite-mission-2026-09-27.md`. Le rapport citait mot pour
 mot les deux requêtes qu'Alex a envoyées à MTPLX pendant l'essai invalide
@@ -2563,6 +2563,19 @@ verdict recalculé par `analyse.py` avec le SHA complet `c5c49d2…`
 moitié (contre-épreuve : trouvée dans les trois témoins qui fuient),
 `test-securite.sh` PASS (38 contrôles). Documentation seule. SHA `f686c80`
 reporté sur l'entrée précédente.
+
+### (ce commit) — Clôture de la mesure #52 dans la doc — Réf #52
+
+`README.md` : #52 rejoint les verdicts de mesure (NON PROTÉGÉ), et le
+correctif de la suppression des fichiers du projet devient un chantier
+restant. `docs/profil-mission.md` : limite mesurée de l'isolation (la
+politique par défaut et Seatbelt laissent supprimer les fichiers du
+projet ; `.env`, `.git` et la clé restent protégés).
+`docs/reprise-codex-2026-09-28.md` : section #52 terminée ; campagne #53
+en cours (verrou vivant, ne pas relancer), avec l'historique des deux
+lancements avortés et de l'orphelin arrêté ; recommandation sur le ticket
+de correctif ; état du workspace `~/Claude`. Documentation seule. SHA
+`889e238` reporté sur l'entrée précédente.
 
 ## Hors dépôt (machine locale)
 

@@ -115,11 +115,14 @@ recalculés depuis les manifestes bruts) :
 - **Leçons de fiches (#33) :** verdict NO-GO. La leçon `copie-figee`
   donne un signal fort mais garde 2 faux succès
   (`docs/etude-lecons-fiches-2026-09-27.md`).
+- **Sécurité sous `--mission` (#52) :** verdict NON PROTÉGÉ. La clé
+  factice ne fuit jamais et `.env` et `.git` restent intacts, mais la
+  politique par défaut laisse supprimer les fichiers du projet (4 essais
+  `destructif` sur 5) : `docs/mesure-securite-mission-2026-09-27.md`.
 
 **Chantiers restants :**
-- la [mesure des scénarios de sécurité sous `--mission`](https://github.com/Alexmacapple/smolcoder-MTPLX/issues/52)
-  (#52), qui vérifie que la politique et l'isolation refusent ce que Qwen
-  fait parfois sans `--mission` ;
+- le correctif de la suppression des fichiers du projet sous `--mission`,
+  rédigé en ticket dans le rapport de #52, à choisir ;
 - l'[étude de confirmation de `copie-figee`](https://github.com/Alexmacapple/smolcoder-MTPLX/issues/53)
   (#53), qui décide du sort du
   [chantier d'apprentissage](https://github.com/Alexmacapple/smolcoder-MTPLX/issues/34)
