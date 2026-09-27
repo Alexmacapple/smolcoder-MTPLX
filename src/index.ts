@@ -13,7 +13,7 @@ import * as os from "os";
 import * as path from "path";
 import { Agent } from "./agent";
 import { loadConfig } from "./config";
-import { authorizeHeadless, Mission, MISSION_EXIT_CODE, MissionError, missionExitCode, missionReport } from "./harness/mission";
+import { authorizeHeadless, authorizeProposal, Mission, MISSION_EXIT_CODE, MissionError, missionExitCode, missionReport, proposalInstruction } from "./harness/mission";
 import { keepHostProbesOutOf } from "./harness/host-probe";
 import { BYPASS_UNDER_MISSION, decisionReport, POLICY_SUSPENDED_EXIT_CODE, PolicySuspension } from "./harness/policy";
 import { VERDICT_EXIT_CODE, verdictExitCode, verdictSummary } from "./harness/proofs";
@@ -64,6 +64,12 @@ interface CliArgs {
   /** Nouvelle approbation headless des entrées du vérificateur (#9) :
    * l'empreinte exacte de ce qui sera figé. */
   approveVerifiers?: string;
+  /** Approbation headless du plan proposé, avec le contrat (#29) :
+   * l'empreinte exacte du plan. */
+  approvePlan?: string;
+  /** Run headless de proposition du plan (#29) : lecture seule, sous un
+   * contrat proposé, jamais approuvé. */
+  proposePlan?: boolean;
   effort?: Effort | null; // null = explicit "default"
   web?: boolean;
   webPort?: number;
@@ -130,7 +136,14 @@ function parseArgs(argv: string[]): CliArgs {
         console.error("--approve-verifiers needs the verifier fingerprint: 64 hexadecimal characters, as printed in the [mission] line (verifiers.current).");
         process.exit(1);
       }
-    } else if (a === "--install-fiches") args.installFiches = true;
+    } else if (a === "--approve-plan") {
+      args.approvePlan = argv[++i];
+      if (!/^[0-9a-f]{64}$/.test(args.approvePlan ?? "")) {
+        console.error("--approve-plan needs the plan fingerprint: 64 hexadecimal characters, as printed in the [mission] line (plan.fingerprint).");
+        process.exit(1);
+      }
+    } else if (a === "--propose-plan") args.proposePlan = true;
+    else if (a === "--install-fiches") args.installFiches = true;
     else if (a === "--print" || a === "-p") args.print = argv[++i];
     else if (a === "--web") {
       args.web = true;
@@ -175,6 +188,12 @@ ${c.bold("Options:")}
                                whose required criteria are not all verified exits 5
   --approve-verifiers <fp>     headless approval of the verifier inputs as they are now
                                (fingerprint from the [mission] line), after they changed
+  --propose-plan               headless, before approval: the agent reads and proposes its
+                               implementation plan (files, order, risks, planned proof per
+                               criterion), nothing is written; exit 3 with the plan shown
+  --approve-plan <fp>          with --approve: approve that exact proposed plan together
+                               with the contract (fingerprint from the [mission] line);
+                               optional unless the contract says "plan": "required"
                                The profile's access policy (policy.json, next to the
                                contract in ~/.smolcoder/harness/) decides every tool,
                                check and web-terminal line; a -p run whose next step
@@ -265,6 +284,26 @@ async function main(): Promise<void> {
     console.error("--approve-verifiers is the headless caller's approval of the verifier inputs: it requires -p and --mission. In the terminal or web UI, type /approve.");
     process.exit(1);
   }
+  // #29 : une approbation par sujet — --approve le contrat, --approve-plan
+  // son plan (dans le même geste), --approve-verifiers les entrées figées.
+  if (args.approvePlan !== undefined && (!args.mission || args.print === undefined || args.web || args.approve === undefined)) {
+    console.error("--approve-plan approves the proposed plan together with the contract: it requires -p, --mission and --approve <contract fingerprint>. In the terminal or web UI, type /approve.");
+    process.exit(1);
+  }
+  if (args.proposePlan) {
+    if (!args.mission || args.print === undefined || args.web) {
+      console.error("--propose-plan is a headless preparation run: it requires -p and --mission. In the terminal or web UI, ask the agent to propose its plan, then type /approve.");
+      process.exit(1);
+    }
+    if (args.approve !== undefined || args.approvePlan !== undefined || args.approveVerifiers !== undefined) {
+      console.error("--propose-plan prepares a plan for the host's review: approve it in a later run (--approve <contract> --approve-plan <plan>), never in the same run.");
+      process.exit(1);
+    }
+    if (args.verify !== undefined) {
+      console.error("--propose-plan runs read-only and checks nothing: give --verify to the run that approves (--approve).");
+      process.exit(1);
+    }
+  }
   if (!fs.existsSync(args.workspace) || !fs.statSync(args.workspace).isDirectory()) {
     console.error(`Workspace folder does not exist: ${args.workspace}`);
     process.exit(1);
@@ -316,13 +355,22 @@ function prepareMission(args: CliArgs): Mission {
 
 async function runHeadless(args: CliArgs, mission: Mission | null): Promise<void> {
   const ui = new UI();
+  /** Le contrat, puis son plan quand il en a un (#29) ; rien de plus sans plan. */
+  const showMission = (m: Mission) => {
+    ui.println(m.markdown());
+    const plan = m.planMarkdown();
+    if (plan) ui.println(plan);
+  };
   if (mission) {
     // Décidé avant de chercher un modèle : sans approbation valable, rien ne
-    // tourne, rien n'attend de réponse, la sortie est non nulle.
-    const gate = authorizeHeadless(mission, args.approve, { verify: args.verify, approveVerifiers: args.approveVerifiers });
+    // tourne, rien n'attend de réponse, la sortie est non nulle. Un run
+    // --propose-plan (#29) ne tourne que sous un contrat proposé.
+    const gate = args.proposePlan
+      ? authorizeProposal(mission)
+      : authorizeHeadless(mission, args.approve, { verify: args.verify, approveVerifiers: args.approveVerifiers, approvePlan: args.approvePlan });
     process.stderr.write(`[mission] ${JSON.stringify(gate.report)}\n`);
     if (!gate.ok) {
-      ui.println(mission.markdown());
+      showMission(mission);
       ui.error(gate.message);
       ui.close();
       process.exitCode = MISSION_EXIT_CODE;
@@ -331,7 +379,7 @@ async function runHeadless(args: CliArgs, mission: Mission | null): Promise<void
     ui.status(`· ${gate.message}`);
     // #9 : le run part, mais aucun contrôle décisif ne passera tant que les
     // entrées du vérificateur ne sont pas celles que l'hôte a figées.
-    const v = gate.verifiers;
+    const v = (gate as { verifiers?: ReturnType<typeof authorizeHeadless>["verifiers"] }).verifiers;
     if (v && v.state !== "frozen") {
       ui.warn(
         `· verifier inputs ${v.state === "changed" ? `changed since approval (${v.changes.slice(0, 10).join(", ")}${v.changes.length > 10 ? ", …" : ""})` : `not frozen (${v.reason})`}: ` +
@@ -347,7 +395,8 @@ async function runHeadless(args: CliArgs, mission: Mission | null): Promise<void
     ui.close();
     process.exit(1);
   }
-  const mode = args.mode ?? cfg.lastMode ?? "edit";
+  // #29 : un run de proposition de plan est en lecture seule, quel que soit le mode.
+  const mode = args.proposePlan ? "ro" : args.mode ?? cfg.lastMode ?? "edit";
 
   const shell = pickShell();
   const provider = makeProvider(chosen);
@@ -386,6 +435,7 @@ async function runHeadless(args: CliArgs, mission: Mission | null): Promise<void
   });
   const agent = new Agent(provider, mode, systemPrompt, toolCtx, ctxMgr, bus, ui, false, 1000,
     args.verify ? { command: args.verify, maxAttempts: args.verifyAttempts } : undefined, mission);
+  agent.proposalOnly = !!args.proposePlan;
   reportCompactions(bus, ui);
   process.on("exit", () => taskManager.killAll());
   installSignalCleanup(() => taskManager.killAll());
@@ -403,7 +453,7 @@ async function runHeadless(args: CliArgs, mission: Mission | null): Promise<void
   const advice = effortAdvice(chosen, effortSetting);
   if (advice) ui.warn(`  ${advice}`);
   try {
-    await agent.runTurn(args.print!);
+    await agent.runTurn(args.print! + (args.proposePlan ? proposalInstruction() : ""));
     if (agent.outcome !== "completed") process.exitCode = 1;
   } catch (err: any) {
     ui.error(`\n${err?.message ?? err}`);
@@ -425,6 +475,12 @@ async function runHeadless(args: CliArgs, mission: Mission | null): Promise<void
     if (process.exitCode !== POLICY_SUSPENDED_EXIT_CODE) process.exitCode = verdict?.files ? verdictExitCode(verdict.report) : VERDICT_EXIT_CODE;
   }
   const missionEnd = mission ? mission.status() : null;
+  // #29 : au terme d'un run de proposition, l'hôte voit le contrat et le plan
+  // proposé (ou l'absence de plan), puis la ligne [mission] qui le nomme.
+  if (mission && args.proposePlan) {
+    showMission(mission);
+    if (mission.planView().state !== "proposed") ui.warn("· no implementation plan was proposed in this run");
+  }
   if (mission && missionEnd) {
     const code = missionExitCode(missionEnd);
     if (code !== null) {

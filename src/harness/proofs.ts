@@ -22,6 +22,8 @@ import {
   CRITERION_STATUSES,
   MAX_VERIFIER_FILES,
   MissionContract,
+  PlanChange,
+  PlanContent,
   ProofEvent,
   readProofs,
   REPORT_SCHEMA,
@@ -635,6 +637,54 @@ export interface RunInfo {
   attempts: number | null;
 }
 
+/** Un écart au plan approuvé, tel que le journal le garde (#29). */
+export interface PlanDeviation {
+  at: string;
+  change: PlanChange;
+  before: string[];
+  after: string[];
+  reason: string | null;
+}
+
+/** Le plan d'implémentation dans le rapport (#29) : présent seulement quand
+ * un plan existe ou que le contrat l'exige. Déclaratif : il n'entre dans
+ * aucun statut ; ses écarts sont listés pour la revue, jamais bloquants. */
+export interface PlanReport {
+  state: "none" | "proposed" | "approved" | "unreadable";
+  required: boolean;
+  /** Empreinte du plan approuvé avec le contrat, ou du plan proposé. */
+  fingerprint: string | null;
+  /** La version approuvée, telle qu'approuvée. */
+  approved: PlanContent | null;
+  /** La version proposée, en attente d'approbation. */
+  proposed: PlanContent | null;
+  /** La version courante, réécrite après approbation ; null si identique. */
+  current: PlanContent | null;
+  /** Critères ni couverts par un contrôle de l'hôte ni prévus au plan. */
+  missingProofs: string[];
+  deviations: PlanDeviation[];
+  note: string;
+}
+
+/** Un écart en une ligne lisible (report.md, /mission). */
+export function describeDeviation(d: PlanDeviation): string {
+  const q = (s: string) => `« ${s} »`;
+  const code = (s: string) => `\`${s}\``;
+  const diff = (noun: string, fmt: (s: string) => string, [add, rem]: [string, string]) => {
+    const added = d.after.filter((x) => !d.before.includes(x));
+    const removed = d.before.filter((x) => !d.after.includes(x));
+    const parts = [...added.map((x) => `${add} ${fmt(x)}`), ...removed.map((x) => `${rem} ${fmt(x)}`)];
+    return `${noun} : ${parts.length ? parts.join(" ; ") : "réordonnés"}`;
+  };
+  const what =
+    d.change === "file" ? `fichier hors plan : ${code(d.after[0] ?? "")}`
+      : d.change === "steps" ? diff("étapes", q, ["ajoutée", "retirée"])
+        : d.change === "files" ? diff("fichiers", code, ["ajouté", "retiré"])
+          : d.change === "risks" ? diff("risques", q, ["ajouté", "retiré"])
+            : diff("preuves prévues", q, ["ajoutée", "retirée"]);
+  return `${what} — motif : ${d.reason ?? "non donné"}`;
+}
+
 export interface VerdictReport {
   schema: typeof REPORT_SCHEMA;
   generatedAt: string;
@@ -653,6 +703,8 @@ export interface VerdictReport {
   claims: { plan: string | null; note: string };
   run: RunInfo;
   journal: string;
+  /** Le plan d'implémentation (#29), absent sans plan ni exigence. */
+  plan?: PlanReport;
 }
 
 /** Ce que le rapport lit d'une mission (évite l'import circulaire). */
@@ -713,6 +765,8 @@ export function buildReport(input: {
   scan: WorkspaceScan;
   run: RunInfo;
   plan: { done: number; total: number } | null;
+  /** Le plan d'implémentation (#29) ; absent ou null : aucune rubrique. */
+  implementationPlan?: PlanReport | null;
 }): VerdictReport {
   const { mission, verifier, scan, run } = input;
   const read = readProofs(mission.dir);
@@ -753,7 +807,42 @@ export function buildReport(input: {
     claims: { plan: input.plan ? `${input.plan.done}/${input.plan.total}` : null, note: "Declared by the model — a checked plan is never evidence." },
     run,
     journal,
+    ...(input.implementationPlan ? { plan: input.implementationPlan } : {}),
   };
+}
+
+/** La rubrique du plan dans report.md (#29) : la version approuvée (ou
+ * proposée), la version courante si elle a été réécrite, les écarts. */
+function renderPlanSection(p: PlanReport): string[] {
+  const version = (label: string, c: PlanContent) => [
+    `${label} :`,
+    "",
+    ...c.steps.map((s, i) => `${i + 1}. ${s}`),
+    "",
+    `Fichiers : ${c.files.map((f) => `\`${f}\``).join(", ")}.`,
+    ...(c.risks.length ? [`Risques : ${c.risks.join(" ; ")}.`] : []),
+    ...(c.proofs.length ? [`Preuves prévues : ${c.proofs.map((x) => `${x.criterion}: ${x.proof}`).join(" ; ")}.`] : []),
+    "",
+  ];
+  const fp = p.fingerprint ? `\`${p.fingerprint.slice(0, 16)}\`` : "_(aucune)_";
+  const state =
+    p.state === "approved" ? `approuvé avec le contrat, empreinte ${fp}`
+      : p.state === "proposed" ? `proposé, en attente d'approbation avec le contrat, empreinte ${fp}`
+        : p.state === "unreadable" ? `illisible (empreinte ${fp})`
+          : "aucun";
+  return [
+    "## Plan d'implémentation",
+    "",
+    `Plan ${state}${p.required ? ", exigé par le contrat" : ""}. Un guide déclaré par l'agent et approuvé par l'hôte, jamais une preuve ni une cage : les écarts sont listés pour la revue et ne changent aucun statut.`,
+    "",
+    ...(p.approved ? version("Version approuvée", p.approved) : []),
+    ...(p.proposed ? version("Version proposée", p.proposed) : []),
+    ...(p.current ? version("Version courante, réécrite après approbation", p.current) : []),
+    ...(p.missingProofs.length ? [`Critère(s) sans preuve prévue ni contrôle de l'hôte : ${p.missingProofs.join(", ")}.`, ""] : []),
+    ...(p.state === "approved"
+      ? [`${p.deviations.length} écart(s) au plan approuvé${p.deviations.length ? " :" : "."}`, ...(p.deviations.length ? ["", ...p.deviations.map((d) => `- ${d.at} — ${describeDeviation(d)}`)] : []), ""]
+      : []),
+  ];
 }
 
 const STATE_FR: Record<TaskState, string> = {
@@ -824,6 +913,8 @@ export function renderReportMarkdown(r: VerdictReport): string {
     "",
     `Bilan : ${r.criteria.length} critère(s) — ${r.counts.passed} passed, ${r.counts.failed} failed, ${r.counts.not_run} not_run, ${r.counts.error} error.`,
     "",
+    // #29 : le plan après le bilan des critères — il n'en change aucun.
+    ...(r.plan ? renderPlanSection(r.plan) : []),
   ].join("\n");
 }
 

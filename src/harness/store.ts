@@ -1,8 +1,9 @@
 // Stockage hôte du harnais — seul module propriétaire de la grammaire de
 // ~/.smolcoder/harness/<empreinte-du-workspace>/ (docs/decision-stockage-hote.md) :
 // contract.json (le contrat de mission, et depuis #9 les entrées du
-// vérificateur figées par l'approbation), proofs.jsonl (journal en ajout
-// seul, quatre types d'événements, `fiche` ajouté par #30 en amendement de
+// vérificateur figées par l'approbation, depuis #29 l'empreinte du plan
+// approuvé avec lui), proofs.jsonl (journal en ajout seul, cinq types
+// d'événements, `fiche` ajouté par #30 et `plan` par #29 en amendements de
 // la décision, champs de `verdict` fixés par #9), policy.json (la politique
 // d'accès du profil, ticket #11), et report.json / report.md (#9), deux
 // projections regénérées à chaque tour, jamais relues par le code. Schéma versionné, statuts fermés,
@@ -34,7 +35,7 @@ export type ContractStatus = (typeof CONTRACT_STATUSES)[number];
  * un fichier du workspace ou un label de ticket. */
 export const APPROVAL_AUTHORITIES = ["headless-flag", "terminal-human", "web-human"] as const;
 export type ApprovalAuthority = (typeof APPROVAL_AUTHORITIES)[number];
-export const PROOF_TYPES = ["contract", "approval", "verdict", "fiche"] as const;
+export const PROOF_TYPES = ["contract", "approval", "verdict", "fiche", "plan"] as const;
 
 /** Statut d'un critère d'acceptation (#9, docs/decision-preuves-acceptation.md).
  * `passed` : contrôle exécuté, sorti de lui-même avec 0, au moins un test
@@ -101,6 +102,9 @@ export interface MissionContract {
   /** Contrôles de l'hôte qui couvrent des critères (#9). Absent : aucun
    * critère n'est couvert, et l'empreinte des contrats antérieurs ne change pas. */
   checks?: ContractCheck[];
+  /** `required` (#29) : l'hôte n'approuve ce contrat qu'avec un plan
+   * d'implémentation. Absent : plan facultatif, empreinte inchangée. */
+  plan?: typeof PLAN_REQUIRED;
 }
 
 export interface Approval {
@@ -110,6 +114,9 @@ export interface Approval {
   /** Entrées du vérificateur figées par cette approbation (#9). Absent ou
    * null : non figées (approbation antérieure à #9, ou bornes dépassées). */
   verifiers?: VerifierFreeze | null;
+  /** Empreinte du plan d'implémentation approuvé avec le contrat (#29).
+   * Absent : contrat approuvé sans plan. */
+  plan?: string;
 }
 
 export interface ContractRecord {
@@ -151,14 +158,44 @@ export interface VerdictInput {
   changes?: string[];
 }
 
+/** Plan d'implémentation proposé par l'agent avant approbation (#29) : le
+ * contenu entier et son empreinte, liés à l'empreinte du contrat. */
+export interface PlanProposedInput {
+  type: "plan";
+  fingerprint: string;
+  kind: "proposed";
+  plan: string;
+  content: PlanContent;
+}
+
+/** Un écart au plan approuvé (#29), constaté après approbation : un fichier
+ * écrit hors du plan (`file` : `before` vide, `after` le chemin écrit) ou une
+ * rubrique du plan réécrite par l'agent (`steps`, `files`, `risks`, `proofs` :
+ * la rubrique avant et après, les preuves en lignes « N: preuve »), avec le
+ * motif que l'agent en donne, ou null. Jamais un refus : une trace. */
+export interface PlanDeviationInput {
+  type: "plan";
+  fingerprint: string;
+  kind: "deviation";
+  plan: string;
+  change: PlanChange;
+  before: string[];
+  after: string[];
+  reason: string | null;
+}
+
+export type PlanInput = PlanProposedInput | PlanDeviationInput;
+
 export type ProofInput =
   | { type: "contract"; fingerprint: string; id: string; status: ContractStatus; reason?: string }
   // `verifiers` (#9) : l'empreinte des entrées du vérificateur figées par
-  // cette approbation ; null quand elles n'ont pas pu l'être.
-  | { type: "approval"; fingerprint: string; by: ApprovalAuthority; verifiers?: string | null }
+  // cette approbation ; null quand elles n'ont pas pu l'être. `plan` (#29) :
+  // l'empreinte du plan approuvé avec le contrat, absente sans plan.
+  | { type: "approval"; fingerprint: string; by: ApprovalAuthority; verifiers?: string | null; plan?: string }
   // Lecture d'une fiche de méthode installée (#30) : son nom et l'empreinte
   // du contenu servi, liés à l'empreinte du contrat de la session.
   | { type: "fiche"; fingerprint: string; name: string; sha256: string }
+  | PlanInput
   | VerdictInput;
 
 export type ProofEvent = ProofInput & { schema: typeof PROOF_SCHEMA; at: string };
@@ -186,7 +223,7 @@ const ITEM_MAX = 500;
 const ITEMS_MAX = 20;
 const REF_MAX = 200;
 const MAX_STEPS = 100_000;
-const BODY_FIELDS = ["id", "title", "workspace", "baseRevision", "policyRef", "problem", "outcome", "users", "constraints", "outOfScope", "acceptance", "openQuestions", "budgets", "checks"];
+const BODY_FIELDS = ["id", "title", "workspace", "baseRevision", "policyRef", "problem", "outcome", "users", "constraints", "outOfScope", "acceptance", "openQuestions", "budgets", "checks", "plan"];
 const RECORD_FIELDS = ["schema", "status", "fingerprint", "contract", "approval", "usage", "updatedAt"];
 const MAX_CHECK_SECONDS = 3600;
 /** Bornes des entrées figées : elles tiennent dans contract.json (256 Kio). */
@@ -274,6 +311,9 @@ function parseBody(raw: unknown, workspaceReal: string | null): MissionContract 
   }
   const acceptance = list(raw, "acceptance", true);
   const checks = raw.checks === undefined ? undefined : parseChecks(raw.checks, acceptance.length);
+  if (raw.plan !== undefined && raw.plan !== PLAN_REQUIRED) {
+    throw new ContractError(`field "plan" must be "${PLAN_REQUIRED}" (the host approves the contract only with an implementation plan) or absent (the plan is optional)`);
+  }
   return {
     id,
     title: text(raw, "title", true, REF_MAX)!,
@@ -288,8 +328,9 @@ function parseBody(raw: unknown, workspaceReal: string | null): MissionContract 
     acceptance,
     openQuestions: list(raw, "openQuestions", false),
     budgets: { maxSteps },
-    // Absent : absent aussi du résultat, pour que l'empreinte ne change pas.
+    // Absents : absents aussi du résultat, pour que l'empreinte ne change pas.
     ...(checks ? { checks } : {}),
+    ...(raw.plan !== undefined ? { plan: PLAN_REQUIRED } : {}),
   };
 }
 
@@ -388,12 +429,14 @@ function parseVerifiers(raw: unknown): VerifierFreeze | null {
 function parseApproval(raw: unknown): Approval | null {
   if (raw === null) return null;
   if (!isObject(raw)) throw new ContractError('field "approval" must be null or an object');
-  onlyFields(raw, ["fingerprint", "by", "at", "verifiers"], "approval.");
+  onlyFields(raw, ["fingerprint", "by", "at", "verifiers", "plan"], "approval.");
   if (typeof raw.fingerprint !== "string" || !HEX64.test(raw.fingerprint)) throw new ContractError('field "approval.fingerprint" must be 64 hexadecimal characters');
   if (!APPROVAL_AUTHORITIES.includes(raw.by as ApprovalAuthority)) throw new ContractError(`field "approval.by" must be one of ${APPROVAL_AUTHORITIES.join(", ")}`);
   if (typeof raw.at !== "string" || Number.isNaN(Date.parse(raw.at))) throw new ContractError('field "approval.at" must be a date');
+  if (raw.plan !== undefined && (typeof raw.plan !== "string" || !HEX64.test(raw.plan))) throw new ContractError('field "approval.plan" must be 64 hexadecimal characters');
   const approval: Approval = { fingerprint: raw.fingerprint, by: raw.by as ApprovalAuthority, at: raw.at };
   if (raw.verifiers !== undefined) approval.verifiers = parseVerifiers(raw.verifiers);
+  if (raw.plan !== undefined) approval.plan = raw.plan as string;
   return approval;
 }
 
@@ -515,6 +558,7 @@ function checkEvent(event: Record<string, unknown>): void {
   if (typeof event.at !== "string" || Number.isNaN(Date.parse(event.at))) throw new ContractError('proof field "at" must be a date');
   if (typeof event.fingerprint !== "string" || !HEX64.test(event.fingerprint)) throw new ContractError('proof field "fingerprint" must be 64 hexadecimal characters');
   if (event.type === "verdict") return checkVerdict(event);
+  if (event.type === "plan") return checkPlanEvent(event);
   if (event.type === "contract") {
     onlyFields(event, ["schema", "type", "at", "fingerprint", "id", "status", "reason"]);
     if (typeof event.id !== "string" || !ID_RE.test(event.id)) throw new ContractError('proof field "id" is invalid');
@@ -525,10 +569,138 @@ function checkEvent(event: Record<string, unknown>): void {
     if (typeof event.name !== "string" || !FICHE_NAME_RE.test(event.name)) throw new ContractError('proof field "name" must be a method sheet name');
     if (typeof event.sha256 !== "string" || !HEX64.test(event.sha256)) throw new ContractError('proof field "sha256" must be 64 hexadecimal characters');
   } else {
-    onlyFields(event, ["schema", "type", "at", "fingerprint", "by", "verifiers"]);
+    onlyFields(event, ["schema", "type", "at", "fingerprint", "by", "verifiers", "plan"]);
     if (!APPROVAL_AUTHORITIES.includes(event.by as ApprovalAuthority)) throw new ContractError(`proof field "by" must be one of ${APPROVAL_AUTHORITIES.join(", ")}`);
     if (event.verifiers !== undefined && !hexOrNull(event.verifiers)) throw new ContractError('proof field "verifiers" must be 64 hexadecimal characters or null');
+    if (event.plan !== undefined && (typeof event.plan !== "string" || !HEX64.test(event.plan))) throw new ContractError('proof field "plan" of an approval must be 64 hexadecimal characters');
   }
+}
+
+// ---- plan d'implémentation (ticket #29) ----
+//
+// Proposé par l'agent avant approbation, par l'outil plan, puis approuvé par
+// l'hôte avec le contrat (l'empreinte du plan dans l'approbation). Le journal
+// garde le contenu entier de chaque proposition — c'est là que se relit le
+// plan approuvé — puis chaque écart constaté après approbation, avant et
+// après : la version courante se reconstruit en les rejouant, sans jamais
+// remplacer l'approuvée. Le plan est un guide, jamais une preuve ni une
+// permission ; un écart n'est jamais un refus.
+
+/** Seule valeur du champ `plan` du contrat : l'approbation exige un plan. */
+export const PLAN_REQUIRED = "required";
+export const PLAN_KINDS = ["proposed", "deviation"] as const;
+export type PlanKind = (typeof PLAN_KINDS)[number];
+/** Ce qu'un écart change : un fichier écrit hors du plan, ou une rubrique. */
+export const PLAN_CHANGES = ["file", "steps", "files", "risks", "proofs"] as const;
+export type PlanChange = (typeof PLAN_CHANGES)[number];
+const DEVIATION_ITEMS_MAX = 50;
+const DEVIATION_ITEM_MAX = 1024;
+const REASON_MAX = 500;
+
+/** La preuve prévue d'un critère d'acceptation (numéro à partir de 1) :
+ * une déclaration de l'agent, jamais un contrôle ni une preuve. */
+export interface PlannedProof {
+  criterion: number;
+  proof: string;
+}
+
+/** Le contenu d'un plan : l'ordre des travaux (étapes), les fichiers à créer
+ * ou modifier (chemins relatifs du workspace ; « dossier/ » vaut tout ce qu'il
+ * contient), les risques et contraintes techniques, la preuve prévue par
+ * critère. Ni l'état coché des étapes ni les notes de travail n'en font partie. */
+export interface PlanContent {
+  steps: string[];
+  files: string[];
+  risks: string[];
+  proofs: PlannedProof[];
+}
+
+export const PLAN_STEPS_MAX = 20;
+export const PLAN_FILES_MAX = 50;
+const PLAN_PATH_MAX = 300;
+const PLAN_FIELDS = ["steps", "files", "risks", "proofs"];
+
+/** Un fichier du plan : chemin relatif du workspace à la façon POSIX, sans
+ * `..` ; une barre finale désigne un dossier et tout ce qu'il contient. */
+export function isPlanFile(p: unknown): p is string {
+  if (typeof p !== "string" || p.length > PLAN_PATH_MAX) return false;
+  return isRelativeWorkspacePath(p.endsWith("/") ? p.slice(0, -1) : p);
+}
+
+function planItems(raw: Record<string, unknown>, key: string, max: number, min: number): string[] {
+  const v = raw[key];
+  if (!Array.isArray(v) || v.length < min || v.length > max) {
+    throw new ContractError(`plan field "${key}" must be a list of ${min ? `${min} to ` : "at most "}${max} items`);
+  }
+  return v.map((item, i) => {
+    if (typeof item !== "string" || !item.trim() || item.length > ITEM_MAX || /[\x00-\x08\x0a-\x1f\x7f]/.test(item)) {
+      throw new ContractError(`plan field "${key}" item ${i + 1} must be a non-empty line of at most ${ITEM_MAX} characters`);
+    }
+    return item;
+  });
+}
+
+/** Contenu d'un plan, validé. `criteria` : nombre de critères du contrat
+ * (null pour un contenu relu dans le journal, borné par ITEMS_MAX). */
+export function parsePlanContent(raw: unknown, criteria: number | null): PlanContent {
+  if (!isObject(raw)) throw new ContractError("the plan must be an object");
+  onlyFields(raw, PLAN_FIELDS, "plan.");
+  const steps = planItems(raw, "steps", PLAN_STEPS_MAX, 1);
+  const files = planItems(raw, "files", PLAN_FILES_MAX, 1);
+  for (const f of files) {
+    if (!isPlanFile(f)) throw new ContractError(`plan field "files" names ${JSON.stringify(f)}, which is not a relative path inside the workspace (no "..", no leading "/", at most ${PLAN_PATH_MAX} characters)`);
+  }
+  if (new Set(files).size !== files.length) throw new ContractError('plan field "files" names a file twice');
+  const risks = planItems(raw, "risks", ITEMS_MAX, 0);
+  const proofs = raw.proofs;
+  const bound = criteria ?? ITEMS_MAX;
+  if (!Array.isArray(proofs) || proofs.length > bound) throw new ContractError(`plan field "proofs" must list at most one planned proof per acceptance criterion`);
+  const seen = new Set<number>();
+  const parsed = proofs.map((p, i) => {
+    if (!isObject(p)) throw new ContractError(`plan field "proofs" item ${i + 1} must be {"criterion": <number>, "proof": "..."}`);
+    onlyFields(p, ["criterion", "proof"], `plan.proofs[${i}].`);
+    const n = p.criterion;
+    if (typeof n !== "number" || !Number.isSafeInteger(n) || n < 1 || n > bound) {
+      throw new ContractError(`plan field "proofs" names criterion ${JSON.stringify(n)}, but the contract has ${bound} acceptance criteria`);
+    }
+    if (seen.has(n)) throw new ContractError(`plan field "proofs" gives criterion ${n} twice`);
+    seen.add(n);
+    if (typeof p.proof !== "string" || !p.proof.trim() || p.proof.length > ITEM_MAX || /[\x00-\x08\x0a-\x1f\x7f]/.test(p.proof)) throw new ContractError(`plan field "proofs": the proof of criterion ${n} must be a non-empty text of at most ${ITEM_MAX} characters`);
+    return { criterion: n, proof: p.proof };
+  });
+  return { steps, files, risks, proofs: parsed.sort((a, b) => a.criterion - b.criterion) };
+}
+
+/** Empreinte d'un plan : SHA-256 de la forme canonique de son contenu et de
+ * l'empreinte du contrat qu'il réalise — le même texte sous un autre contrat
+ * est un autre plan. */
+export function planFingerprint(contractFp: string, content: PlanContent): string {
+  return sha256(canonical({ contract: contractFp, content }));
+}
+
+/** Champs fermés d'un événement `plan` ; l'empreinte déclarée doit être celle
+ * du contenu (un journal retouché à la main devient illisible). */
+function checkPlanEvent(event: Record<string, unknown>): void {
+  if (!PLAN_KINDS.includes(event.kind as PlanKind)) throw new ContractError(`proof field "kind" of a plan event must be one of ${PLAN_KINDS.join(", ")}`);
+  if (typeof event.plan !== "string" || !HEX64.test(event.plan)) throw new ContractError('proof field "plan" must be 64 hexadecimal characters');
+  if (event.kind === "deviation") {
+    onlyFields(event, ["schema", "type", "at", "fingerprint", "kind", "plan", "change", "before", "after", "reason"]);
+    if (!PLAN_CHANGES.includes(event.change as PlanChange)) throw new ContractError(`proof field "change" of a plan deviation must be one of ${PLAN_CHANGES.join(", ")}`);
+    for (const side of ["before", "after"]) {
+      const v = event[side];
+      if (!Array.isArray(v) || v.length > DEVIATION_ITEMS_MAX || !v.every((x) => typeof x === "string" && x.length <= DEVIATION_ITEM_MAX && !/[\x00-\x08\x0a-\x1f\x7f]/.test(x))) {
+        throw new ContractError(`proof field "${side}" of a plan deviation must be a list of at most ${DEVIATION_ITEMS_MAX} lines`);
+      }
+    }
+    if (event.change === "file" && ((event.before as string[]).length !== 0 || (event.after as string[]).length !== 1 || !isRelativeWorkspacePath((event.after as string[])[0]))) {
+      throw new ContractError('a "file" deviation names one written path in "after" and nothing in "before"');
+    }
+    if (event.reason !== null && (typeof event.reason !== "string" || !event.reason.trim() || event.reason.length > REASON_MAX)) throw new ContractError('proof field "reason" of a plan deviation must be null or a text of at most 500 characters');
+    return;
+  }
+  onlyFields(event, ["schema", "type", "at", "fingerprint", "kind", "plan", "content"]);
+  const content = parsePlanContent(event.content, null);
+  if (planFingerprint(event.fingerprint as string, content) !== event.plan) throw new ContractError('proof field "plan" does not match the proposed content');
 }
 
 /** Ajoute une ligne au journal. Refuse d'écrire derrière une ligne finale

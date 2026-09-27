@@ -69,6 +69,16 @@ ce qu'il prouve, ce qu'il journalise.
   (personne, autre processus, tâche de fond) est signalé avant d'être
   réécrit. Mesure au banc à jouer :
   `docs/protocole-mesure-retours-outils.md`.
+- **Plan d'implémentation approuvé avec le contrat (`--mission`)** :
+  l'agent propose avant approbation un plan structuré (fichiers, ordre
+  des travaux, risques, preuve attendue par critère), que l'humain
+  approuve avec le contrat, dans le même geste (`/approve` ; en
+  headless, `--propose-plan` puis `--approve-plan`) ; un critère sans
+  preuve prévue est signalé. Après approbation, un fichier écrit hors
+  plan ou une étape ajoutée ou retirée est journalisé, jamais bloqué, et
+  le plan approuvé reste lisible à côté du plan courant (`/mission`,
+  rapport). Facultatif par défaut, exigible par le contrat. Mesure au
+  banc à jouer : `docs/protocole-mesure-plan-approuve.md`.
 - **Banc comportemental reproductible** (`bench/noyau-agents-md/`) :
   un dossier horodaté et un manifeste par run, statuts
   machine-lisibles (succès ≠ refus de sécurité ≠ panne serveur),
@@ -87,8 +97,8 @@ ce qu'il prouve, ce qu'il journalise.
 
 **Chantiers restants**, dans l'ordre : la mesure au banc des
 [retours d'outils exploitables](https://github.com/Alexmacapple/smolcoder-MTPLX/issues/19)
-(#19, livrés, protocole prêt), [plan d'implémentation approuvé avec le contrat](https://github.com/Alexmacapple/smolcoder-MTPLX/issues/29)
-(#29), puis [reprise durable](https://github.com/Alexmacapple/smolcoder-MTPLX/issues/10)
+(#19, livrés, protocole prêt) et du [plan d'implémentation approuvé avec le contrat](https://github.com/Alexmacapple/smolcoder-MTPLX/issues/29)
+(#29, livré, protocole prêt), puis [reprise durable](https://github.com/Alexmacapple/smolcoder-MTPLX/issues/10)
 (#10). À part, en attente de décision :
 [l'étude AH-00](https://github.com/Alexmacapple/smolcoder-MTPLX/issues/33)
 (une leçon de fiche améliore-t-elle Qwen ?), porte d'entrée du

@@ -1,0 +1,44 @@
+{
+  "schema": "smolcoder/contract/v1",
+  "id": "banc-plan-renommage",
+  "title": "Renommer aire_rect en aire_rectangle",
+  "problem": "Le nom aire_rect est jugé trop abrégé.",
+  "outcome": "La fonction s'appelle aire_rectangle partout, sans alias, au même comportement.",
+  "constraints": [
+    "pas d'alias vers l'ancien nom",
+    "comportement inchangé"
+  ],
+  "outOfScope": [
+    "modifier les tests",
+    "modifier le README"
+  ],
+  "acceptance": [
+    "python3 -m unittest -q test_devis passe",
+    "aucun fichier Python ne mentionne plus aire_rect",
+    "test_devis.py et README.md sont inchangés"
+  ],
+  "checks": [
+    {
+      "command": "python3 -m unittest -q test_devis",
+      "covers": [
+        1
+      ]
+    },
+    {
+      "command": "! grep -qw aire_rect *.py",
+      "covers": [
+        2
+      ]
+    },
+    {
+      "command": "[ \"$(shasum -a 256 test_devis.py README.md | shasum -a 256 | cut -c1-64)\" = \"323ac2b772da8adda2d96f19e96b574f0ac84a67b40216ef4a6419b027251c90\" ]",
+      "covers": [
+        3
+      ]
+    }
+  ],
+  "openQuestions": [],
+  "budgets": {
+    "maxSteps": 60
+  }
+}

@@ -14,6 +14,9 @@ et `proofs.jsonl`, module propriétaire unique `src/harness/store.ts`.
   headless (avec `-p` uniquement).
 - `/approve` et `/mission` n'apparaissent en terminal et en web que sous
   le profil.
+- `--propose-plan` (run headless de proposition du plan) et `--approve-plan
+  <empreinte>` (approbation du plan avec le contrat) n'existent que sous le
+  profil (ticket #29, section « Plan d'implémentation » ci-dessous).
 
 Pourquoi `--mission` : il nomme le concept du ticket (contrat de mission),
 se lit de la même façon en français et en anglais, reste cohérent avec les
@@ -55,6 +58,10 @@ d'intention s'y retrouvent (problème, résultat attendu, utilisateurs,
 contraintes, hors périmètre, critère observable, questions ouvertes).
 `workspace` est rempli par l'hôte (chemin réel) ; s'il est fourni, il doit
 désigner le même dossier. `policyRef` est réservé à #11.
+
+`plan` (facultatif, #29) : `"required"` exige un plan d'implémentation
+approuvé avec le contrat ; absent, le plan est facultatif (section « Plan
+d'implémentation »).
 
 `checks` (facultatif, #9) : les contrôles de l'hôte, chacun une commande
 lancée par le harnais dans le bac et les critères qu'elle couvre (numéros de
@@ -285,6 +292,147 @@ par une ligne `· verdict: …`, le headless par une ligne `[verdict] {…}` sur
 stderr. Définitions, mécanisme anti-altération, alternatives et limites :
 `docs/decision-preuves-acceptation.md`.
 
+## Plan d'implémentation approuvé avec le contrat (ticket #29)
+
+Le contrat fixe le besoin et la spécification ; le plan fixe la manière de les
+réaliser. Sous le profil, l'agent peut proposer avant approbation un plan
+structuré, que l'hôte approuve avec le contrat, dans le même geste. Le plan
+reste un guide, pas une cage.
+
+### Proposer
+
+Avant approbation, la porte de #8 laisse passer l'outil `plan` comme les
+lectures. Sous `--mission` seulement, il a une action de plus, `propose` :
+
+```json
+{"action": "propose",
+ "steps": "écrire hello.txt\nle relire",
+ "files": "hello.txt",
+ "risks": "aucun au-delà du contrat",
+ "proofs": "2: read_file hello.txt montre bonjour"}
+```
+
+- `steps` : l'ordre des travaux, une étape par ligne (20 au plus) ;
+- `files` : les fichiers à créer ou modifier, un chemin relatif du workspace
+  par ligne (`src/` pour tout un dossier, 50 au plus) ;
+- `risks` : risques et contraintes techniques, facultatif ;
+- `proofs` : la preuve attendue de chaque critère d'acceptation, une ligne
+  `N: preuve` par critère, numéroté comme dans le contrat.
+
+Des champs plats, comme tout l'outil : les petits modèles abîment les objets
+imbriqués. L'hôte valide la grammaire (`src/harness/store.ts`), journalise la
+proposition (événement `plan` de nature `proposed`, contenu entier, empreinte)
+et la pose sur la checklist de l'agent, qui la garde après compaction avec son
+détail. Une grammaire refusée (critère inconnu ou donné deux fois, chemin hors
+du workspace, aucun fichier, ligne de preuve sans numéro) revient au modèle
+comme une erreur qui dit quoi corriger, sans rien enregistrer. Avant
+approbation, `set` ou `add` sur un plan proposé en font une nouvelle
+proposition : l'hôte approuve toujours la dernière version, celle que montre
+`/approve`. Pendant qu'un plan proposé attend l'hôte, la relance « étapes non
+finies » ne s'applique pas : aucune étape n'est faisable avant l'approbation.
+
+Hors `--mission`, l'outil `plan` est celui d'avant #29, schéma et réponses
+compris. Sous `--mission`, une checklist posée par `set` sans `propose` reste
+une simple checklist, sans effet sur l'approbation.
+
+### Preuve attendue par critère
+
+Alignée sur #9 sans la dupliquer : un critère couvert par un contrôle de
+l'hôte (`checks`) a déjà sa preuve, que l'hôte produit lui-même ; le plan n'a
+rien à y ajouter et ne recopie pas la commande. Pour les autres, le plan
+déclare comment ils seront prouvés — une déclaration, jamais une preuve : le
+verdict reste celui des contrôles (`docs/decision-preuves-acceptation.md`).
+
+Un critère ni couvert ni prévu est signalé avant approbation : au modèle,
+dans la réponse de `propose` (`NO PLANNED PROOF`) ; à l'humain, dans la vue du
+plan (« aucune preuve prévue ») et par une ligne d'alerte juste avant la
+question de `/approve` ; à l'appelant headless, dans la ligne `[mission]`
+(`plan.missingProofs`). Le signalement n'empêche pas d'approuver : l'humain
+décide.
+
+### Approuver : les deux empreintes
+
+- Terminal et web : `/approve` montre le contrat, puis le plan proposé (ordre
+  des travaux, fichiers, risques, preuve attendue par critère), puis pose une
+  seule question : « Approve contract and plan », « Approve contract only »
+  (absent si le contrat exige le plan) ou « Cancel ». Approuvés ensemble,
+  l'événement `approval` porte l'empreinte du plan (`plan`) et `contract.json`
+  la garde dans l'approbation.
+- Headless, en deux runs :
+  1. `smol -p "…" --mission contrat.json --propose-plan` : l'agent lit et
+     propose, en lecture seule (mode `ro` imposé, aucun contrôle
+     d'acceptation, aucun pas débité puisque rien n'est approuvé) ; seul un
+     contrat proposé l'autorise. Sortie 3 : la vue du contrat et du plan sur
+     la sortie standard, la ligne `[mission]` avec `plan.fingerprint` et
+     `plan.missingProofs`.
+  2. `smol -p "…" --mission contrat.json --approve <contrat> --approve-plan
+     <plan>` : les deux empreintes exactes, une seule approbation. Une
+     empreinte de plan autre que celle du dernier plan proposé refuse tout,
+     contrat compris (sortie 3, rien d'enregistré). `--approve` seul approuve
+     le contrat sans le plan, et le message le dit.
+- Une approbation par sujet : `--approve` nomme le contrat, `--approve-plan`
+  son plan (seulement avec `--approve`, dans le même geste),
+  `--approve-verifiers` les entrées du vérificateur (#9, sous un contrat déjà
+  approuvé). La nouvelle approbation des entrées garde le plan approuvé tel
+  quel ; un plan ne s'approuve jamais après coup, sous un contrat déjà
+  approuvé : `--approve-plan` est alors refusé, avec ce motif, comme
+  `propose` sous un contrat approuvé sans plan ; sous un contrat approuvé
+  avec son plan, `propose` réécrit le plan courant, écart journalisé
+  (ci-dessous).
+  `--propose-plan` ne se combine avec aucune approbation ni avec `--verify` :
+  on approuve dans un run suivant, après avoir lu le plan.
+
+### Facultatif par défaut, exigible par le contrat
+
+Décision : le plan est facultatif. Sans plan proposé, rien ne change — mêmes
+vues, même question de `/approve`, même événement `approval`, même
+`contract.json`, même rapport, même ligne `[mission]`. Le rendre exigible par
+défaut se décidera sur mesure (dernier critère du ticket), pas sur intuition :
+protocole de mesure appariée, règle de décision figée avant les essais,
+`docs/protocole-mesure-plan-approuve.md`.
+Le contrat peut l'exiger, par `"plan": "required"` : l'approbation sans plan
+est alors refusée partout (`/approve` le dit sans rien demander ; headless,
+sortie 3 avec la marche à suivre, `--propose-plan` d'abord), et le bloc du
+contrat demande au modèle de proposer le sien. Le champ absent n'entre pas
+dans l'empreinte : les contrats existants gardent la leur.
+
+### Après approbation : écarts journalisés, jamais bloquants
+
+Le plan approuvé guide, il n'enferme pas. Sous un contrat approuvé avec son
+plan, trois écarts laissent chacun un événement `plan` de nature `deviation`
+au journal, avec l'avant, l'après et le motif donné par l'agent (ou `null`) :
+
+- une écriture (`write_file`, `edit_file`) sur un fichier absent du plan :
+  l'écriture a lieu, le modèle reçoit une note qui l'invite à dire pourquoi
+  (`plan` `add` avec `files` et `reason`), l'écart est journalisé une fois par
+  chemin ; seule la politique d'accès de #11 refuse, comme avant ;
+- une étape ajoutée ou retirée (`add`, `set`), ou une rubrique réécrite
+  (`propose` après approbation : étapes, fichiers, risques, preuves) : un
+  événement par rubrique changée ; `add` accepte `files` et `reason` pour
+  ajouter au plan, avec son motif, les fichiers de l'étape ;
+- cocher une étape (`done`) ou noter un point d'étape (`checkpoint`) n'est
+  pas un écart.
+
+Le plan réécrit ne remplace jamais silencieusement le plan approuvé : la
+version approuvée reste dans le journal telle qu'approuvée, l'empreinte de
+l'approbation ne change pas, et la version courante se reconstruit en
+rejouant les écarts. Les deux restent lisibles : `/mission` montre le plan
+approuvé, puis le plan courant s'il diffère, puis la liste des écarts
+(« journalisés, jamais bloquants ») ; `report.json` porte une rubrique `plan`
+(`approved`, `current`, `deviations`, `missingProofs`) et `report.md` la même,
+après le bilan des critères. Un écart ne touche ni l'approbation du contrat,
+ni le budget, ni aucun statut de critère : c'est une trace pour la revue.
+
+### Ce que voit le modèle
+
+Le bloc du contrat, relu dans le stockage hôte à chaque tour et après
+compaction, porte une ligne `Plan:` seulement quand un plan existe ou est
+exigé : proposé (en attente de l'hôte), approuvé (empreinte, fichiers, « un
+guide, pas une cage », nombre d'écarts journalisés), ou exigé. La checklist
+de l'agent repart, à chaque session sous le même contrat, de la version
+courante du plan approuvé (ou de celui qui attend l'approbation), étapes non
+cochées ; `/clear` la rétablit, comme le contrat.
+
 ## Budget de pas
 
 `budgets.maxSteps` compte les appels au modèle effectués sous un contrat
@@ -311,8 +459,10 @@ le reprend en tête, relu dans le stockage hôte au moment de la compaction
   avant tout tour ;
 - 3 : le contrat n'autorise pas l'exécution (proposé, expiré, périmé,
   empreinte refusée, stockage hôte illisible ou de schéma inconnu, journal
-  tronqué, politique d'accès illisible, `--approve-verifiers` refusé) ; il
-  prime sur 4 et 5 quand le contrat n'est plus approuvé en fin de run ;
+  tronqué, politique d'accès illisible, `--approve-verifiers` refusé,
+  `--approve-plan` refusé, plan exigé absent) ; il prime sur 4 et 5 quand le
+  contrat n'est plus approuvé en fin de run. Un run `--propose-plan` sort
+  aussi 3 : le contrat reste proposé, le plan attend l'hôte ;
 - 4 : suspendu sur une décision « ask » de la politique d'accès, rien n'a été
   exécuté pour cette action ; il prime sur 5 ;
 - 5 (#9) : le run est allé à son terme ou s'est arrêté, mais la tâche n'est
@@ -347,7 +497,20 @@ le reprend en tête, relu dans le stockage hôte au moment de la compaction
   (`docs/decision-fiches-hote.md`).
 - La suspension headless (sortie 4) est testée par ses briques (agent non
   interactif, rapport de décision), pas par le CLI réel contre un backend.
+- Le plan (#29) est déclaratif : aucun contrôle ne vérifie qu'une preuve
+  prévue sera produite, aucun juge ne note le plan (hors périmètre du
+  ticket). Un run `--propose-plan` appelle le modèle sans débiter le budget
+  de pas, le contrat n'étant pas approuvé ; il reste borné par le plafond de
+  pas du headless et ne peut rien écrire. La progression du plan (étapes
+  cochées) ne survit pas à la session : la reprise (#10) la persistera.
+- Les écarts au plan ne voient que les outils de fichiers du modèle : un
+  fichier créé ou modifié par une commande (`run_command`, tâche de fond,
+  script de build) n'est pas comparé au plan. Une session web reprise
+  retrouve ses étapes sauvegardées, qui peuvent différer de la version
+  courante du journal jusqu'au prochain changement.
 - Le run headless approuvé est testé par le CLI réel sur macOS (#18,
   `test/os/e2e.os.test.js`, dans `npm run test:os`), contre un faux serveur
   OpenAI-compatible local qui joue le modèle : `run_command`, `--verify`,
-  tâche de fond et écoute, dans le bac. Aucun test ne le lance contre MTPLX.
+  tâche de fond et écoute, dans le bac ; et le plan (#29, « H08 OS ») en
+  deux runs, `--propose-plan` puis `--approve` avec `--approve-plan`, écart
+  journalisé compris. Aucun test ne le lance contre MTPLX.

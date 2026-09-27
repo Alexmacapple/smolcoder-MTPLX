@@ -1,0 +1,1 @@
+Renomme la fonction aire_rect de geometrie.py en aire_rectangle, partout où elle est utilisée, sans laisser d'alias vers l'ancien nom et sans changer le comportement. Ne modifie ni les tests ni le README. Vérifie avec python3 -m unittest -q test_devis.

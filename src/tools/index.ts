@@ -3,7 +3,7 @@
 // every description (small models imitate better than they infer), and the
 // mode decides which schemas are sent. The agent rechecks mode at execution.
 
-import { Plan } from "../plan";
+import { Plan, PlanHooks, readProposal, splitFileList } from "../plan";
 import { ToolSpec } from "../providers/types";
 import { editFile, listFiles, readFile, renderRead, writeFile } from "./fs-tools";
 import { isFicheRef, readInstalledFiche } from "../fiches";
@@ -27,7 +27,36 @@ export const MODE_LABELS: Record<Mode, string> = {
 
 const TOOL_RESULT_CAP = 10000; // chars — final safety net over per-tool caps
 
-export function buildToolSpecs(mode: Mode): ToolSpec[] {
+/** Profil mission (#29) : l'outil plan sait aussi proposer le plan
+ * d'implémentation que l'hôte approuve avec le contrat. Hors --mission, son
+ * schéma est celui d'avant #29, à l'octet près. */
+function missionPlanSpec(base: ToolSpec): ToolSpec {
+  const props = base.parameters.properties as Record<string, any>;
+  return {
+    ...base,
+    description:
+      base.description +
+      ' Mission contract: before the host approves it, propose the implementation plan the host will approve with it: {"action":"propose","steps":"step 1\\nstep 2","files":"src/a.js\\ntest/a.test.js","risks":"...","proofs":"1: how criterion 1 will be proven\\n2: ..."} — steps in the order of the work, files to create or modify, risks and technical constraints, one proof line per acceptance criterion (by its number). After approval the plan is a guide, not a cage: changing it or writing another file is allowed and shown to the host — say why in "reason".',
+    parameters: {
+      ...base.parameters,
+      properties: {
+        ...props,
+        action: { ...props.action, enum: [...props.action.enum, "propose"] },
+        files: { type: "string", description: 'Files to create or modify, one path per line, relative to the workspace (for "propose")' },
+        risks: { type: "string", description: 'Risks and technical constraints, one per line (for "propose")' },
+        proofs: { type: "string", description: 'Expected proof per acceptance criterion, one line "N: proof" each (for "propose")' },
+        reason: { type: "string", description: "Why the plan changes after the host approved it (optional)" },
+      },
+    },
+  };
+}
+
+export function buildToolSpecs(mode: Mode, opts: { mission?: boolean } = {}): ToolSpec[] {
+  const specs = buildBaseSpecs(mode);
+  return opts.mission ? specs.map((s) => (s.name === "plan" ? missionPlanSpec(s) : s)) : specs;
+}
+
+function buildBaseSpecs(mode: Mode): ToolSpec[] {
   const read: ToolSpec[] = [
     {
       name: "read_file",
@@ -179,6 +208,15 @@ export interface ToolContext {
    * comparé au disque juste avant une écriture. Fixé par l'hôte (l'agent le
    * crée) ; absent = aucun signal. */
   reads?: ReadTracker;
+  /** Profil mission (#29) : ce que l'hôte fait d'un plan structuré (le
+   * valider, le journaliser, le lier au contrat). Fixé par l'hôte ; absent,
+   * l'outil plan est celui d'avant #29 et `propose` n'existe pas. */
+  planHooks?: PlanHooks;
+}
+
+/** Le motif qu'un modèle donne d'un changement de plan, ou null. */
+function reasonOf(args: Record<string, any>): string | null {
+  return typeof args.reason === "string" && args.reason.trim() ? args.reason.trim().slice(0, 500) : null;
 }
 
 export async function executeTool(
@@ -220,6 +258,28 @@ export async function executeTool(
         break;
       case "plan": {
         const action = args.action ?? (typeof args.steps === "string" ? "set" : undefined);
+        const hooks = ctx.planHooks;
+        if (action === "propose" && hooks) {
+          // Profil mission (#29) : le plan structuré, validé et journalisé par
+          // l'hôte avant d'être posé sur la checklist.
+          const read = readProposal(args);
+          if ("error" in read) return `Error: ${read.error}`;
+          const out = hooks.propose(read.content, reasonOf(args), ctx.plan.content());
+          if (!out.ok) return `Error: ${out.message}`;
+          ctx.plan.adopt(out.content);
+          result = out.message;
+          break;
+        }
+        const before = hooks ? ctx.plan.content() : null;
+        const snapshot = before ? ctx.plan.snapshot() : null;
+        // Profil mission (#29) : `add` peut ajouter au plan structuré les
+        // fichiers de l'étape, validés par l'hôte avant tout changement.
+        let extraFiles: string[] = [];
+        if (hooks && before && action === "add" && splitFileList(args.files).length) {
+          const f = hooks.files(splitFileList(args.files));
+          if (!f.ok) return `Error: ${f.message}`;
+          extraFiles = f.files;
+        }
         if (action === "set") result = ctx.plan.set(typeof args.steps === "string" ? args.steps : "");
         else if (action === "done")
           result = ctx.plan.markDone(args.step === undefined ? undefined : Number(args.step));
@@ -228,6 +288,17 @@ export async function executeTool(
         else if (action === "show") result = ctx.plan.modelView();
         else
           return 'Error: action must be one of "set", "done", "add", "show", "checkpoint". Example: {"action": "done"}';
+        // Profil mission (#29) : un plan structuré qui change, l'hôte le sait ;
+        // un changement qu'il n'a pas pu enregistrer est annulé, jamais tu.
+        if (hooks && before && snapshot && (action === "set" || action === "add") && !result.startsWith("Error")) {
+          ctx.plan.addFiles(extraFiles);
+          const note = hooks.changed(before, ctx.plan.content()!, reasonOf(args));
+          if (note.startsWith("Error")) {
+            ctx.plan.restoreSnapshot(snapshot);
+            return note;
+          }
+          result += note;
+        }
         break;
       }
       case "write_file":
@@ -237,6 +308,8 @@ export async function executeTool(
         if (!result.startsWith("Error")) {
           ctx.filesTouched.add(String(args.path));
           result += afterWrite(ctx.workspace, String(args.path));
+          // Profil mission (#29) : un fichier hors du plan approuvé, noté.
+          if (ctx.planHooks) result += ctx.planHooks.wrote(String(args.path));
         }
         break;
       case "edit_file":
@@ -246,6 +319,7 @@ export async function executeTool(
         if (!result.startsWith("Error")) {
           ctx.filesTouched.add(String(args.path));
           result += afterWrite(ctx.workspace, String(args.path));
+          if (ctx.planHooks) result += ctx.planHooks.wrote(String(args.path));
         }
         break;
       case "run_command":

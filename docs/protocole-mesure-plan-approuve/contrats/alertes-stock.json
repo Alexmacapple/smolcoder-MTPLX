@@ -1,0 +1,44 @@
+{
+  "schema": "smolcoder/contract/v1",
+  "id": "banc-plan-alertes-stock",
+  "title": "Alertes de stock dans le rapport",
+  "problem": "Le rapport du stock ne signale pas les articles presque épuisés.",
+  "outcome": "stock.py fournit alertes(stock, seuil) et rapport() accepte un seuil facultatif qui ajoute une ligne « Alertes : » quand des articles sont sous le seuil.",
+  "constraints": [
+    "pas de nouvelle dépendance",
+    "sans seuil, le rapport ne change pas"
+  ],
+  "outOfScope": [
+    "modifier les tests",
+    "modifier le README"
+  ],
+  "acceptance": [
+    "python3 -m unittest -q test_stock passe",
+    "test_stock.py et README.md sont inchangés",
+    "sans seuil, rapport() rend exactement le texte d'avant"
+  ],
+  "checks": [
+    {
+      "command": "python3 -m unittest -q test_stock",
+      "covers": [
+        1
+      ]
+    },
+    {
+      "command": "[ \"$(shasum -a 256 test_stock.py README.md | shasum -a 256 | cut -c1-64)\" = \"f21e544f7ade4e32c17eeead220651de43733e4096285e74721809fce86c0422\" ]",
+      "covers": [
+        2
+      ]
+    },
+    {
+      "command": "python3 -c \"from rapport import rapport; assert rapport({'vis': 2, 'clou': 10}) == 'clou : 10\\nvis : 2\\nTotal : 12'\"",
+      "covers": [
+        3
+      ]
+    }
+  ],
+  "openQuestions": [],
+  "budgets": {
+    "maxSteps": 60
+  }
+}

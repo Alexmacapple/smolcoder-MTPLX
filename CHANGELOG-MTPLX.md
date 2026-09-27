@@ -1587,7 +1587,7 @@ requêtes — lecture de `log:1`, de `log:99`, écriture et édition de `log:1`
 sous un HOME et un cache npm temporaires neufs. SHA `f93de98` reporté sur
 l'entrée précédente.
 
-### (ce commit) — Tests : journaux npm hors du vrai HOME — Closes #41
+### `546594e` — Tests : journaux npm hors du vrai HOME — Closes #41
 
 `scripts/test.cjs`, `test/suite-hors-home.test.js` (nouveau). La suite
 écrivait dans le vrai dossier personnel : un passage de
@@ -1603,6 +1603,165 @@ Rouge d'abord : le nouveau test, qui exige un cache npm sous le dossier
 temporaire, échouait (« npm_config_cache is not set », 328 verts et 1
 échec). Après correctif : 329/329, aucun nouveau journal dans `~/.npm/_logs`,
 aucun cache jetable restant. SHA `f85b7fe` reporté sur l'entrée précédente.
+
+### `21e9cd6` — Plan proposé et approuvé avec le contrat — Réf #29
+
+`src/harness/store.ts`, `src/harness/mission.ts`, `src/plan.ts`,
+`src/tools/index.ts`, `src/agent.ts`, `src/session.ts`, `src/index.ts`,
+`test/plan-mission.test.js` (nouveau), `docs/decision-stockage-hote.md`,
+`docs/profil-mission.md`. Ticket #29 (H08), premier commit : le plan
+d'implémentation proposé avant approbation et approuvé avec le contrat ; les
+écarts après approbation viennent au commit suivant. Hors `--mission`, rien
+ne change.
+
+Sous `--mission`, l'outil `plan` gagne l'action `propose` (champs plats
+`steps`, `files`, `risks`, `proofs` en lignes « N: preuve ») : l'hôte valide,
+journalise et pose le plan sur la checklist existante, étendue d'un détail
+structuré (`Plan.details`) plutôt que doublée d'un second système ; ce détail
+voyage avec les étapes, compaction comprise. La preuve attendue s'aligne sur
+#9 sans la dupliquer : un critère couvert par un contrôle de l'hôte a déjà la
+sienne, un critère ni couvert ni prévu est signalé au modèle, à l'humain avant
+la question de `/approve`, et dans la ligne `[mission]`. `/approve` (terminal,
+web) montre le contrat puis le plan et approuve les deux dans le même geste ;
+en headless, `--propose-plan` (run de lecture seule sous un contrat proposé,
+sortie 3) puis `--approve <contrat> --approve-plan <plan>`. Une approbation
+par sujet : `--approve-plan` n'existe qu'avec `--approve`, la nouvelle
+approbation des entrées du vérificateur garde le plan approuvé. Décision : plan
+facultatif par défaut, exigible par le champ de contrat `"plan": "required"`.
+
+Grammaire, amendée explicitement dans `docs/decision-stockage-hote.md`
+(section du 2026-09-27, ticket #29) : cinquième événement `plan` (`proposed`,
+contenu entier, empreinte vérifiée à la lecture), champ facultatif `plan` de
+l'approbation (événement et `contract.json`), champ facultatif `plan` du
+contrat, hors empreinte quand il est absent. Choix du journal plutôt qu'un
+`plan.json`, et du stockage hôte plutôt qu'un `plan.md` du workspace, motivés
+dans l'amendement.
+
+Vérifications. Onze tests « H08 » de `test/plan-mission.test.js`, fournisseur
+simulé : AC1 en terminal, en web et en headless (vrai CLI jusqu'à la
+décision, approbation par `authorizeHeadless`), drapeaux mal employés, run de
+proposition, AC2 (signalement, vocabulaire et erreurs de grammaire), plan
+exigé, plan laissé de côté, AC5 hors mission et sous mission sans plan. Rouge
+constaté avant le code : dix échecs, chacun sur la fonction, l'action ou le
+drapeau absent ; les deux tests AC5 passaient déjà sur la base, à la seule
+ligne `planView()` près (nouvelle API), et leur rouge est montré par mutation
+du code compilé (schéma de mission appliqué hors `--mission`, clé `plan`
+toujours présente dans la ligne `[mission]`), `dist/` reconstruit ensuite.
+`npm test` 339/339 (328 et 11 nouveaux) et `npm run test:os` 22/22, aucun
+test sauté, sous un HOME et un cache npm temporaires. SHA `f85b7fe` reporté
+sur l'entrée précédente.
+
+### `ec82098` — Écarts au plan approuvé journalisés — Réf #29
+
+`src/harness/store.ts`, `src/harness/mission.ts`, `src/harness/proofs.ts`,
+`src/plan.ts`, `src/tools/index.ts`, `src/agent.ts`,
+`test/plan-mission.test.js`, `docs/decision-stockage-hote.md`,
+`docs/profil-mission.md`, `docs/decision-preuves-acceptation.md`,
+`docs/skills/revue-de-code.md`. Ticket #29 (H08), deuxième commit : après
+approbation, le plan guide sans enfermer. Hors `--mission`, et sous mission
+sans plan approuvé, rien ne change.
+
+Sous un contrat approuvé avec son plan, une écriture (`write_file`,
+`edit_file`) sur un fichier absent du plan a lieu et laisse un écart `file`
+au journal, une fois par chemin, avec une note qui invite le modèle à dire
+pourquoi ; seule la politique d'accès de #11 refuse. Une étape ajoutée ou
+retirée (`add`, `set`) ou un plan réécrit (`propose` après approbation)
+laisse un écart par rubrique changée (étapes, fichiers, risques, preuves),
+avant, après et motif (`reason`, ou `null` et une invitation à le donner) ;
+`add` accepte `files` et `reason`. `done` et `checkpoint` ne sont pas des
+écarts. Un changement que l'hôte ne peut pas enregistrer est annulé et dit au
+modèle, jamais tu. La version approuvée n'est jamais réécrite : la version
+courante se reconstruit en rejouant les écarts, et les deux restent lisibles
+— `/mission` (plan approuvé, plan courant, écarts « journalisés, jamais
+bloquants »), rubrique `plan` de `report.json` et de `report.md` (après le
+bilan des critères, sans effet sur aucun statut), nombre d'écarts dans le
+bloc du contrat. Une session suivante repart de la version courante.
+
+Grammaire, amendement du ticket #29 complété dans
+`docs/decision-stockage-hote.md` : nature `deviation` de l'événement `plan`
+(`change` fermé `file | steps | files | risks | proofs`, `before`, `after`,
+`reason`), rubrique facultative `plan` du rapport. La fiche
+`docs/skills/revue-de-code.md` mentionnait le plan approuvé « quand il
+existe » : texte précisé (où le lire, écarts journalisés sans blocage), resté
+générique ; `docs/skills/verification-finale.md` ne le mentionne pas.
+
+Vérifications. Trois tests « H08 » de plus : AC3 (fichier hors plan écrit et
+journalisé, sans refus, `.env` refusé par la politique seule, fichier ajouté
+au plan avec son motif, visibilité dans `/mission`, `report.json`,
+`report.md` et le bloc du contrat), AC3 (étape ajoutée et retirée, avec et
+sans motif ; `done` et `checkpoint` sans écart), AC4 (plan réécrit : version
+approuvée intacte dans le journal et l'approbation, version courante
+reconstruite, les deux dans `/mission` et le rapport, session suivante).
+Rouge constaté avant le code : aucune note d'écart, réécriture refusée
+(« already approved with its plan »). `npm test` 342/342 (339 et 3 nouveaux)
+et `npm run test:os` 22/22, aucun test sauté, sous un HOME et un cache npm
+temporaires. SHA `21e9cd6` reporté sur l'entrée précédente.
+
+### `ed4ba0b` — Plan en headless sur le vrai binaire — Réf #29
+
+`test/os/e2e.os.test.js`, `docs/profil-mission.md`. Ticket #29 (H08),
+troisième commit : aucun code touché, la preuve de bout en bout du parcours
+headless, qui tient en deux runs du vrai binaire et que `npm test` ne
+couvrait que par ses briques (`authorizeHeadless`, CLI jusqu'à la décision).
+
+Test « H08 OS » (dans `npm run test:os`, macOS réel, faux serveur
+OpenAI-compatible local qui joue le modèle, faux dossier personnel ; aucun
+MTPLX). Premier run, `--propose-plan` : le modèle ne reçoit que les outils de
+lecture et `plan` (avec `propose`), la requête porte la consigne du run de
+proposition, rien n'est écrit dans le workspace ; sortie 3, vue du contrat et
+du plan sur la sortie standard, dernière ligne `[mission]` avec
+`plan.state` `proposed`, l'empreinte du plan et `missingProofs` vide (le seul
+critère est couvert par un contrôle de l'hôte) ; journal : proposition du
+contrat, proposition du plan, ni approbation ni verdict. Second run,
+`--approve <contrat> --approve-plan <plan>` : l'événement `approval` porte les
+deux empreintes, le bloc du contrat dit `Plan: approved`, l'écriture d'un
+fichier hors plan passe avec sa note et laisse un écart `file`, le contrôle
+de l'hôte passe dans le bac, sortie 0, `report.json` `verified` avec un écart
+qui ne change aucun statut, rien du plan ni du rapport dans le workspace.
+
+Rouge constaté sur le binaire de base `f149f90` (arbre extrait par
+`git archive`, construit à part, même fichier de test) : `Unknown option
+"--propose-plan"`, sortie 1 au lieu de 3. `npm test` 342/342 et `npm run
+test:os` 23/23 (22 et 1 nouveau), aucun test sauté, sous un HOME et un cache
+npm temporaires. SHA `ec82098` reporté sur l'entrée précédente.
+
+### `9502a2e` — Protocole de mesure du plan approuvé — Réf #29
+
+`docs/protocole-mesure-plan-approuve.md` (nouveau),
+`docs/protocole-mesure-plan-approuve/` (nouveau : fixtures, contrats,
+consignes, périmètres, `controle.py`, `essai.sh`, `mesures.py`),
+`docs/profil-mission.md`, `README.md`. Ticket #29 (H08), dernier commit : le
+critère « effet sur Qwen mesuré par le banc » n'est pas joué, MTPLX étant
+occupé par l'étude #33. Le protocole est écrit à la place, règle de décision
+figée avant tout essai.
+
+- Binaire figé : `ed4ba0b`, un seul pour les deux bras, `dist/` identique à
+  celui d'`ec82098` ; empreinte attendue
+  `6c103f86…208c0348`, construction vérifiée reproductible (deux
+  constructions identiques, identiques au `dist/` du worktree).
+- Deux bras appariés, même contrat, même consigne : sans plan (parcours
+  d'avant #29) et avec plan (`--propose-plan`, approbation mécanique du plan
+  proposé, `--approve-plan`). Trois tâches Python multi-fichiers, cinq
+  répétitions, ordre alterné.
+- Mesures lues dans les fichiers : réussite réelle par un contrôle
+  indépendant que le modèle ne voit pas, fichiers hors du périmètre attendu
+  (dans les deux bras), appels d'outils et du modèle, écarts journalisés,
+  précision et rappel du plan, durée.
+- Règle : validité, faisabilité (plan proposé dans 12 runs sur 15 au moins),
+  blocages, effet démontré, coût ; issues possibles écrites à l'avance, la
+  décision reste à Alex.
+
+Vérifications sans modèle réel : chaque fixture échoue avant la tâche et
+passe après une solution minimale (hors dépôt) ; les neuf contrôles de l'hôte
+échouent ou passent comme attendu ; `controle.py` refuse la fixture, accepte
+la solution, refuse un test retouché ; `essai.sh` et `mesures.py` joués à
+blanc dans les deux bras contre un faux serveur OpenAI-compatible local et le
+binaire figé (proposition sortie 3, travail sortie 0 `verified`, écart `file`
+compté), sous un HOME temporaire, sans MTPLX. Corrigé pendant cet essai à
+blanc : l'étiquette Git `reference`, sans laquelle le diff du périmètre
+échouait. Aucun code touché : `npm test` 342/342 et `npm run test:os` 23/23
+sur l'arbre final, aucun test sauté. SHA `ed4ba0b` reporté sur l'entrée
+précédente.
 
 ## Hors dépôt (machine locale)
 
