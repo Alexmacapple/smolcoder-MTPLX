@@ -3,7 +3,9 @@
 Statut : rédigée le 2026-09-27 pour le ticket #16 (H03-2, chapeau #12),
 après évaluation sur le Mac cible (macOS 27.0, Apple Silicon) ; la fusion
 de la pull request qui porte cette page vaut acceptation. S'en écarter
-ensuite exige une nouvelle validation.
+ensuite exige une nouvelle validation. Amendée par #17 : l'empreinte des
+outils devient une allow-list mesurée entrée par entrée
+(`docs/allowlist-outils.md`), qui resserre le profil décrit ci-dessous.
 
 ## Problème
 
@@ -65,13 +67,13 @@ derrière le contrat d'exécuteur (`src/harness/sandbox-executor.ts`). Le
 profil est généré depuis la politique à chaque lancement, dans cet ordre
 (la dernière règle qui correspond l'emporte) :
 
-- refus par défaut ; fork, exec, signaux et informations de processus
-  limités au même bac ; quatre services Mach (annuaire des comptes,
-  notifications, journal) ;
-- lecture : métadonnées partout (`stat`, `realpath`), contenu d'une liste
-  fixe de racines du système (`/usr`, `/bin`, `/sbin`, `/System`,
-  `/Library`, `/opt`, `/private/etc`…), sauf les données de services de
-  Homebrew, et du workspace ;
+- refus par défaut ; fork, exec et signaux limités au même bac ; un seul
+  service Mach, l'annuaire des comptes (#17 : informations de processus,
+  notifications et journal retirés faute de besoin mesuré) ;
+- lecture : métadonnées partout (`stat`, `realpath`), contenu de l'allow-list
+  de l'empreinte des outils (#17 : `/usr`, `/System`, `/Library/Developer`,
+  `/opt`, `/private/etc`, fuseaux horaires, nœuds nommés de `/dev`), sauf les
+  données et la configuration de services de Homebrew, et du workspace ;
 - écriture : le workspace et un TMPDIR privé (créé par session, mode 0700,
   hors du workspace), que l'exécuteur pose dans l'environnement — son seul
   ajout à l'environnement minimal de #11 ;
@@ -80,7 +82,10 @@ profil est généré depuis la politique à chaque lancement, dans cet ordre
 - stockage hôte de smol et fichier de configuration : ni lus ni modifiés,
   même si le workspace les contient ;
 - réseau : fermé, sauf les destinations `localhost:<port>` que nomme le
-  champ `network` de `policy.json` (absent : aucune) ; aucune écoute.
+  champ `network` de `policy.json` (absent : aucune) ; écoute sur les seuls
+  ports que nomme `listen` (#17 ; absent : aucune) ;
+- champs facultatifs de #17 : `tools` (dossiers d'outils en lecture seule)
+  et `git: "read"` (`.git` lisible, jamais modifiable).
 
 À sa création, le backend est sondé : `sandbox-exec` présent, profil
 accepté, exécution possible, stockage hôte illisible depuis le bac. Un
@@ -96,11 +101,13 @@ hôte reste inchangé.
   renforcé bloque alors au lieu de se dégrader.
 - Réseau : l'hôte d'une règle n'est que `localhost` ou `*`. Aucun filtrage
   par nom ni par adresse distante ; la voie serait un proxy filtrant côté
-  hôte (#17). `localhost:<port>` en sortie vaut cette machine (loopback et
-  son adresse sur le réseau local, mesuré). L'écoute sur `localhost:<port>`
+  hôte, que #17 n'a pas retenu : un registre ou un miroir local, lancé par
+  l'hôte, se nomme dans `network`. `localhost:<port>` en sortie vaut cette
+  machine (loopback et son adresse sur le réseau local, mesuré). L'écoute
+  sur `localhost:<port>`
   n'est pas bornée au loopback (écoute sur `::` acceptée et joignable du
-  réseau local, mesuré) : aucune écoute n'est accordée, un serveur de
-  développement sous isolation relève de #17 et #18.
+  réseau local, mesuré) : #17 l'accorde port par port par `listen`, avec
+  cette limite dite dans la ligne d'état (`docs/allowlist-outils.md`).
 - Fichiers : ni option d'insensibilité à la casse ni anticipation négative.
   La casse est écrite lettre par lettre ; une exception ne rouvre qu'un nom
   final, jamais le contenu d'un dossier excepté (plus strict que la
@@ -111,12 +118,13 @@ hôte reste inchangé.
   reste confiné (mesuré). Les lignes de commande des autres processus du
   compte restent lisibles (`KERN_PROCARGS2`), pas leur environnement : ne
   jamais passer un secret en argument.
-- Empreinte des outils (#17) : le dossier personnel étant illisible, git
-  s'arrête dès qu'un `~/.gitconfig` existe, et la politique par défaut
-  protège `.git` ; les outils installés sous le dossier personnel (nvm,
-  `~/.local/bin`) ne se lancent pas ; le `/tmp` partagé n'est pas accordé,
-  seul le TMPDIR borné l'est ; un outil qui demande un autre service Mach
-  échoue.
+- Empreinte des outils (#17, `docs/allowlist-outils.md`) : sous la
+  politique par défaut, git s'arrête dès qu'un `~/.gitconfig` existe et
+  `.git` reste protégé, les outils installés sous le dossier personnel (nvm,
+  `~/.local/bin`) ne chargent ni leurs bibliothèques ni leurs scripts ; le
+  `/tmp` partagé n'est pas accordé, seul le TMPDIR borné l'est ; un outil qui
+  demande un autre service Mach échoue. L'appelant ouvre git en lecture
+  (`git: "read"`) et nomme les dossiers d'outils (`tools`).
 
 ## Alternatives écartées
 
@@ -130,16 +138,19 @@ hôte reste inchangé.
 - Compte système dédié (`sudo -u`) : exige l'administration du Mac et ne
   ferme pas le réseau.
 - `@anthropic-ai/sandbox-runtime` : repose sur le même Seatbelt, plus un
-  proxy ; nouvelle dépendance non essayée ici, piste pour le proxy de #17.
+  proxy ; nouvelle dépendance non essayée ici ; #17 n'a pas eu besoin d'un
+  proxy.
 - Le seul scan textuel de `src/sandbox.ts` : faux négatifs connus ; il
   reste le refus précoce, pas la frontière.
 
 ## Conséquences pour les tickets
 
-- #17 : allow-list de l'empreinte — binaire node et outils sous le dossier
-  personnel, cache npm, `~/.gitconfig` et `.git`, registre par un proxy
-  filtrant, écoute d'un serveur de développement ; chaque entrée justifiée
-  et testée.
+- #17 : allow-list de l'empreinte, livrée dans `docs/allowlist-outils.md` —
+  binaire node et outils sous le dossier personnel (`tools`), cache npm
+  (lecture seule par `tools`, ou borné au TMPDIR), `.git` en lecture seule
+  (`git: "read"`, `~/.gitconfig` jamais lu), registre seulement comme
+  destination loopback nommée, écoute d'un serveur de développement
+  (`listen`) ; chaque entrée justifiée et testée.
 - #18 : indication de l'isolation dans l'interface au-delà de la ligne
   d'ouverture, campagne OS complète archivée au format du banc ; sort des
   sondes internes `src/tools/check.ts` et `src/detect.ts`, restées hors de

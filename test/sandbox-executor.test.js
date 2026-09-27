@@ -50,7 +50,8 @@ test("H03-2 AC1: the Seatbelt profile is generated from the policy — deny by d
   const lines = profile.split("\n").filter((l) => l && !l.startsWith(";"));
   assert.equal(lines[0], "(version 1)");
   assert.equal(lines[1], "(deny default)", "everything not granted below is refused");
-  for (const root of ["/usr", "/bin", "/System", "/Library", "/private/etc"]) {
+  // #17 : /bin et /Library entier ne sont plus accordés (docs/allowlist-outils.md).
+  for (const root of ["/usr", "/System", "/Library/Developer", "/opt", "/private/etc"]) {
     assert.ok(profile.includes(`(subpath "${root}")`), `${root} is readable`);
   }
   assert.ok(profile.includes(`(allow file-read* file-write* (subpath "${WS}") (subpath "${TMPD}"))`), "the workspace and the bounded TMPDIR are readable and writable");

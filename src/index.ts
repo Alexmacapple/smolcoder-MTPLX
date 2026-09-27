@@ -325,8 +325,9 @@ async function runHeadless(args: CliArgs, mission: Mission | null): Promise<void
   if (chosen.note) ui.warn(`  ${chosen.note}`);
   if (mission && mode === "bypass") ui.status(BYPASS_UNDER_MISSION);
   if (isolation) {
-    process.stderr.write(`[isolation] ${JSON.stringify(isolation.status)}\n`);
-    ui.status(isolationLine(isolation.status));
+    const listen = isolation.listening();
+    process.stderr.write(`[isolation] ${JSON.stringify({ ...isolation.status, ...(listen.length ? { listen } : {}) })}\n`);
+    ui.status(isolationLine(isolation.status, listen));
   }
   const effortSetting = args.effort !== undefined ? args.effort : (cfg.effort ?? null);
   ui.status(`  effort ${provider.effortLabel() ?? effortSetting ?? "default"}`);

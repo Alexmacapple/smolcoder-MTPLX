@@ -383,12 +383,14 @@ export function appendProof(dir: string, input: ProofInput): ProofEvent {
 // Écrite par l'hôte (la politique par défaut du profil, à la préparation) ou
 // par l'appelant de confiance, à la main ; jamais par un outil du modèle ni
 // par un fichier du workspace. Schéma fermé, tous les champs obligatoires :
-// une politique partielle est illisible, pas complétée en silence. Seule
-// exception, `network` (#16) : son absence vaut la valeur la plus stricte,
-// aucune destination, et laisse intacte la version des politiques écrites
-// avant lui. Aucune valeur ne peut rendre le profil plus large que le
-// sandbox courant : pas de règle « tout autoriser » pour les commandes, et
-// les chemins restent confinés au workspace quoi que dise la politique. Sa
+// une politique partielle est illisible, pas complétée en silence. Seules
+// exceptions, `network` (#16), puis `tools`, `git` et `listen` (#17) : leur
+// absence vaut la valeur la plus stricte (rien d'accordé) et laisse intacte
+// la version des politiques écrites avant eux ; ils ne règlent que le bac des
+// commandes isolées, jamais les outils de fichiers du modèle. Aucune valeur
+// ne peut rendre le profil plus large que le sandbox courant : pas de règle
+// « tout autoriser » pour les commandes, et les chemins de `paths` restent
+// confinés au workspace quoi que dise la politique. Sa
 // version est son empreinte : elle se constate, elle n'est jamais un champ
 // modifiable.
 
@@ -415,6 +417,19 @@ export interface AccessPolicy {
    * forme `localhost:<port>` : Seatbelt ne sait pas filtrer un hôte distant
    * (docs/decision-backend-isole.md). Absent : aucune. */
   network?: string[];
+  /** Dossiers absolus hors du workspace dont les commandes isolées lisent le
+   * contenu, jamais l'écrivent : node installé sous le dossier personnel,
+   * cache npm d'une installation hors ligne, dossier git d'un worktree
+   * (docs/allowlist-outils.md). Absent : aucun. */
+  tools?: string[];
+  /** `read` : le contenu de `.git` devient lisible par les commandes isolées,
+   * jamais modifiable (ni commit, ni index, ni hook). Absent : `.git` suit
+   * `paths`. */
+  git?: "read";
+  /** Ports sur lesquels les commandes isolées peuvent écouter, de la forme
+   * `localhost:<port>` ; joignables du réseau local si le programme écoute
+   * sur toutes les interfaces (docs/allowlist-outils.md). Absent : aucun. */
+  listen?: string[];
 }
 
 /** La politique par défaut du profil : celle du sandbox courant, en plus
@@ -429,11 +444,19 @@ export const DEFAULT_POLICY: AccessPolicy = {
 
 export type PolicyRead = { state: "absent" } | ReadFailure | { state: "ok"; policy: AccessPolicy; version: string };
 
-const POLICY_FIELDS = ["schema", "paths", "commands", "tasks", "env", "network"];
-const OPTIONAL_POLICY_FIELDS = ["schema", "network"];
+const POLICY_FIELDS = ["schema", "paths", "commands", "tasks", "env", "network", "tools", "git", "listen"];
+const OPTIONAL_POLICY_FIELDS = ["schema", "network", "tools", "git", "listen"];
 const PATTERN_RE = /^[^\\/\x00]{1,100}$/;
 const ENV_NAME_RE = /^[A-Za-z_][A-Za-z0-9_]{0,99}$/;
 const POLICY_ITEMS_MAX = 50;
+const TOOL_PATH_MAX = 1024;
+
+/** Un dossier d'outils : chemin absolu écrit sous sa forme normale (ni `..`,
+ * ni `//`, ni barre finale), jamais la racine, sans caractère de contrôle.
+ * Grammaire partagée avec le profil Seatbelt. */
+export function isToolFolder(v: unknown): v is string {
+  return typeof v === "string" && v.length <= TOOL_PATH_MAX && v !== "/" && path.posix.isAbsolute(v) && path.posix.normalize(v) === v && !v.endsWith("/") && !/[\x00-\x1f\x7f]/.test(v);
+}
 
 /** Une destination réseau nommée : `localhost:<port>`, port de 1 à 65535
  * écrit sans zéro de tête. Grammaire partagée avec le profil Seatbelt. */
@@ -473,13 +496,24 @@ function parsePolicyBody(raw: Record<string, unknown>): AccessPolicy {
   if (network !== undefined && (!Array.isArray(network) || network.length > POLICY_ITEMS_MAX || !network.every(isNetworkDestination))) {
     throw new ContractError(`policy field "network" must be a list of at most ${POLICY_ITEMS_MAX} destinations "localhost:<port>" (port 1-65535): the isolated backend cannot filter a remote host`);
   }
+  const { tools, git, listen } = raw;
+  if (tools !== undefined && (!Array.isArray(tools) || tools.length > POLICY_ITEMS_MAX || !tools.every(isToolFolder))) {
+    throw new ContractError(`policy field "tools" must be a list of at most ${POLICY_ITEMS_MAX} absolute folders written in normal form (no "..", no trailing "/", not "/")`);
+  }
+  if (git !== undefined && git !== "read") throw new ContractError('policy field "git" must be "read" (git may read .git, never write it) or absent');
+  if (listen !== undefined && (!Array.isArray(listen) || listen.length > POLICY_ITEMS_MAX || !listen.every(isNetworkDestination))) {
+    throw new ContractError(`policy field "listen" must be a list of at most ${POLICY_ITEMS_MAX} ports "localhost:<port>" (port 1-65535)`);
+  }
   return {
     paths: { protect: patterns(paths, "protect"), except: patterns(paths, "except") },
     commands: rule(raw, "commands"),
     tasks: rule(raw, "tasks"),
     env: env as string[],
-    // Absent : absent aussi du résultat, pour que l'empreinte ne change pas.
+    // Absents : absents aussi du résultat, pour que l'empreinte ne change pas.
     ...(network !== undefined ? { network: network as string[] } : {}),
+    ...(tools !== undefined ? { tools: tools as string[] } : {}),
+    ...(git !== undefined ? { git: "read" as const } : {}),
+    ...(listen !== undefined ? { listen: listen as string[] } : {}),
   };
 }
 

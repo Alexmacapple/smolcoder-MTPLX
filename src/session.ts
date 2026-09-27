@@ -490,7 +490,7 @@ export class Session {
           ? "· mission profile: the contract is approved; the agent works within it"
           : "· mission profile: the agent can read and plan; writes and commands stay blocked until you type /approve"
       );
-      if (this.executor) ui.status(isolationLine(this.executor.status));
+      if (this.executor) ui.status(isolationLine(this.executor.status, this.executor.listening()));
       this.noteBypassUnderMission();
     }
   }
