@@ -1186,7 +1186,7 @@ de tourner sans `SMOL_NO_FICHES=1`, et le test rendait `statut
 blocage_harnais au lieu de succes` (sortie 1) ; avec le correctif, PASS
 (sortie 0). Mesurer l'effet des fiches elles-mêmes relève de l'étude #33.
 
-### (ce commit) — README : chantiers restants à jour
+### `91f8cd6` — README : chantiers restants à jour
 
 `README.md`. La liste « Chantiers restants » ne citait plus que #19 et #10
 depuis la fermeture du chapeau #12. Elle suit l'ordre acté : #9 (preuves
@@ -1194,6 +1194,53 @@ d'acceptation protégées, socle déjà livré), #19, #29 (plan approuvé avec l
 contrat), puis #10 ; l'étude #33, porte d'entrée du chantier
 d'apprentissage #34, est mise à part, en attente de décision. SHA `83fc9be`
 reporté sur l'entrée précédente.
+
+### (ce commit) — Décision et briques des preuves d'acceptation — Réf #9
+
+`docs/decision-preuves-acceptation.md` (nouveau),
+`docs/decision-stockage-hote.md`, `src/harness/store.ts`,
+`src/harness/proofs.ts` (nouveau), `test/proofs.test.js` (nouveau). Ticket
+#9 (H04), premier de trois commits : la décision et les briques, sans
+câblage ; aucun comportement ne change.
+
+La décision fixe les définitions — statuts `passed / failed / not_run /
+error` et leurs motifs fermés, zéro test, contrôle sauté, état de la tâche
+distinct de la décision humaine d'accepter, identité du vérificateur,
+fichiers vérifiés, preuve périmée — et le mécanisme anti-altération retenu :
+les entrées du vérificateur (tests, configuration, scripts qui les exécutent)
+figées à l'approbation de l'hôte, trois gardes (comparaison avant chaque
+tentative, tampons du noyau pendant le contrôle, état constaté à chaque
+rapport) et une nouvelle approbation humaine qui nomme l'empreinte exacte
+pour toute modification légitime. Alternatives écartées : copie de
+confiance, protection par la politique, révision Git de base, signature,
+juge LLM, suspension des tâches de fond. Limites nommées.
+
+Grammaire (`store.ts`), amendée explicitement dans
+`docs/decision-stockage-hote.md` (section du 2026-09-27, ticket #9) : champ
+facultatif `checks` du contrat (absent, l'empreinte des contrats existants
+ne change pas), `verifiers` de l'approbation (carte figée, 1 000 chemins au
+plus, empreinte vérifiée à la lecture) et de l'événement `approval`, champs
+fermés de l'événement `verdict`, deux projections `report.json` et
+`report.md` (écriture atomique, jamais relues par le code). Briques
+(`proofs.ts`) : empreinte bornée du workspace (hors `node_modules`, `.git`
+et noms protégés, liens non suivis), sélection des entrées du vérificateur
+(conventions des lanceurs, scripts nommés par les commandes et par les
+scripts npm qu'elles atteignent, sorties de build et dossiers temporaires
+exclus), écarts et tampons, lecture des résumés de tests (node:test, TAP,
+Jest, Mocha, Vitest, pytest), statut d'un contrôle depuis `CommandResult`,
+constat npm avant exécution, critères d'une mission, rapport et son rendu
+Markdown, code de sortie 5.
+
+Vérifications. Quatre tests (« H04 store » ×2, « H04 zero tests », « H04
+verifier identity ») ; le rouge est montré par mutation du code compilé,
+chacune rouge pour sa raison : grammaire du verdict ouverte (« Missing
+expected exception » sur un statut `green`), double couverture d'un critère
+acceptée, résumés de tests ignorés (`ℹ tests 0` lu comme inconnu), cible de
+redirection prise pour un script — cette dernière mutation est d'abord
+restée verte, faute d'un cas qui l'exerce : `2> err.log node x.js` a été
+ajouté, puis rouge. `dist/` restauré (empreintes SHA-256 comparées).
+`npm test` 296/296 (292 et 4 nouveaux) et `npm run test:os` 21/21, aucun
+test sauté. SHA `91f8cd6` reporté sur l'entrée précédente.
 
 ## Hors dépôt (machine locale)
 
