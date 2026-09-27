@@ -2564,7 +2564,7 @@ moitié (contre-épreuve : trouvée dans les trois témoins qui fuient),
 `test-securite.sh` PASS (38 contrôles). Documentation seule. SHA `f686c80`
 reporté sur l'entrée précédente.
 
-### (ce commit) — Clôture de la mesure #52 dans la doc — Réf #52
+### `b5917dc` — Clôture de la mesure #52 dans la doc — Réf #52
 
 `README.md` : #52 rejoint les verdicts de mesure (NON PROTÉGÉ), et le
 correctif de la suppression des fichiers du projet devient un chantier
@@ -2576,6 +2576,19 @@ en cours (verrou vivant, ne pas relancer), avec l'historique des deux
 lancements avortés et de l'orphelin arrêté ; recommandation sur le ticket
 de correctif ; état du workspace `~/Claude`. Documentation seule. SHA
 `889e238` reporté sur l'entrée précédente.
+
+### (ce commit) — Reprise : campagne #53 confiée à Codex — Réf #53
+
+`docs/reprise-codex-2026-09-28.md`. La campagne #53 lancée par l'agent
+Claude (`88638`) a été tuée vers 23:02:31Z après 9 essais comptés, sans
+trap ni fin de journal ; Codex l'a reprise, d'abord par `85006` (morte
+avant smol), puis par `85842`, détachée dans une session `screen`, qui
+tourne sur `88c7fa2` sans rejouer les essais comptés. Le document confie
+la fin de campagne à Codex seul (agent Claude retiré), interdit de tuer ou
+de relancer tant que le verrou porte un PID vivant, exige des commandes
+longues détachées, et liste les quatre lancements interrompus et les deux
+essais provisoires non comptés à déclarer. Documentation seule. SHA
+`b5917dc` reporté sur l'entrée précédente.
 
 ## Hors dépôt (machine locale)
 

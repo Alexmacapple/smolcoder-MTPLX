@@ -1,7 +1,7 @@
 # Reprise du chantier smolcoder-MTPLX par Codex
 
 Passage de relais du 2026-09-28, 00 h 15 (heure de Paris), mis à jour à
-00 h 55 après la fusion de #52. Rédigé par Claude en fin de session, pour
+00 h 55 après la fusion de #52, puis à 01 h 10 pour la campagne #53. Rédigé par Claude en fin de session, pour
 Codex qui reprend. Les faits cités ont été vérifiés à l'heure indiquée ;
 relire l'état réel (`git`, `gh`, `ps`) avant d'agir.
 
@@ -70,15 +70,20 @@ dépend, et un correctif de sécurité à décider.
   - pré-enregistrement `88c7fa2`, SHA complet `88c7fa22dff9d0771dce03c21c54c695e062a9c1` ;
   - page : `docs/etude-confirmation-copie-figee-2026-09-27.md` ;
   - outillage : `bench/confirmation-copie-figee/`, qui réutilise `bench/lecons-fiches/`.
-- **État à 00 h 55 : campagne EN COURS, ne pas la relancer.**
-  - Campagne `20260927T223648Z-88638`, relancée à 22:36:48Z (UTC) par l'agent Claude de #53, après la fin de #52, sur `88c7fa2`. Elle tient `bench/confirmation-copie-figee/resultats/.verrou-campagne` (PID 88638, vivant), et son processus parent est `bash /tmp/relance-53.sh`.
-  - **Tant que ce verrou porte un PID vivant (`kill -0 $(cat …/.verrou-campagne)`), ne lancer aucune campagne #53 et ne rien écrire dans ce worktree.**
+- **État à 01 h 10 : campagne EN COURS, lancée par Codex, qui en est seul propriétaire.**
+  - Campagne `20260927T230346Z-85842`, sur `88c7fa2`, arbre propre. Elle tient `bench/confirmation-copie-figee/resultats/.verrou-campagne` (PID 85842, vivant). Elle est détachée : `SCREEN -dmS smol53-codex-20260928`, dont le parent est `launchd`. C'est la bonne manière de lancer une campagne, qui survit ainsi à tout délai d'appel d'outil et à la fin d'une session d'agent.
+  - Elle a repris sans rejouer les 9 essais déjà comptés (répétition 1 complète), comme le prévoit le protocole.
+  - **L'agent Claude de #53 est retiré** et n'écrit plus rien dans ce worktree. Codex mène seul la fin de campagne : étape A/A commitée avant toute lecture de B, rapport, vérification, puis PR.
+  - **Tant que le verrou porte un PID vivant (`kill -0 $(cat …/.verrou-campagne)`) :** ne tuer aucun processus de la campagne, n'en lancer aucune autre, ne rien écrire dans ce worktree.
+  - **Commandes longues :** toujours détachées (`screen -dmS`, ou `nohup` et `setsid`), jamais sous le délai d'un appel d'outil.
   - Historique des lancements, à déclarer comme écarts dans le rapport :
     - `20260927T220043Z-79046` : lancée pendant #52 par erreur. Elle a bloqué un essai de #52, puis a été tuée sans fin de journal (probable `SIGKILL`) ; aucun essai compté.
-    - `20260927T223644Z-88399` : seconde campagne lancée à 22:36:44Z, quatre secondes avant la relance légitime, vraisemblablement par Codex qui suivait l'ancienne version de ce document. Elle est morte aussitôt en laissant un smol orphelin (PID 88603), arrêté par Claude à 22:40Z, après vérification de son binaire, de son workspace et de sa requête. Cet orphelin a occupé MTPLX avant le premier essai de la campagne légitime.
-  - Si la campagne 88638 s'arrête avant d'avoir fini (verrou au PID mort, pas de ligne « campagne terminée » dans `resultats/relance.log`) : relancer depuis le worktree par `ETUDE_ATTENTE_ESSAIS=4320 bench/confirmation-copie-figee/campagne.sh`, sans commit, par un moyen qui survit à la session (`nohup` et `setsid`, ou un terminal d'Alex). Traiter l'essai interrompu comme le prévoit le protocole (invalide, rejoué), et supprimer le verrou mort si le runner ne le fait pas.
-  - Si elle a fini et que l'agent Claude a eu le temps de conclure, son commit A/A puis son rapport sont dans le worktree : `git -C ~/Claude-worktrees/smol-53-confirmation log main..HEAD`. Les vérifier sur pièces avant toute fusion.
+    - `20260927T223644Z-88399` : lancée à 22:36:44Z (UTC), vraisemblablement par Codex. Elle est morte aussitôt en laissant un smol orphelin (PID 88603), arrêté par Claude à 22:40Z après vérification. Cet orphelin a occupé MTPLX avant le premier essai de la campagne suivante.
+    - `20260927T223648Z-88638` : relancée par l'agent Claude, sous un processus guetteur non détaché. Elle a compté 9 essais (répétition 1), puis a été tuée vers 23:02:31Z pendant `copie-devise A2` répétition 2 (dossier `…230106Z…bP2xMX`), sans aucun trap ni fin de journal. Le guetteur est mort au même instant. La cause n'est pas prouvée ; hypothèse : arrêt du groupe de processus par un harnais (délai d'appel d'outil ou nettoyage de fin de tâche).
+    - `20260927T230246Z-85006` : lancée par Codex à 23:02:46Z. Elle a repris le verrou et démarré `copie-devise A2` répétition 2 (dossier `…230248Z…lDE0C3`), puis elle est morte avant de lancer smol ; rien de compté.
+    - Les deux essais interrompus sont restés au statut provisoire `blocage_harnais`, non comptés, et `copie-devise A2` répétition 2 a été rejouée par 85842 (dossier `…230348Z…UbmpSO`).
   - Déclarer aussi le délai d'attente allongé (6 h au lieu de 10 min).
+  - Signalement de transparence : vers 22:52Z, Claude (l'orchestrateur, pas l'analyste) a vu par hasard dans `lancement.log` la ligne de statut d'un essai, probablement `copie-devise B` répétition 1. L'étape A/A reste mécanique.
 - **Volume :** 27 essais, soit 3 tâches neuves × 3 répétitions × séries A, A2, B. Compter environ 1 h 15 de MTPLX.
 - **Règle :** identique à #33, points k1 à k5, dont zéro faux succès et le contrôle A/A.
 - **Relecture indépendante :** approuvée, sans point bloquant.
@@ -91,7 +96,7 @@ dépend, et un correctif de sécurité à décider.
      - noyau `00c9d2d2…5205` et configuration `b1d9853e…cc9e` (non filtrés par `analyse.py`) ;
      - `model_id` constant, `active_requests_max_pendant` ≤ 1, `tests_lances` = 7.
      En B : fiche `a379…2244`, lue dans au moins 5 essais, et relecture à la main de chaque faux succès.
-  4. Déclarer comme écarts : les deux lancements avortés (79046, 88399) et l'orphelin, les essais `mtplx_indisponible` et les rejeux hors ordre.
+  4. Déclarer comme écarts : les quatre lancements interrompus (79046, 88399, 88638, 85006) et l'orphelin, les essais `mtplx_indisponible` et les rejeux hors ordre.
 - **Issue :**
   - KEEP : proposer l'ajout de la leçon dans `docs/skills/diagnostic-bugs.md`, par un commit distinct, sur décision d'Alex, puis réexaminer #34 ;
   - REJECT ou INCONCLUSIVE : fermer #34.
