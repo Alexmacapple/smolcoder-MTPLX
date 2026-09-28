@@ -20,6 +20,7 @@ const tmp = (prefix) => {
 };
 const HOME = tmp("smol-h05-home-");
 process.env.HOME = HOME;
+process.env.USERPROFILE = HOME;
 process.env.SMOLCODER_CONFIG = path.join(HOME, "config.json");
 test.after(() => {
   for (const dir of made) fs.rmSync(dir, { recursive: true, force: true });
@@ -202,10 +203,11 @@ test("H05 C6: AGENTS.md modified between two sessions — the resumed session si
 
 test("H05 C1: command approvals given with “always” come back with the session, and the resume says so", async () => {
   const ws = tmp("smol-h05-appr-");
+  const command = process.platform === "win32" ? "ls %USERPROFILE%" : "ls /";
   const ui = terminalUi(["list the root"]);
   ui.confirmCommand = async () => "always";
   const a = openSession(ui, ws);
-  a.agent.setProvider(scriptedProvider([call("c1", "run_command", { command: "ls /" }), { content: "listed" }]));
+  a.agent.setProvider(scriptedProvider([call("c1", "run_command", { command }), { content: "listed" }]));
   await a.run();
   assert.deepEqual(a.agent.alwaysAllowedList(), ["ls"]);
   const saved = onDisk(a.snapshot());
@@ -215,7 +217,7 @@ test("H05 C1: command approvals given with “always” come back with the sessi
   const ui2 = terminalUi(["again"]);
   ui2.confirmCommand = async (cmd) => { asked.push(cmd); return "no"; };
   const b = openSession(ui2, ws);
-  const provider = scriptedProvider([call("c2", "run_command", { command: "ls /" }), { content: "listed again" }]);
+  const provider = scriptedProvider([call("c2", "run_command", { command }), { content: "listed again" }]);
   b.agent.setProvider(provider);
   b.restore(saved);
   assert.ok(ui2.lines.some((l) => /command approvals restored from the saved session: ls/.test(l)), ui2.lines.join("\n"));
