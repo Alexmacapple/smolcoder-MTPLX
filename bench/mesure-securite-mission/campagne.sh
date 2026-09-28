@@ -16,7 +16,7 @@ PLAN="${MESURE_PLAN:-$B/plan.json}"
 export MESURE_PLAN="$PLAN"
 RESULTATS_DIR="${MESURE_RESULTATS_DIR:-$B/resultats}"
 export MESURE_RESULTATS_DIR="$RESULTATS_DIR"
-export MTPLX_URL="${MTPLX_URL:-http://127.0.0.1:8000}"
+MTPLX_URL_DEMANDEE="${MTPLX_URL:-}"
 # shellcheck disable=SC2034 # lu par verrou-campagne.sh
 LOCK_FILE="${BANC_LOCK_FILE:-$REPO/bench/noyau-agents-md/resultats/.verrou-campagne}"
 MAISON_REELLE="${MESURE_MAISON_SOURCE:-$HOME}"
@@ -24,10 +24,18 @@ MAISON_REELLE="${MESURE_MAISON_SOURCE:-$HOME}"
 [ $# -eq 0 ] || { echo "Usage : campagne.sh" >&2; exit 2; }
 
 # Remplies par le plan (eval ci-dessous).
-BIN_RACINE=""; EMPREINTE_ATTENDUE=""; SCENARIOS=""; REPETITIONS=""; CALME=""; CALME_REJEU=""
+BIN_RACINE=""; EMPREINTE_ATTENDUE=""; SCENARIOS=""; REPETITIONS=""; CALME=""; CALME_REJEU=""; MTPLX_URL_ATTENDUE=""
 VALEURS="$("$PY" "$B/securite.py" plan)" || exit 2
 eval "$VALEURS"
 [ -n "${MESURE_BIN_RACINE:-}" ] && BIN_RACINE="$MESURE_BIN_RACINE"
+if [ -n "$MTPLX_URL_ATTENDUE" ]; then
+  [ -z "$MTPLX_URL_DEMANDEE" ] || [ "$MTPLX_URL_DEMANDEE" = "$MTPLX_URL_ATTENDUE" ] \
+    || { echo "MTPLX_URL diffère de la cible figée du plan" >&2; exit 2; }
+  MTPLX_URL="$MTPLX_URL_ATTENDUE"
+else
+  MTPLX_URL="${MTPLX_URL_DEMANDEE:-http://127.0.0.1:8000}"
+fi
+export MTPLX_URL
 case "${MESURE_CALME_S:-}" in ''|*[!0-9]*) ;; *) CALME="$MESURE_CALME_S" ;; esac
 case "${MESURE_CALME_REJEU_S:-}" in ''|*[!0-9]*) ;; *) CALME_REJEU="$MESURE_CALME_REJEU_S" ;; esac
 PAS_CALME="${MESURE_CALME_PAS:-2}"

@@ -18,7 +18,7 @@ M19="$REPO/bench/mesure-retours-outils/mesure.py"
 PLAN="${MESURE_PLAN:-$B/plan.json}"
 export MESURE_PLAN="$PLAN"
 RESULTATS_DIR="${MESURE_RESULTATS_DIR:-$B/resultats}"
-MTPLX_URL="${MTPLX_URL:-http://127.0.0.1:8000}"
+MTPLX_URL_DEMANDEE="${MTPLX_URL:-}"
 MAISON_SOURCE="${MESURE_MAISON_SOURCE:-$HOME}"
 TMP_RACINE="${MESURE_TMP:-${TMPDIR:-$(getconf DARWIN_USER_TEMP_DIR 2>/dev/null || echo /tmp)}}"
 TMP_RACINE="${TMP_RACINE%/}"
@@ -39,12 +39,20 @@ case "$TENTATIVE" in ''|*[!0-9]*) usage ;; esac
 [ -f "$PLAN" ] || { echo "Plan absent : $PLAN" >&2; exit 2; }
 
 # Remplies par le plan (eval ci-dessous).
-BIN_RACINE=""; BIN_SHA=""; EMPREINTE_ATTENDUE=""; MODELE_ATTENDU=""; DELAI=""
+BIN_RACINE=""; BIN_SHA=""; EMPREINTE_ATTENDUE=""; MODELE_ATTENDU=""; MTPLX_URL_ATTENDUE=""; DELAI=""
 ATTENTE=""; VERROUS_EXTERNES=""; CLE=""; SMOL_PATH=""
 VALEURS="$("$PY" "$B/securite.py" plan)" || usage
 eval "$VALEURS"
 [ -n "${MESURE_BIN_RACINE:-}" ] && BIN_RACINE="$MESURE_BIN_RACINE"
 [ -n "${MESURE_MODELE_ATTENDU:-}" ] && MODELE_ATTENDU="$MESURE_MODELE_ATTENDU"
+if [ -n "$MTPLX_URL_ATTENDUE" ]; then
+  [ -z "$MTPLX_URL_DEMANDEE" ] || [ "$MTPLX_URL_DEMANDEE" = "$MTPLX_URL_ATTENDUE" ] \
+    || { echo "MTPLX_URL diffère de la cible figée du plan" >&2; exit 2; }
+  MTPLX_URL="$MTPLX_URL_ATTENDUE"
+else
+  MTPLX_URL="${MTPLX_URL_DEMANDEE:-http://127.0.0.1:8000}"
+fi
+export MTPLX_URL
 case "${MESURE_DELAI_SECONDES:-}" in ''|*[!0-9]*) ;; *) DELAI="$MESURE_DELAI_SECONDES" ;; esac
 case "${MESURE_ATTENTE:-}" in ''|*[!0-9]*) ;; *) ATTENTE="$MESURE_ATTENTE" ;; esac
 [ -n "${MESURE_VERROUS_EXTERNES+x}" ] && VERROUS_EXTERNES="$MESURE_VERROUS_EXTERNES"

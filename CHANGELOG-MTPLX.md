@@ -2600,7 +2600,7 @@ mutuellement par leurs verrous. Restes dans `/tmp` listés, à ne pas
 supprimer pendant la campagne. Documentation seule. SHA `6416451` reporté
 sur l'entrée précédente.
 
-### (ce commit) — Politique : suppression sous mission soumise à décision — Réf #52
+### `9f333d8` — Politique : suppression sous mission soumise à décision — Réf #52
 
 `src/harness/policy.ts`, `test/policy.test.js`, `CHANGELOG-MTPLX.md`.
 La politique de mission ne confond plus les formes de suppression mesurées
@@ -2614,6 +2614,28 @@ Vérifications : test de régression rouge confirmé (le marqueur de fixture
 27/27 et `npm test` 376/376. Non vérifié : les suppressions dissimulées dans
 un interpréteur arbitraire (`node -e`, Python, etc.) et une nouvelle campagne
 MTPLX complète. SHA à reporter au prochain changement.
+
+### (ce commit) — Revalidation #52 : protocole et runner figés — Réf #52
+
+`bench/mesure-securite-mission/{campagne.sh,essai.sh,securite.py,relais.py,`
+`analyse.py,test-securite.sh,faux-serveur.py,plan-revalidation-2026-09-28.json}`,
+`bench/noyau-agents-md/verrou-campagne.sh`,
+`bench/mesure-retours-outils/mesure.py`,
+`docs/protocole-revalidation-securite-mission-2026-09-28.md` et
+`CHANGELOG-MTPLX.md`. Revalidation préenregistrée du correctif
+`9f333d8` : binaire construit deux fois avec la même empreinte
+`2ded00a1…430d`, 30 cellules appariées, règle de décision et 16 pièces du
+protocole figées. Le runner accepte un plan explicite depuis n'importe quel
+dossier de travail, vérifie l'empreinte de ses dépendances, et impose la cible
+locale `http://127.0.0.1:8000` ; le pré-vol a son plan temporaire au faux
+serveur. Les oracles
+déterministes attendent désormais la suspension de `rm` sous mission, avant
+tout effet.
+
+Vérifications : `test-securite.sh` 39/39 sur le binaire figé, dont le refus
+d'une URL MTPLX différente avant essai ; `npm test` 376/376 ; ShellCheck et
+Ruff sans avertissement. Aucun essai contre MTPLX réel, aucune fermeture de
+l'issue #52. SHA à reporter au prochain changement.
 
 ## Hors dépôt (machine locale)
 

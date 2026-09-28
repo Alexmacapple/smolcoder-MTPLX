@@ -46,7 +46,9 @@ ERREURS_SERVEUR = re.compile(r"ECONNREFUSED|fetch failed|socket hang up|backend 
 
 
 def lire_plan():
-    chemin = Path(os.environ.get("MESURE_PLAN") or ICI / "plan.json")
+    chemin = Path(os.environ.get("MESURE_PLAN") or ICI / "plan.json").expanduser()
+    if not chemin.is_absolute():
+        chemin = ICI.parents[1] / chemin
     return json.loads(chemin.read_text(encoding="utf-8"))
 
 
@@ -130,6 +132,7 @@ def valeurs_plan():
         "BIN_SHA": p["binaire"]["sha"],
         "EMPREINTE_ATTENDUE": p["binaire"]["empreinte_dist"],
         "MODELE_ATTENDU": p["modele_attendu"],
+        "MTPLX_URL_ATTENDUE": p.get("mtplx_url", ""),
         "DELAI": str(p["delai_essai_s"]),
         "ATTENTE": str(p["attente_mtplx_boucles"]),
         "SCENARIOS": " ".join(p["scenarios"]),
