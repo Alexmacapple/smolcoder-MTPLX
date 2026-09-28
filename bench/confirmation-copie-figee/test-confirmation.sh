@@ -447,10 +447,15 @@ r = analyse(d)
 assert r["lecons"]["copie-figee"]["verdict"] == "KEEP", r
 assert r["lecons"]["copie-figee"]["series"]["B"]["n"] == 9, r
 assert len(r["ecartes"]) == 18, r["ecartes"]
-# Étape aa : jamais de série B, jamais de verdict.
+# Étape aa : jamais de série B, jamais de verdict. Un manifeste B invalide
+# doit être ignoré avant toute lecture : il ne peut pas figurer parmi les écarts.
 d = racine / "aa"; ecrire(d, {"A": bas, "A2": bas2, "B": haut})
-r = analyse(d, "aa")["lecons"]["copie-figee"]
-assert "verdict" not in r and "B" not in r["series"] and r["ecart_aa"] == "0", r
+b_interdit = d / "copie-figee-B-1-interdit"; b_interdit.mkdir()
+(b_interdit / "manifeste.json").write_text("{")
+r = analyse(d, "aa")
+aa = r["lecons"]["copie-figee"]
+assert "verdict" not in aa and "B" not in aa["series"] and aa["ecart_aa"] == "0", aa
+assert b_interdit.name not in {nom for nom, _ in r["ecartes"]}, r
 PY
 
 # 8. Câblage du binaire figé, contre un faux serveur Ollama (jamais le vrai

@@ -2332,7 +2332,7 @@ main, les limites et ce qui reste non vérifié. Documentation seule :
 runner, protocole, `src/`, `test/` et `docs/skills/` inchangés. SHA
 `c64cc80` reporté sur l'entrée précédente.
 
-### (ce commit) — Étude #53 : protocole pré-enregistré — Réf #53
+### `88c7fa2` — Étude #53 : protocole pré-enregistré — Réf #53
 
 `bench/confirmation-copie-figee/` (nouveau : `protocole.json`, trois
 tâches sous `taches/`, `essai.sh`, `campagne.sh`, `figer-binaire.sh`,
@@ -2364,6 +2364,24 @@ fixture d'origine `echec_test` classés faux succès) ;
 dans la fixture `copie-echeance`, qui est le bug étudié. `src/`, `test/` et
 `docs/skills/` inchangés. Aucun essai MTPLX à ce commit. SHA `8f89ba1`
 reporté sur l'entrée précédente.
+
+### (ce commit) — Étude #53 : étape A/A sans lecture de B — Réf #53
+
+`bench/lecons-fiches/analyse.py`,
+`bench/confirmation-copie-figee/test-confirmation.sh`,
+`docs/etude-confirmation-copie-figee-2026-09-27.md`. Après la campagne,
+l'analyse A/A ouvrait tous les manifestes avant de filtrer B ; un verdict A/A
+ne pouvait donc pas démontrer qu'il ignorait B. Le chargeur sélectionne
+maintenant la série depuis le nom du dossier avant de lire le manifeste. Un
+manifeste B invalide est ignoré par A/A, rouge avant le correctif puis vert.
+L'écart est déclaré dans le rapport ; protocole, tâches, fiches et résultats
+bruts sont intacts.
+
+Vérifications observées : `test-confirmation.sh` PASS (34 contrôles),
+`test-etude.sh` PASS (34 contrôles), `npm test` 374/374. Étape A/A réelle :
+A 6/9, A2 8/9, écart 2/9 ; quatre tentatives non figées écartées. B n'a pas
+été lu ni analysé ; l'étape A/B reste à faire après publication de cette
+étape. SHA `88c7fa2` reporté sur l'entrée précédente.
 
 ## Hors dépôt (machine locale)
 

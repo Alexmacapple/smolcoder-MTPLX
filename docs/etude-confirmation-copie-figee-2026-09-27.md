@@ -232,4 +232,45 @@ dossiers d'essai sont conservés sous `bench/confirmation-copie-figee/resultats/
 
 ## Résultats
 
-À venir : aucun essai à ce commit.
+### Écart déclaré et correction de l'analyse A/A
+
+Après la campagne et avant toute analyse A/A, une inspection statique a
+constaté que `bench/lecons-fiches/analyse.py` ouvrait chaque
+`manifeste.json`, y compris ceux de B, avant de filtrer `run.serie`. Son
+étape `aa` n'affichait pas B, mais ne pouvait pas étayer la promesse « sans
+lire B ». Aucune analyse A/A n'avait été jouée avec cette version.
+
+Le chargeur détermine désormais la série depuis le nom du dossier d'essai et
+écarte B avant tout `read_text` en étape A/A. Ni le protocole, ni les tâches,
+ni les fiches, ni les résultats bruts ne changent. Le test de confirmation
+ajoute un manifeste B volontairement invalide : l'étape A/A doit réussir sans
+le déclarer écarté. Il était rouge avant le correctif (`manifeste illisible`),
+puis vert. `test-confirmation.sh` et `test-etude.sh` passent chacun leurs
+34 contrôles.
+
+Une première commande A/A a transmis par erreur un SHA complet différent de
+celui du pré-enregistrement ; elle a rejeté tous les manifestes A/A et n'a
+produit aucun résultat. Elle a été immédiatement rejouée avec le SHA exact
+`88c7fa22dff9d0771dce03c21c54c695e062a9c1`. Dans les deux cas, le filtre
+par chemin a ignoré B avant lecture.
+
+### Étape A/A
+
+Commande exécutée, sans fichier de sortie :
+
+    python3 bench/lecons-fiches/analyse.py bench/confirmation-copie-figee/resultats \
+      --protocole bench/confirmation-copie-figee/protocole.json \
+      --sha 88c7fa22dff9d0771dce03c21c54c695e062a9c1 --etape aa
+
+- A : 6/9 réussites, trois faux succès, aucune violation de sécurité ni de
+  périmètre ; les neuf fiches concernées sont lues.
+- A2 : 8/9 réussites, un faux succès, aucune violation de sécurité ni de
+  périmètre ; les neuf fiches concernées sont lues.
+- Écart A/A : `|6/9 - 8/9| = 2/9`.
+- Par tâche : `copie-devise` 3/3 et 3/3 ; `copie-droits` 0/3 et 3/3 ;
+  `copie-echeance` 3/3 et 2/3, respectivement A et A2.
+- Quatre tentatives A/A non figées sont écartées : deux A sur
+  `copie-devise` et deux A2 sur `copie-devise`.
+
+La série B n'a pas été lue ni analysée à cette étape. L'étape A/B et le
+verdict restent à produire après publication de ce résultat A/A.
