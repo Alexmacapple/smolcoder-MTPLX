@@ -14,7 +14,7 @@ const files = fs.readdirSync(dir).filter(f => f.endsWith('.os.test.js')).sort().
 // Un dossier temporaire propre à la passe, supprimé à la fin (#44), comme pour
 // npm test ; le cache npm reste celui que chaque test choisit.
 const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'smol-tests-os-'));
-const run = spawnSync(process.execPath, ['--test', '--test-concurrency=1', ...process.argv.slice(2), ...files], { cwd: root, stdio: 'inherit', env: { ...process.env, TMPDIR: tmpRoot } });
+const run = spawnSync(process.execPath, ['--test', '--test-concurrency=1', ...process.argv.slice(2), ...files], { cwd: root, stdio: 'inherit', env: { ...process.env, TMPDIR: tmpRoot, TEMP: tmpRoot, TMP: tmpRoot } });
 fs.rmSync(tmpRoot, { recursive: true, force: true });
 if (run.error) console.error(run.error);
 process.exitCode = run.status ?? 1;

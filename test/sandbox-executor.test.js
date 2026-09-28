@@ -13,6 +13,7 @@ const path = require("path");
 // Isole ~/.smolcoder et ~/.smolcoder.json avant de charger le code.
 const HOME = fs.mkdtempSync(path.join(os.tmpdir(), "smol-sbx-home-"));
 process.env.HOME = HOME;
+process.env.USERPROFILE = HOME;
 process.env.SMOLCODER_CONFIG = path.join(HOME, "config.json");
 
 const store = require("../dist/harness/store");
@@ -180,7 +181,8 @@ test("H03-2 AC3: with a healthy backend, a request becomes sandbox-exec -p <prof
   assert.equal(probes[0].args[0], "-p");
   assert.ok(probes[0].args.includes(fs.realpathSync.native(HOME)), "the probe tries to list a host folder");
   const stat = fs.statSync(exec.tmpDir);
-  assert.ok(stat.isDirectory() && (stat.mode & 0o777) === 0o700, "a private temporary folder");
+  assert.ok(stat.isDirectory(), "a private temporary folder");
+  if (process.platform !== "win32") assert.equal(stat.mode & 0o777, 0o700, "the folder is private");
   assert.ok(!exec.tmpDir.startsWith(ws + path.sep), "outside the workspace");
   const shell = pickShell();
   const env = { PATH: "/usr/bin:/bin", HOME, LANG: "C" };
@@ -510,7 +512,7 @@ test("#46 AC2: closing kills a command the sandbox still runs before it removes 
   assert.deepEqual(kills, [true], "killed once, while its folder still existed");
   assert.equal(fs.existsSync(dir), false);
   const r = await run.result;
-  assert.equal(r.status, "signaled", "the command was killed, not left to finish");
+  assert.equal(r.status, process.platform === "win32" ? "exited" : "signaled", "the command was killed, not left to finish");
   await sleep(300);
   assert.equal(fs.existsSync(dir), false, "the command is dead: nothing recreated the folder");
 });

@@ -88,7 +88,7 @@ test("H03-4 campaign: the node:test reporter writes one JSON line per top-level 
   // sous-processus du lanceur de npm test et lui renvoie ses résultats.
   const env = Object.fromEntries(Object.entries(process.env).filter(([k]) => k !== "NODE_TEST_CONTEXT"));
   const r = spawnSync(process.execPath, ["--test", `--test-reporter=${path.join(B, "rapporteur.mjs")}`, `--test-reporter-destination=${out}`, file], { encoding: "utf8", env });
-  assert.equal(r.status, 1, "the fixture has a failing test");
+  assert.notEqual(r.status, 0, "the fixture has a failing test");
   const lines = fs.readFileSync(out, "utf8").trim().split("\n").map((l) => JSON.parse(l));
   assert.deepEqual(lines.map((l) => [l.name, l.status]), [["A passes", "pass"], ["B fails", "fail"], ["C is skipped", "skip"], ["D has subtests", "pass"]], "top-level tests only");
   assert.match(lines[1].error, /boom/);

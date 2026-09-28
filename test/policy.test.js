@@ -15,6 +15,7 @@ const path = require("path");
 // avant de charger le code : ce fichier tourne dans son propre processus.
 const HOME = fs.mkdtempSync(path.join(os.tmpdir(), "smol-policy-home-"));
 process.env.HOME = HOME;
+process.env.USERPROFILE = HOME;
 process.env.SMOLCODER_CONFIG = path.join(HOME, "config.json");
 
 // Deux faux secrets : l'un dans l'environnement de smol, l'autre exporté par
@@ -413,7 +414,8 @@ test("H02 decision: one allow/ask/deny interface with reason, action, canonical 
   const inside = decide(s.m, { surface: "tool", tool: "run_command", args: { command: "npm test" } });
   assert.deepEqual([inside.verdict, inside.action, inside.exec.login], ["allow", "command", false]);
   assert.equal(inside.exec.env.SMOL_H02_FAKE_SECRET, undefined);
-  assert.equal(inside.exec.env.PATH, process.env.PATH);
+  const pathKey = process.platform === "win32" ? Object.keys(process.env).find((key) => key.toUpperCase() === "PATH") : "PATH";
+  assert.equal(inside.exec.env[pathKey], process.env[pathKey]);
   const out = decide(s.m, { surface: "check", tool: "verification", args: { command: "cat /etc/hosts" } });
   assert.deepEqual([out.verdict, out.action], ["ask", "check"]);
   assert.match(out.reason, /outside the workspace/);
@@ -526,7 +528,7 @@ test("H02 AC5: in an interactive session, ask is a human question: no runs nothi
   const ui = fakeUi();
   ui.confirmCommand = async function (command, reason) { this.confirms.push({ command, reason }); return answers.shift(); };
   // Sort du workspace (donc « ask »), sans effet, avec une sortie courte.
-  const cmd = `ls -d ${path.dirname(s.ws)}`;
+  const cmd = `node -e "console.log('approved')" ${JSON.stringify(path.dirname(s.ws))}`;
   const provider = scriptedProvider([call("c1", "run_command", { command: cmd }), call("c2", "run_command", { command: cmd }), call("c3", "run_command", { command: cmd }), { content: "done" }]);
   const { agent } = agentFor(provider, s, { mode: "edit", interactive: true, ui });
   await agent.runTurn("look around");
@@ -534,7 +536,7 @@ test("H02 AC5: in an interactive session, ask is a human question: no runs nothi
   assert.equal(ui.confirms.length, 3, "every call asks again: always is not a lasting grant under the profile");
   assert.match(ui.confirms[0].reason, /outside the workspace/);
   assert.match(results[0], /declined/);
-  assert.ok(results[1].startsWith(path.dirname(s.ws)) && /\[exit code 0/.test(results[1]), "the approved call ran");
+  assert.match(results[1], /approved[\s\S]*\[exit code 0/, "the approved call ran");
   assert.match(results[2], /declined/);
 });
 
@@ -651,7 +653,7 @@ test("default profile unchanged: without --mission subprocesses inherit the envi
   const provider = scriptedProvider([
     call("c1", "run_command", { command: 'echo "[$SMOL_H02_FAKE_SECRET]"' }),
     call("r1", "read_file", { path: ".env" }),
-    call("c2", "run_command", { command: `echo x > ${outside}` }),
+    call("c2", "run_command", { command: `node -e "require('fs').writeFileSync(process.argv[1], 'x')" ${JSON.stringify(outside)}` }),
     { content: "done" },
   ]);
   const { agent } = agentFor(provider, { ws, m: null }, { mode: "bypass", mission: null });

@@ -14,6 +14,7 @@ const path = require("path");
 // Isole ~/.smolcoder et ~/.smolcoder.json avant de charger le code.
 const HOME = fs.mkdtempSync(path.join(os.tmpdir(), "smol-isostate-home-"));
 process.env.HOME = HOME;
+process.env.USERPROFILE = HOME;
 process.env.SMOLCODER_CONFIG = path.join(HOME, "config.json");
 
 const { Mission } = require("../dist/harness/mission");

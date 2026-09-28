@@ -14,6 +14,7 @@ const { spawnSync } = require("child_process");
 
 const HOME = fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), "smol-h08-home-")));
 process.env.HOME = HOME;
+process.env.USERPROFILE = HOME;
 process.env.SMOLCODER_CONFIG = path.join(HOME, "config.json");
 
 const store = require("../dist/harness/store");
