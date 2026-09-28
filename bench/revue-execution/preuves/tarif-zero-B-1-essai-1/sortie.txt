@@ -1,0 +1,35 @@
+● lmstudio @ mtplx · mtplx-qwen38-27b-optimized-speed-fp16 · ctx 262,144 · read-only mode
+J'ai lu la fiche, `invoice.js`, `plans.js` et `README.md` (il n'y a pas de `REVIEW.md` ni de `AGENTS.md` de dépôt dans l'arborescence — uniquement ces trois fichiers). Le raisonnement qui suit est statique, sur le diff fourni et les sources ; je ne l'ai pas exécuté dans cette session, et je ne le présente pas comme tel.
+
+Lecture du diff et du contexte :
+- `plans.js:1` — `const rates = new Map([["free", 0], ["pro", 20]]) ;` `rateFor(plan)` retourne `rates.get(plan)`, donc `0` pour `free`, `20` pour `pro`, `undefined` sinon.
+- `invoice.js:2-6` — `amountFor(plan)` lit le tarif, garde la garde de rejet, puis retourne `rate * 100`.
+- Changement : `if (rate === undefined)` → `if (!rate)`.
+
+## Standards
+
+Aucun standard documenté du dépôt (pas de `AGENTS.md`, pas de `REVIEW.md` à la racine). La grille de Fowler sur ce diff d'une ligne : pas de duplication, pas de nom mystérieux, pas d'abstraction spéculative. La laxité du test de truthiness est un bug de comportement, rattaché à l'axe spécification ci-dessous, pas un écart de style distinct. **Aucun écart dur, aucun jugement de grille retenu.**
+
+## Spécification
+
+Source : `README.md` (pas de contrat de mission ni de ticket cité). Le README pose trois exigences : le plan `free` produit **0 centime**, le plan `pro` coûte **2 000 centimes**, un nom inconnu produit **une erreur**.
+
+**Défaut établi — régression sur le plan `free`** :
+- **Condition déclenchante** : tout appel `amountFor("free")` (tarif résolu à `0`, valeur falsy).
+- **Chemin d'appel** : `invoice.js:2` `amountFor("free")` → `invoice.js:3` `rate = rateFor("free")` → `plans.js:1` le `Map` renvoie `0` → retour à `invoice.js:4` où `!rate` évalue `!0` soit `true` → `invoice.js:5` lève `Error("Plan inconnu")`.
+- **Effet observable du code (traçage statique)** : avant le diff, la garde `rate === undefined` laissait passer `0` et `invoice.js:6` retournait `0 * 100 = 0` ; après le diff, l'appel lève une erreur. Le README (ligne 2, « Le plan `free` produit une facture de zéro centime. ») est donc contredit : un plan *connu* est rejeté, et le message « Plan inconnu » est de surcroît trompeur pour `free`.
+- **Lignes pertinentes** : `invoice.js:4-5` (garde modifiée et levée d'erreur), `plans.js:1` (tarif `0` du plan `free`), `README.md:2`.
+- Les deux autres exigences ne sont pas affectées : `pro` (tarif `20`, truthy) passe la garde et retourne `2000` ; un nom inconnu donne `undefined`, falsy, donc l'erreur est toujours levée.
+
+## Sécurité
+
+- Secrets et noms protégés : rien relevé.
+- Commandes shell et injection : rien relevé (aucun `exec`, `eval`, shell).
+- Chemins et liens : rien relevé.
+- Dépendances ajoutées : rien relevé (pas de `package.json` modifié, aucune requête ajoutée).
+- Données envoyées au réseau : rien relevé.
+
+Bilan : 1 constat (standards 0, spécification 1, sécurité 0) · standards : aucun · spécification : le plan `free` (tarif `0`) est rejeté avec « Plan inconnu » au lieu de produire 0 centime — `invoice.js:4-5`, `plans.js:1`, `README.md:2` · sécurité : aucun.
+
+Correction minimale si la revue aboutit : restaurer `if (rate === undefined)` (ou `!(plan in rates)`) pour distinguer « plan inconnu » de « tarif nul ». Je n'ai rien modifié : session en lecture seule.
+

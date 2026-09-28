@@ -1,0 +1,30 @@
+{
+  "cellule": "reservation-race-A2-1",
+  "fixture": "reservation-race",
+  "serie": "A2",
+  "repetition": 1,
+  "tentative": 1,
+  "protocole_sha256": "e973f38d96d22aa88fe7c9502a0095f92f00d4273398a2636b323ddf2f1cdd33",
+  "statut": "comptee",
+  "fiche_sha256": "626dae46a62b15b18b942f9eab4848ff3123aded0c25d8ecf87f15cd24179ee9",
+  "code_sortie": 0,
+  "fiche_lue": true,
+  "mutation": true,
+  "modele_attendu": "mtplx-qwen38-27b-optimized-speed-fp16",
+  "stats": {
+    "backend": "lmstudio",
+    "outcome": "completed",
+    "verification": null,
+    "model": "mtplx-qwen38-27b-optimized-speed-fp16",
+    "durationMs": 209599,
+    "modelCalls": 9,
+    "toolCalls": 11,
+    "generatedTokens": 5999,
+    "thinkingTokensEst": 4509,
+    "genTokPerSec": 34,
+    "promptTokensLast": 8637,
+    "contextWindow": 262144,
+    "planDone": null
+  },
+  "duree_s": 210.41
+}

@@ -1,0 +1,34 @@
+● lmstudio @ mtplx · mtplx-qwen38-27b-optimized-speed-fp16 · ctx 262,144 · read-only mode
+Fiche lue, les trois fichiers du dépôt lus (aucun `AGENTS.md` ni `REVIEW.md` à la racine ; statut fourni par le banc : un seul fichier modifié, `M invoice.js`, aucun fichier non suivi — le diff couvre tout le changement candidat). Aucune exécution possible dans cette session : les constats reposent sur la lecture du code et le raisonnement sur les chemins d'appel, pas sur une exécution réelle.
+
+## Standards
+
+Aucun standard documenté dans le dépôt (pas de `AGENTS.md`, pas de `REVIEW.md`) : aucun écart dur.
+
+- **Obsession du primitif** (jugement de grille, pas un standard) — `invoice.js:5` : `if (!rate)` teste la valeur booléenne d'un nombre primitif (`rate`, `invoice.js:4`) pour représenter le concept métier « tarif absent ». Le test faussy confond deux concepts : « tarif inexistant » (`undefined`) et « tarif légitimement nul » (`0`). C'est la cause du défaut d'axe 2 ; la correction (`rate === undefined` ou un type propre « Tarif optionnel ») les distingue.
+
+## Spécification
+
+Source : `README.md` (pas de ticket ni de plan approuvé).
+
+**Défaut — régression sur le plan `free` :**
+- **Condition déclenchante** : tout appel `amountFor("free")` — c'est-à-dire tout plan dont le tarif est `0`, car `rates` contient `["free", 0]` (`plans.js:1`) et `rateFor` renvoie `rates.get(plan)` (`plans.js:4`).
+- **Chemin d'appel** : `invoice.js:4` → `rateFor("free")` (`plans.js:3-4`) → `rates.get("free")` vaut `0` → retour à `invoice.js:5` où `!0` est vrai → `throw new Error("Plan inconnu")`. Avant le diff, `0 === undefined` (lignes supprimées du diff, ancienne `invoice.js:5`) était faux et la fonction retournait `rate * 100` (`invoice.js:6`).
+- **Effet observable attendu du code** : une exception `Error("Plan inconnu")` est levée pour un plan *connu* — message trompeur en plus de la régression — au lieu du `0` exigé.
+- **Lignes pertinentes** : `invoice.js:4-5` (test modifié), `invoice.js:6`, `plans.js:1` (le `0`), `plans.js:4`.
+- **Exigence violée** : `README.md:3` — « Le plan `free` produit une facture de zéro centime. » Le comportement documenté du diff (cas `rate === 0`) ne s'applique plus.
+- Autres exigences : `README.md:4` — « Le plan `pro` coûte 2 000 centimes » : inchangée (`!20` faux, `20 * 100 = 2000`) ; « Un nom de plan inconnu doit produire une erreur » : inchangée (`!undefined` vrai, levée conservée).
+- **Dérive de périmette** : `README.md:6` qualifie le changement de « simplification de la validation du tarif » ; or la modification n'est pas sémantiquement neutre — elle altère un comportement documenté du dépôt. L'étiquetage est faux, le périmètre réel dépasse la « simplification ».
+
+## Sécurité
+
+- Secrets et noms protégés : rien relevé.
+- Commandes shell et injection : rien relevé (pas de shell, `eval` ni interpolation).
+- Chemins et liens : rien relevé (aucun chemin construit).
+- Dépendances ajoutées : rien relevé (pas de `package.json` modifié ni ajouté).
+- Données envoyées au réseau : rien relevé.
+
+**Non vérifié** : aucune commande ni test n'a pu être lancé dans cette session (lecture seule) ; le défaut d'axe 2 est établi par lecture du code, pas par exécution — un test du type `amountFor("free") === 0` confirmerait la régression.
+
+Bilan : 2 constats (standards 1, spécification 1, sécurité 0) · standards : obsession du primitif, jugement (`invoice.js:5`) · spécification : plan `free` ne produit plus 0 centime mais lève « Plan inconnu » (`invoice.js:5`, `plans.js:1`, `README.md:3`) · sécurité : aucun.
+

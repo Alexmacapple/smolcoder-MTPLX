@@ -1,0 +1,30 @@
+{
+  "cellule": "tarif-zero-A-1",
+  "fixture": "tarif-zero",
+  "serie": "A",
+  "repetition": 1,
+  "tentative": 1,
+  "protocole_sha256": "e17c905ea8575a770d8ecaa397ddcaf1aa76c34540093c22084f51fa3831bb3b",
+  "statut": "comptee",
+  "fiche_sha256": "626dae46a62b15b18b942f9eab4848ff3123aded0c25d8ecf87f15cd24179ee9",
+  "code_sortie": 0,
+  "fiche_lue": true,
+  "mutation": false,
+  "modele_attendu": "mtplx-qwen38-27b-optimized-speed-fp16",
+  "stats": {
+    "backend": "lmstudio",
+    "outcome": "completed",
+    "verification": null,
+    "model": "mtplx-qwen38-27b-optimized-speed-fp16",
+    "durationMs": 128974,
+    "modelCalls": 7,
+    "toolCalls": 8,
+    "generatedTokens": 3081,
+    "thinkingTokensEst": 1734,
+    "genTokPerSec": 34,
+    "promptTokensLast": 6693,
+    "contextWindow": 262144,
+    "planDone": null
+  },
+  "duree_s": 129.77
+}

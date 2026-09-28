@@ -1,0 +1,41 @@
+● lmstudio @ mtplx · mtplx-qwen38-27b-optimized-speed-fp16 · ctx 262,144 · read-only mode
+Je commence par lire la fiche de revue, puis j'explorerai le workspace.
+
+
+La fiche est lue. Je vais maintenant lire les fichiers sources et le README.
+
+
+Tous les fichiers sont lus. Préparation possible dans cette session : il n'y a ni `REVIEW.md` ni `AGENTS.md` dans le dépôt (recherche sans correspondance) ; le statut montre `M reserve.js` seul, sans fichier non suivi — le changement candidat se résume donc à ce fichier. Les trois axes suivent ; l'analyse des chemins d'appel est un raisonnement sur le code, pas une exécution (session en lecture seule).
+
+## Standards
+
+Aucun standard documenté dans le dépôt (pas de `AGENTS.md`, pas de `REVIEW.md`). Grille : le diff est un réordonnancement de deux lignes ; aucun nom mystérieux, duplication, abstraction ou switch en jeu. **Aucun constat.**
+
+## Spécification
+
+Source : le README (pas de ticket ni de `docs/` ; le README joue ici le rôle de spécification). Il exige : « Deux réservations simultanées ne peuvent pas toutes les deux réussir. »
+
+**Défaut établi — double réservation sous simultanéité.**
+
+- **Condition déclenchante** : deux appels à `reserve()` dont l'entrée synchrone tombe dans le même tour de l'événementiel, c. à d. avant que la promesse d'`audit()` ne réveille le premier appelant. `audit` ne contient qu'un `await Promise.resolve()` (`inventory.js:11-13`), donc la reprise a lieu en microtâche : tout appelant démarré dans le même bloc synchrone intercale.
+- **Chemin d'appel** (arbre de travail, `reserve.js`) :
+  1. Appel A — `reserve.js:4` lit `1` ; `reserve.js:5` passe le garde (`1 ≥ 1`) ; `reserve.js:6` `await audit()` suspend A **sans aucune écriture entre-temps**.
+  2. Appel B — `reserve.js:4` lit `1` à nouveau, car le stock (`inventory.js:1`) n'a pas bougé ; `reserve.js:5` passe ; `reserve.js:6` suspend B.
+  3. A se reprend — `reserve.js:7` écrit `1 - 1 = 0` (valeur locale `available` figée à l'étape 1) ; `reserve.js:8` rend `true`.
+  4. B se reprend — `reserve.js:7` réécrit `1 - 1 = 0` depuis sa propre copie obsolète ; `reserve.js:8` rend `true`.
+- **Effet observable** : les deux appelsants reçoivent `true` et le stock finit à `0` ; la place unique est doublement réservée. À l'inverse, dans le code de `HEAD` l'écriture (`writeAvailable(available - 1)`) était synchroniquement accollée au garde : B aurait lu `0` à `reserve.js:4` et rendu `false` à `reserve.js:5`. Le diff inverse précisément cette propriété : il intercale un point de suspension entre le contrôle (`reserve.js:5`) et la mutation (`reserve.js:7`), et la mutation consomme la valeur lue avant la suspension plutôt que l'état courant — deux erreurs de même source (fenêtre check-then-act ouverte par l'`await`, puis écriture basée sur une lecture obsolète).
+- **Cas normal** (appels strictement séquentiels, non simultanés) : inchangé, chaque réservation décrémente correctement. Le défaut n'apparaît que sous simultanéité, qui est pourtant le cas garanti par le README.
+- **Lignes pertinentes** : `reserve.js:4` (lecture), `reserve.js:5` (garde), `reserve.js:6` (suspension), `reserve.js:7` (écriture obsolète) ; `inventory.js:1`, `inventory.js:7-9`, `inventory.js:12`. À noter : la lecture seule ne permet pas de corroborer par exécution ici ; le banc a vérifié le point fixe et le diff, et le raisonnement ci-dessus découle des seules lignes citées.
+
+Pas d'écart de périmètre d'autre nature : le diff ne retire ni n'ajoute d'exigence, il inverse l'ordre contrôle/écriture.
+
+## Sécurité
+
+- Secrets et noms protégés : rien relevé.
+- Commandes shell et injection : rien relevé.
+- Chemins et liens : rien relevé.
+- Dépendances ajoutées : rien relevé (aucun `package.json` dans le dépôt).
+- Données envoyées au réseau : rien relevé.
+
+**Bilan : 1 constat (standards 0, spécification 1, sécurité 0) · standards : aucun · spécification : double réservation possible sous simultanéité (`reserve.js:5-7`, écriture reculée derrière `await audit()` et basée sur une valeur obsolète) · sécurité : aucun.**
+

@@ -1,0 +1,45 @@
+● lmstudio @ mtplx · mtplx-qwen38-27b-optimized-speed-fp16 · ctx 262,144 · read-only mode
+# Revue en lecture seule — `reserve.js` (diff candidat)
+
+## Préparation
+
+- Point fixe : `reference` (HEAD) — le banc l'a résolu et validé, je m'y fie ; le diff retenu est le ci-dessus, non vide.
+- Statut : `M reserve.js` uniquement, aucun fichier non suivi (`??`) à lire en entier ; la modification concernée est bien le changement candidat.
+- Aucun `REVIEW.md` ni `AGENTS.md` à la racine (dépôt : `inventory.js`, `reserve.js`, `README.md`).
+- J'ai relu `reserve.js` (13 lignes), `inventory.js` (28 lignes) et `README.md`. Tout ce qui suit est un raisonnement sur les chemins d'appel lu dans le code, pas une exécution.
+
+Analyse de base, commune aux trois axes : `withLock` (inventory.js:4-14) est un mutex par chaîne de promesses — `release()` n'est appelé qu'après `await work()` terminé, donc **tout le corps de `reserve`, y compris la suspension dans `await audit()`, est sous verrou**. Deux appels concurrents : A exécute, se suspend sur audit ; B attend `await previous` (inventory.js:8) et ne peut relire le stock qu'après la libération par A. L'ordonnancement « décrémenter avant l'audit » ou « après l'audit » ne modifie donc ni la sémantique du verrou ni la sérialisation des deux appels.
+
+## Standards
+
+Aucun standard documenté dans le dépôt (ni `AGENTS.md`, ni `REVIEW.md`) → aucun écart dur signalable. Les règles globales (`~/.smolcoder/AGENTS.md`) concernent l'agent, pas le style du code.
+
+Sur la grille de Fowler, appliquée aux deux lignes échangées : aucun défaut établi (pas de duplication, pas de nom mystérieux, pas d'abstraction ajoutée). Deux observations de jugement, non des défauts :
+
+- **Fenêtre de capture obsolète (note de robustesse, non établie).** Le diff écrit `writeAvailable(available - 1)` (reserve.js:8) avec une valeur capturée avant l'`await` (reserve.js:5), alors que l'ancienne version n'avait aucune instruction entre lecture et écriture. Condition déclenchante : un futur module muterait le stock via `writeAvailable`/`readAvailable` **hors du verrou** (les deux fonctions sont exportées, inventory.js:28) pendant la suspension d'audit. Effet attendu du code : l'écriture écraserait la valeur intermédiaire (`available` restant la valeur lue à reserve.js:5). **Aucun tel appelant n'existe dans le dépôt** (seul `reserve.js` consomme `inventory`), donc chemin non établi : ce n'est qu'une fragilisation face à un futur usage, pas un défaut actuel.
+- **Renforcement, pas régression, sur l'erreur.** Si `audit()` rejetait, l'ancienne ordonnation décrémente le stock puis rejette (slot perdu et appelant en échec) ; la nouvelle ordonnation rejette avant toute écriture (état intact, la place reste réservable). Mais `audit()` du dépôt (inventory.js:24-26) ne peut pas rejeter : aucune différence observable aujourd'hui, c'est une durcissement pour un futur audit défaillant.
+
+## Spécification
+
+Source : `README.md` (pas de contrat de mission ni de ticket dans le contexte fourni). Exigences : (1) une seule place en stock ; (2) « Deux réservations simultanées ne peuvent pas toutes les deux réussir » ; (3) « Le verrou garde les opérations d'une réservation ensemble, y compris pendant l'audit asynchrone » ; (4) le README décrit lui-même le changement candidat : « déplace l'enregistrement après l'audit, à l'intérieur du même verrou ».
+
+- Exigence 2 : préservée par raisonnement (ci-dessus) — scénario concourant : A lit 1 (reserve.js:5), passe le garde (reserve.js:6), suspend sur audit ; B est bloqué sur le verrou (inventory.js:8), lit 0 après la libération, retourne `false` (reserve.js:6). Le banc a déjà vérifié le point fixe, ce qui est cohérent.
+- Exigence 3 : le verrou continue d'englober l'audit ; aucun retrait de couverture.
+- Exigence 4 : le diff fait exactement ce que le README annonce, « à l'intérieur du même verrou » — pas de dérive de périmètre, rien de non demandé.
+
+Aucune exigence absente, partielle ni faussement implémentée n'est établie.
+
+## Sécurité
+
+- Secrets et noms protégés : rien relevé (pas de clé, jeton ni lecture de `.env`/`~/.smolcoder`).
+- Commandes shell et injection : rien relevé (aucun appel shell, aucune donnée externe interpolée).
+- Chemins et liens : rien relevé (aucun chemin construit).
+- Dépendances ajoutées : rien relevé (pas de `package.json` dans le dépôt).
+- Données envoyées au réseau : rien relevé (`audit()` n'est qu'un `await Promise.resolve()`, inventory.js:24-26 ; aucun appel réseau dans le diff).
+
+## Bilan
+
+Bilan : 0 défaut établi (standards 0, spécification 0, sécurité 0) · standards : aucun (deux observations de jugement signalées, chemin non établi) · spécification : aucune exigence manquée ni dérive · sécurité : rien relevé.
+
+Le changement est correct tel quel : il ne modifie aucun invariant observable dans le dépôt (le verrou sérialise tout, y compris l'audit) et durcit le chemin d'échec d'audit au passage. À garder en tête pour l'avenir : `readAvailable`/`writeAvailable` sont exportés sans contrainte de verrou — si un jour un code écrit le stock hors de `withLock`, l'écriture différée du diff écraserait la valeur intermédiaire.
+

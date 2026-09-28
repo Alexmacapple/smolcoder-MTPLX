@@ -1,0 +1,66 @@
+● lmstudio @ mtplx · mtplx-qwen38-27b-optimized-speed-fp16 · ctx 262,144 · read-only mode
+Je commence par lire la fiche de revue de code, puis j'explorerai le contenu de l'espace de travail.
+
+
+Je lis maintenant les fichiers sources et le README.
+
+
+La fiche est lue, les trois fichiers du dépôt (seuls présents) sont lus. Avant les axes, la préparation :
+
+**Préparation**
+- Point fixe : `reference` (HEAD), fourni et déjà vérifié par le banc ; aucune commande n'est disponible ici, je ne ré-exécute rien.
+- Statut fourni : `M reserve.js` — une seule modification suivie, aucun fichier nouveau non suivi (`list_files` confirme : `inventory.js`, `README.md`, `reserve.js` seulement).
+- Ni `REVIEW.md` ni `AGENTS.md` à la racine.
+- Le diff retenu est non vide et correspond exactement à l'état lu de `reserve.js` (l'écriture après l'audit, à l'intérieur de `withLock`).
+
+**Énoncé général : aucun défaut n'est établi par cette revue.** Les trois axes sont rendus ci-dessous ; l'analyse des chemins d'appel qui suit est un raisonnement sur le code, non une exécution.
+
+## Standards
+
+Aucun standard documenté dans le dépôt (pas d'`AGENTS.md`, pas de `REVIEW.md`) : aucun écart dur possible. Passage de la grille heuristique sur le diff (deux lignes réordonnées dans une seule fonction) :
+
+- Pas de nom mystérieux, de duplication, d'envie de données, d'obsession du primitif ni d'intermédiaire creux introduits.
+- Une remarque de jugement, non un défaut : la réordonnancement fait porter au verrou une charge accrue — l'écart « lecture d'état → écriture d'état » franchit désormais un `await` (reserve.js:5→7→8). La sécurité en dépend intégralement du fait que `withLock` conserve le verrou pendant le `await`. C'est le cas ici : `withLock` ne libère que dans `finally` après l'achèvement complet de `work()` (inventory.js:9–13), et `tail` est réassigné de façon synchrone à l'entrée (inventory.js:7), ce qui ordonne strictement les travaux des appelants. La remarque est donc levée par l'implémentation existante ; je ne la qualifie pas de défaut.
+
+## Spécification
+
+La source de spécification est le README.md (aucun ticket ni bloc mission disponible) :
+- « Le stock contient une seule place. Deux réservations simultanées ne peuvent pas toutes les deux réussir. »
+- « Le verrou garde les opérations d'une réservation ensemble, y compris pendant l'audit asynchrone. »
+- « Le changement candidat déplace l'enregistrement après l'audit, à l'intérieur du même verrou. »
+
+Vérification par chemin d'appel (analyse statique, non exécution) :
+
+- Chemin : `reserve()` (reserve.js:3–11) → `withLock(work)` (inventory.js:4–14) ; deux appelants A puis B.
+- A attend `previous` (résolu d'emblée) et exécute `work` : lecture (reserve.js:5) = 1, `await audit()` (reserve.js:7), puis écriture (reserve.js:8). La libération du verrou n'intervient qu'après la complétion totale de `work()` (try/finally, inventory.js:10–12).
+- B a capturé `previous = pA` (inventory.js:5,7) et suspendu son propre `work` sur `await previous` (inventory.js:8)
+
+B a capturé `previous = pA` (inventory.js:5,7) et suspendu son propre `work` sur `await previous` (inventory.js:8).
+
+- Ordre établi par l'analyse : `pA` ne se résout que dans le `finally` d'A (inventory.js:11–12), qui ne s'exécute qu'après la complétion totale de `work()` d'A, donc **après** `writeAvailable(available - 1)` (reserve.js:8, dernier énoncé de `work`). Le point de reprise de B ne s'enfile qu'à la résolution de `pA`, si bien que `readAvailable()` de B (reserve.js:5) suit strictement l'écriture d'A et lit 0 : B prend la branche `available < 1` et retourne `false` (reserve.js:6).
+- Effet observable attendu : deux réservations simultanées produisent exactement un `true` et un `false`. L'invariante du README est préservée par la version modifiée. Le fait que l'écriture se déplace après l'`await` n'y change rien, car le verrou tient sur toute la durée de `work()`, y compris pendant l'audit (README, 2ᵉ phrase), et la durée de la section critique est inchangée entre les deux versions (l'audit y était déjà inclus).
+- Conformité au diff décrit : le README annonce « déplace l'enregistrement après l'audit, à l'intérieur du même verrou » — le diff fait exactement cela et rien d'autre. Aucune exigence absente, aucune dérive de périmètre, aucune implémentation fausse par rapport aux phrases citées.
+
+Une observation, non qualifiée de défaut :
+
+- Différence comportementale entre l'ancienne et la nouvelle version, sur le seul chemin où `audit()` rejetterait.
+- Condition déclenchante : un rejet de `audit()` (reserve.js:7).
+- Chemin d'appel : rejet → `await` de reserve.js:7 → propagation hors `work()` → `finally` libère le verrou (inventory.js:11–12) → rejet propagé hors `reserve()`.
+- Effet : en version HEAD l'écriture (ancienne position) a déjà eu lieu, le stock est décrémenté alors que la réservation échoue ; en version candidate l'écriture (reserve.js:8) n'est jamais exécutée, le stock reste intact. La sémantique nouvelle est le tout‑ou‑rien, plausiblement plus conforme à l'esprit du verrou.
+- Lignes : reserve.js:7–8, inventory.js:24–26.
+- Qualification : `audit()` actuel ne peut pas rejetter (un seul `await Promise.resolve()`, inventory.js:25) et le README ne spécifie pas le comportement en cas d'audit défaillant — aucun défaut observable n'en découle aujourd'hui ; je le signale comme seul écart d'effet entre les deux versions.
+
+## Sécurité
+
+Passage des cinq points sur le diff (réordonnancement interne de deux lignes dans `reserve.js`, sans nouveau fichier ni dépendance) :
+
+- Secrets et noms protégés : rien relevé (aucune chaîne sensible, aucun fichier de secrets touché).
+- Commandes shell et injection : rien relevé (aucune invocation de shell, `exec`, `eval`).
+- Chemins et liens : rien relevé (le diff ne construit aucun chemin ; le seul accès relatif, `require("./inventory")`, réserve.js:1, est préexistant et inchangé).
+- Dépendances ajoutées : rien relevé (pas de `package.json`, pas de script d'installation dans le dépôt).
+- Données envoyées au réseau : rien relevé (aucun appel réseau, socket ni télémétrie ; `audit()` est local, inventory.js:24–26).
+
+## Bilan
+
+Aucun défaut n'est établi sur les trois axes. `Bilan : 0 constat (standards 0, spécification 0, sécurité 0) · standards : aucun · spécification : aucun · sécurité : aucun.` L'unique écart entre les deux versions, le chemin d'audit défaillant (reserve.js:7–8), est documenté comme observation au-dessus : non déclenchable avec l'implémentation actuelle de `audit()`, et non couvert par la spécification du README.
+

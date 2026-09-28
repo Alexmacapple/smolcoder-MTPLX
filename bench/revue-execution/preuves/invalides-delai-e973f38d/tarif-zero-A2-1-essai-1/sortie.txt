@@ -1,0 +1,69 @@
+● lmstudio @ mtplx · mtplx-qwen38-27b-optimized-speed-fp16 · ctx 262,144 · edit mode
+Je viens de lire la fiche. Le diff candidat est un seul fichier modifié non commité : `invoice.js` (1 ligne modifiée). Je prépare la revue selon les trois axes de la fiche.
+
+
+`reference` is HEAD itself, and the diff is a single line in `invoice.js` (`rate === undefined` → `!rate`). I'm going to read the whole file and the README to check the spec.
+
+
+Found the key interaction: the `free` plan has a rate of `0` in `plans.js`, and the modified check is `!rate`. I'll check the README (for the spec) and verify the actual behavior.
+
+
+Le README est la spécification. Le plan `free` doit produire une facture de zéro centime. Je valide le comportement réel par exécution.
+
+
+Le défaut est confirmé. Je vérifie aussi le comportement de référence (avant changement) pour isoler la régression.
+
+
+La mention `//` dans le commentaire a déclenché le garde-fou. Je relance sans comment slash-slash.
+
+
+Je confirme les numéros de ligne exacts pour mes citations.
+
+
+J'ai tout ce qu'il faut. Voici la revue.
+
+**Préparation** — `git status --short` ne montre qu'un fichier modifié par l'agent (`M invoice.js`), aucun travail humain ni fichier `??` à séparer. Le point fixe se résout : `reference` = `4a8027a`, et comme `reference` est l'ancêtre direct de `HEAD`, le diff retenu est bien `git diff reference` (travail non commité, arbre de travail inclus). Il n'est pas vide : une ligne dans `invoice.js`. Ni `REVIEW.md` ni `AGENTS.md` à la racine (vérifiés).
+
+## Standards
+
+Aucun standard documenté du dépôt (pas d'`AGENTS.md` ni de `REVIEW.md`). La grille ne déclenche pas de jugement structuré sur une seule ligne : pas de nom mystérieux, de duplication, de switch répété ni d'abstraction spéculative. L'écart avec la condition d'origine (`rate === undefined` → `!rate`) n'est pas un défaut structurel de la grille ; c'est un changement sémantique de la condition, que je reporte donc sous l'axe spécification et non ici, sans le reclasser.
+— **Écarts durs (standard documenté) : aucun standard documenté. Jugements de grille : aucun.**
+
+## Spécification
+
+Source : `README.md` (pas de profil mission, pas de plan approuvé). Il documente trois exigences :
+- « Le plan `free` produit une facture de zéro centime. »
+- « Le plan `pro` coûte 2 000 centimes. »
+- « Un nom de plan inconnu doit produire une erreur. »
+
+Le diff (invoice.js:5) remplace `if (rate === undefined)` par `if (!rate)`.
+
+**(c) Exigence implémentée mais fausse — exigence « free → 0 » :**
+- **Chemin d'appel** : `amountFor("free")` → `rateFor("free")` → `rates.get("free")` (plans.js:4) qui renvoie `0` (plans.js:1 `["free", 0]`) → retourne dans `amountFor` (invoice.js:4) → condition `!rate` (invoice.js:5).
+- **Condition déclenchante** : tout plan dont le tarif est `0` — ici le plan `free`.
+- **Effet observable** : `!0` est `true`, la fonction lève `Error("Plan inconnu")` au lieu de renvoyer `0`. Un plan connu est traité comme inconnu.
+- **Lignes utiles** : plans.js:1 (tarif `0` de `free`), invoice.js:4, invoice.js:5 (condition modifiée).
+
+**Preuve par exécution** (diagnostic, non modifié le code) :
+
+```
+référence  : free -> 0        pro -> 2000     unknown -> ERREUR: Plan inconnu
+candidat   : free -> ERREUR: Plan inconnu    pro -> 2000     unknown -> ERREUR: Plan inconnu
+```
+
+Les deux autres exigences restent satisfaites (`pro` → 2000, `unknown` → erreur). **(a)** aucune exigence absente ; **(b)** aucune dérive de périmètre (simple simplification) ; **(d)** pas de plan approuvé.
+
+## Sécurité
+
+- Secrets et noms protégés : rien relevé (pas de clé, jeton, `.env*`, `.git/` ni `~/.smolcoder/` touché).
+- Commandes shell et injection : rien relevé (aucun `exec`/`bash -c`/`eval`).
+- Chemins et liens : rien relevé (aucun chemin construit depuis une entrée).
+- Dépendances ajoutées : rien relevé (pas de `package.json`/`lock` modifié).
+- Données envoyées au réseau : rien relevé (aucun appel HTTP/socket).
+
+## Bilan
+
+`Bilan : 1 constat (standards 0, spécification 1, sécurité 0) · standards : aucun · spécification : exigence « free → 0 » violée — `!rate` (invoice.js:5) lève "Plan inconnu" pour le plan free (plans.js:1) au lieu de renvoyer 0 · sécurité : aucun`
+
+J'ai trouvé un défaut concret : le remplacement de `rate === undefined` par `!rate` en `invoice.js:5` fait échouer le plan `free` (tarif `0`) avec une erreur « Plan inconnu » au lieu de produire la facture de zéro centime exigée par la spécification.
+

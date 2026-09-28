@@ -1,0 +1,30 @@
+● lmstudio @ mtplx · mtplx-qwen38-27b-optimized-speed-fp16 · ctx 262,144 · read-only mode
+La fiche et les trois fichiers du workspace (`reserve.js`, `inventory.js`, `README.md`) sont lus. Il n'y a ni `AGENTS.md` ni `REVIEW.md` à la racine ; le banc a fourni point fixe (HEAD), statut (`M reserve.js`, sans fichier non suivi) et diff non vide — préparation complète, je passe aux trois axes.
+
+## Standards
+
+Aucun standard documenté dans le dépôt (pas de `AGENTS.md`, pas de `REVIEW.md`) → aucun écart dur possible.
+
+Grille de Fowler sur le diff (réordonnancement de deux lignes, `reserve.js:7-8`) :
+
+- Aucun défaut de grille introduit par le diff lui-même (pas de duplication, de nom mystérieux ni de changement éparpillé).
+- Jugement (conditionnel, non défaut établi) : l'écriture utilise la valeur lue **avant** l'audit (`reserve.js:5` lit, `reserve.js:8` écrit `available - 1`). Le réordonnancement élargit la fenêtre lecture→écriture, désormais traversée par l'`await` de l'audit. Cette fenêtre n'est sans danger que si tout écriture passe par le verrou : `withLock` (inventory.js:4-14) le garantit, car le `finally { release() }` (inventory.js:11-13) ne s'exécute qu'après achèvement complet de `work`, y compris les `await` internes — et le dépôt ne contient qu'un seul mutateur de `available` (`reserve.js:8`), toujours sous verrou. L'invariant est donc simplement plus porteur qu'avant.
+
+## Spécification
+
+Source : `README.md` (pas de ticket, pas de `docs/`).
+
+- (a) Exigences absentes ou partielles : aucune. Le critère « deux réservations simultanées ne peuvent pas toutes les deux réussir » (README.md:3-4) est tenu **après** le réordonnancement, et c'est le point central à vérifier : deux appels `reserve()` dans le même tick chaînent le verrou via `tail` (inventory.js:5-7) ; le premier exécute son corps complet — lecture, audit en attente, écriture (`reserve.js:5-8`) — puis libère dans le `finally` (inventory.js:12) ; le second lit alors `available = 0` et retourne `false` (`reserve.js:6`). L'écriture reste **à l'intérieur** du corps du verrou, qui est retenu pendant l'audit asynchrone, exactement comme l'attend le README (README.md:4-5). Je n'établis donc pas le défaut classique que le réordonnancement pourrait faire naître (perdre l'exclusion si l'écriture sortait du verrou) : il n'existe pas ici, car l'exclusion tient à la chaîne de promesses, pas à l'ordre des deux lignes.
+- (b) Comportement que personne n'a demandé (observation conditionnelle, non défaut établi) : le réordonnangement change la branche d'échec de l'audit — avant, le slot était décrémenté même si `audit()` rejetait ; maintenant l'exception saute l'écriture (`reserve.js:7-8`), le verrou est libéré par le `finally` et `reserve()` rejette. Condition déclenchante : `audit()` rejette. Mais l'implémentation actuelle (inventory.js:24-26) ne fait qu'un `await Promise.resolve()` et ne peut pas rejeter → branche inatteignable dans le dépôt, aucun effet observable. La sémantique d'échec n'est pas documentée dans le README : recommandation, la documenter.
+- (c) Implémentation apparemment fausse : aucune ; le diff correspond mot à mot à la description du changement (README.md:7-8 : « déplace l'enregistrement après l'audit, à l'intérieur du même verrou »).
+
+## Sécurité
+
+- Secrets et noms protégés : rien relevé (aucune clé, jeton ou référence à `.env`/`.git`).
+- Commandes shell et injection : rien relevé (aucun usage de shell, `exec`, `eval`).
+- Chemins et liens : rien relevé (pas d'accès disque ; état en mémoire).
+- Dépendances ajoutées : rien relevé (pas de `package.json` dans le workspace, aucune dépendance introduite).
+- Données envoyées au réseau : rien relevé (aucun appel HTTP, socket ou écoute).
+
+Bilan : 0 défaut établi (standards 0, spécification 0, sécurité 0) · standards : aucun (1 jugement conditionnel sur la fenêtre lecture→écriture élargie, couverte par le verrou) · spécification : aucun (1 observation conditionnelle sur la sémantique d'échec de l'audit, inatteignable avec l'audit actuel) · sécurité : aucun.
+

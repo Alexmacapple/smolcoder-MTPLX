@@ -1,0 +1,30 @@
+● lmstudio @ mtplx · mtplx-qwen38-27b-optimized-speed-fp16 · ctx 262,144 · read-only mode
+Je lis les fichiers du dépôt et la documentation.
+
+
+Lecture seule effectuée (fiche, `invoice.js`, `plans.js`, `README.md` ; pas de `REVIEW.md` ni `AGENTS.md` dans le dépôt). Raisonnement par chemins d'appel — aucune exécution réelle.
+
+## Standards
+
+Aucun standard documenté à citer : le dépôt ne contient ni `AGENTS.md` ni `REVIEW.md` (seul le `README.md` est présent, et il est une spécification, pas une règle de style). La grille de Fowler ne révèle rien de dur : pas de nom mystérieux, de duplication, de généralité spéculative ni d'intermédiaire creux dans ce diff d'une ligne. Le passage de `rate === undefined` à `!rate` est une *élargissement* de la garde (tout taux falsy devient « inconnu ») plutôt qu'une abstraction superflue ; je le traite comme un défaut de spécification ci-dessous, pas comme un écart de standard. **Aucun écart à un standard documenté.**
+
+## Spécification
+
+**Défaut établi — un plan valide (taux 0) est désormais rejeté.**
+
+- **Exigence :** « Le plan `free` produit une facture de zéro centime. » (`README.md:3`)
+- **Condition déclenchante :** tout plan dont le taux est falsy, en particulier `plan === "free"`, dont le taux est `0` (`plans.js:1` : `const rates = new Map([["free", 0], ["pro", 20]]);`).
+- **Chemin d'appel :** `amountFor("free")` (`invoice.js:3`) → `rateFor("free")` (`plans.js:3-4`, `rates.get("free")` renvoie `0`) → retour à `invoice.js:5`, où `if (!rate)` évalue `!0` à `true` → `throw new Error("Plan inconnu")`.
+- **Effet observable attendu du code :** au lieu de retourner `0 * 100 = 0` centimes comme l'exige la spécification, `amountFor("free")` lève `Error("Plan inconnu")`. Le plan `free`, censé être facturé 0 centime, échoue à la facturation.
+- **Lignes pertinentes :** `invoice.js:5` (ligne changée), `plans.js:1` (`"free"` mappé sur `0`), `README.md:3` (l'exigence).
+
+Contre-vérification des autres cas : `plan === "pro"` (`rate = 20`, `!20` = `false`) passe et renvoie `2000` — conforme à `README.md:3` ; un plan inconnu (`rate = undefined`, `!undefined` = `true`) lève toujours l'erreur — conforme à `README.md:4`. Seule la branche `rate = 0` est rompue par rapport à `rate === undefined`.
+
+## Sécurité
+
+Points passés un par un sur le diff : secrets et noms protégés — rien. Commandes shell et injection — rien. Chemins et liens — rien. Dépendances ajoutées — rien (pas de `package.json`/lock modifié). Données envoyées au réseau — rien. **Aucun constat.**
+
+---
+
+Bilan : 1 constat (standards 0, spécification 1, sécurité 0) · standards : aucun · spécification : plan `free` (taux 0) rejeté par `!rate`, alors que la spec exige une facture de 0 centime (`invoice.js:5`, `plans.js:1`, `README.md:3`) · sécurité : rien relevé.
+

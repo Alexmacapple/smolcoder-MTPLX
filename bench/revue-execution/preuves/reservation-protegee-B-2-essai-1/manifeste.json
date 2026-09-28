@@ -1,0 +1,33 @@
+{
+  "cellule": "reservation-protegee-B-2",
+  "fixture": "reservation-protegee",
+  "serie": "B",
+  "repetition": 2,
+  "tentative": 1,
+  "protocole_sha256": "ad5e17b4776a32d48b793951da4c4e11214598222b21f73719358a19f6ecd49e",
+  "statut": "comptee",
+  "fiche_sha256": "bbaeb1c4e7c7e186e6e89db53a093ae0f2bb8ca9959cdcfb5fcddad318dcb219",
+  "prompt_sha256": "7b030bbdc32a979ac673d6da530c100dee6df5d1be348ff2a86bfae6905b8042",
+  "mode": "ro",
+  "code_sortie": 0,
+  "fiche_lue": true,
+  "ecritures_tentees": [],
+  "mutation": false,
+  "modele_attendu": "mtplx-qwen38-27b-optimized-speed-fp16",
+  "stats": {
+    "backend": "lmstudio",
+    "outcome": "completed",
+    "verification": null,
+    "model": "mtplx-qwen38-27b-optimized-speed-fp16",
+    "durationMs": 484698,
+    "modelCalls": 5,
+    "toolCalls": 6,
+    "generatedTokens": 5815,
+    "thinkingTokensEst": 13207,
+    "genTokPerSec": 13,
+    "promptTokensLast": 4998,
+    "contextWindow": 262144,
+    "planDone": null
+  },
+  "duree_s": 485.47
+}

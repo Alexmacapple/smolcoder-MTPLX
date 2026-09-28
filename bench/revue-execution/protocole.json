@@ -1,0 +1,154 @@
+{
+  "format": "revue-execution/protocole/v1",
+  "issue": 68,
+  "question": "La simulation des chemins d'exécution améliore-t-elle la revue de Qwen–MTPLX ?",
+  "ref": "0f62027b6cb19afdc0d32ff73cadfdd9c60eeae5",
+  "modele": "mtplx-qwen38-27b-optimized-speed-fp16",
+  "mode": "ro",
+  "url": "http://127.0.0.1:8000",
+  "binaire_sha256": "0a2f85dc8dca7976ab3d8bd370751f0d9ef1c584e2e78cde1308cd23dc47c9ae",
+  "noyau_sha256": "00c9d2d2c40c0f011a9f172b073e3a75235d508d5b1d5671ee67c6c5e5965205",
+  "configuration_sha256": "b1d9853e39cc882634cec8d0a4ea352066a2dfa5a7fea54a2a1f38cf91c6cc9e",
+  "fiches_a": {
+    "conception-modules.md": "6c3be1aef2e9f1096f804cc14740dbb61b372e5df961389197ed5ae948ee187c",
+    "conflits-git.md": "1c0de292735c61de8516374617a448a93439d74139af6f151482777c3d7d213b",
+    "diagnostic-bugs.md": "56b0e3c6ee2f0bfbd0f3d99455bb7365de902a8a856997f677b2cdec405195be",
+    "implementer.md": "368551adf046038ca0aec32698fb503d082b9460a30c6085d32a3417e23b8265",
+    "index.md": "b198ebded292e5a74a5f8128809d5a9640157fff71f5c786f7dd6e5f6eaf0738",
+    "revue-de-code.md": "626dae46a62b15b18b942f9eab4848ff3123aded0c25d8ecf87f15cd24179ee9",
+    "tdd.md": "090a88a84b614b269fe643fa4fb2b113aa212c2fb7d9f96705d558a2ace4417e",
+    "verification-finale.md": "20c016ec83b78476763fe753a0d0818dbaa5ffdfbf61b75b2090f95b872e9c99"
+  },
+  "sources": {
+    "bench/revue-execution/consigne.txt": "71cfe4297b3bf314e932fdd4c39107b0e7a0c816b33cb77dfc97898f64efb750",
+    "bench/revue-execution/etude.py": "1278ec64dbc1e7835addb07e76d1866be09bced625056e9fe4deea198c8204e3",
+    "bench/revue-execution/fixtures/reservation-protegee/base/README.md": "5396c9550e93a6fa10ef94debe471ac64c006eac379b793bb257a41d7b6784e1",
+    "bench/revue-execution/fixtures/reservation-protegee/base/inventory.js": "d012e77236b145d510b6ac435b94c7e2ecf1608beb3a79163b8388a152332a15",
+    "bench/revue-execution/fixtures/reservation-protegee/base/reserve.js": "f780fe704b7c92618ac2271a86c25f94e7716b06e6fde4d8b0ce40750a526863",
+    "bench/revue-execution/fixtures/reservation-protegee/candidate/reserve.js": "ce563a15279509869936e47bb485271a66c51d551e6cf359288a7c4e0da200a8",
+    "bench/revue-execution/fixtures/reservation-race/base/README.md": "f53de5c997d9fa0d317d7b303220598317ae393d85bacf735e59120e0aae9666",
+    "bench/revue-execution/fixtures/reservation-race/base/inventory.js": "cbe5c9afd8ed3cd7b736301bf7426a4971f8dbe3c61476b5e8c734ecac4c2502",
+    "bench/revue-execution/fixtures/reservation-race/base/reserve.js": "da4143cdf9eb4bcf9812abf79e02406c9c204724def6b1d802035212d0c54e4d",
+    "bench/revue-execution/fixtures/reservation-race/candidate/reserve.js": "1550228ef72bb998ef2cc476fe02dc63b5e62504f7b6ec7e29b58f263d071791",
+    "bench/revue-execution/fixtures/tarif-zero/base/README.md": "3ce6498dfc6f956bd88eefb3cc86f677a3cfd7fc7fd6d905ca43ece9ebe311aa",
+    "bench/revue-execution/fixtures/tarif-zero/base/invoice.js": "e23ceddc2acde052b1aeb50527e44160a87bce3585368a9ea1097f80dcfe7f61",
+    "bench/revue-execution/fixtures/tarif-zero/base/plans.js": "4ae31968fd59707719e357bab1b17c6ea2d6c46756d99136f0494d8e554b2bc9",
+    "bench/revue-execution/fixtures/tarif-zero/candidate/invoice.js": "1807de037e67e1a6408a4aa123228eccfa8333a0a53f4a37a5e9c4908783f17e",
+    "bench/revue-execution/test-etude.py": "e4d998d8a4721b689f43118d596844d1574a91a0b1ee8a606df13f30381f4b20",
+    "bench/revue-execution/test-fixtures.cjs": "9b7df2f184719cae0e6e449f1d7e4e34ced9bda41ada2eaeec000132d5b50af2",
+    "bench/revue-execution/variante-b.md": "bbaeb1c4e7c7e186e6e89db53a093ae0f2bb8ca9959cdcfb5fcddad318dcb219"
+  },
+  "fixtures": [
+    "reservation-protegee",
+    "tarif-zero",
+    "reservation-race"
+  ],
+  "repetitions": 2,
+  "delai_essai_s": 600,
+  "rejeux_max": 1,
+  "ordre_aa": [
+    [
+      "reservation-protegee",
+      "A",
+      1
+    ],
+    [
+      "reservation-protegee",
+      "A2",
+      1
+    ],
+    [
+      "tarif-zero",
+      "A",
+      1
+    ],
+    [
+      "tarif-zero",
+      "A2",
+      1
+    ],
+    [
+      "reservation-race",
+      "A",
+      1
+    ],
+    [
+      "reservation-race",
+      "A2",
+      1
+    ],
+    [
+      "reservation-protegee",
+      "A",
+      2
+    ],
+    [
+      "reservation-protegee",
+      "A2",
+      2
+    ],
+    [
+      "tarif-zero",
+      "A",
+      2
+    ],
+    [
+      "tarif-zero",
+      "A2",
+      2
+    ],
+    [
+      "reservation-race",
+      "A",
+      2
+    ],
+    [
+      "reservation-race",
+      "A2",
+      2
+    ]
+  ],
+  "ordre_b": [
+    [
+      "reservation-protegee",
+      "B",
+      1
+    ],
+    [
+      "tarif-zero",
+      "B",
+      1
+    ],
+    [
+      "reservation-race",
+      "B",
+      1
+    ],
+    [
+      "reservation-protegee",
+      "B",
+      2
+    ],
+    [
+      "tarif-zero",
+      "B",
+      2
+    ],
+    [
+      "reservation-race",
+      "B",
+      2
+    ]
+  ],
+  "regle": {
+    "vrais_defauts": [
+      "tarif-zero",
+      "reservation-race"
+    ],
+    "temoin_sans_defaut": "reservation-protegee",
+    "keep": "B détecte au moins deux défauts de plus que la meilleure série A/A, sans nouveau faux positif ni mutation ; sa durée médiane ne dépasse pas deux fois celle de A et A2 réunies.",
+    "reject": "B détecte au plus autant de vrais défauts que la moins bonne série A/A, ou ajoute un faux positif ou une mutation.",
+    "inconclusive": "Tous les autres résultats, ou une cellule non comptée."
+  },
+  "notation": "Un défaut est trouvé seulement si la réponse décrit sa condition, son chemin d'appel et son effet. Un autre défaut affirmé sans reproduction est un faux positif. Le témoin protégé ne contient pas de défaut. La notation cite les sorties brutes."
+}

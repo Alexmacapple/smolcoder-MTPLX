@@ -1,0 +1,41 @@
+● lmstudio @ mtplx · mtplx-qwen38-27b-optimized-speed-fp16 · ctx 262,144 · read-only mode
+La fiche est lue. J'explore maintenant le dépôt.
+
+
+Préparation : le dépôt ne contient que `inventory.js`, `README.md`, `reserve.js` — ni `AGENTS.md` projet, ni `REVIEW.md` (les consignes globales sont l'unique standard documenté). Le diff fourni correspond bien à l'état du travail lu : `reserve.js` modifié, un seul fichier. Lecture des trois fichiers faite.
+
+## Standards
+
+Aucun écart à un standard documenté : les consignes globales visent le processus de l'agent (changement minimal, preuve) — le diff est bien le swap minimal de deux lignes. Grille de Fowler : rien de pertinent sur ce diff de deux lignes (pas de nom mystérieux, duplication, grappe, généralité spéculative, etc.). Le défaut de cet échange d'ordre n'est pas un défaut de style mais une violation de contrat, traité à l'axe spécification.
+
+**Constat standards : aucun.**
+
+## Spécification
+
+La source est le README. L'exigence : `README.md:3-4` — « Le stock contient une seule place. Deux réservations simultanées ne peuvent pas toutes les deux réussir. » (`README.md:6-7` se contente de décrire le changement, sans l'exiger.)
+
+**Défaut établi — l'invariante de concurrence est violée.**
+
+- **Condition déclenchante** : deux appels `reserve()` dont les fenêtres [lecture, écriture] se chevauchent — au minimum, deux appels lancés dans le même tour de la boucle d'événements. Le défaut n'a pas besoin d'une latence réelle de l'audit : `await` (même sur `Promise.resolve()`) cède toujours le contrôle à la microtask, donc l'entrelacement se produit à latence nulle.
+- **Chemin d'appel** (code candidat, raisonnement sur les chemins, pas une exécution) :
+  1. Appel A : `reserve.js:4` lit 1 (`inventory.js:3-5`), passe le contrôle `reserve.js:5`, puis `reserve.js:6` (`await audit()`, `inventory.js:11-13`) suspend A **avant** l'écriture.
+  2. Appel B : `reserve.js:4` lit à nouveau 1 (A n'a pas encore écrit), passe `reserve.js:5`, suspend à `reserve.js:6`.
+  3. Les continuations reprennent : A exécute `reserve.js:7` → `writeAvailable(0)` (`inventory.js:7-9`), retourne `true` (`reserve.js:8`) ; B exécute la même ligne 7 avec la valeur `available` périmée capturée en ligne 4 (mise à jour perdue, écriture inconditionnelle sans relecture ni re-vérification), et retourne aussi `true`.
+  - À l'ordre `HEAD`, la même séquence échoue du second : l'écriture `reserve.js:6` (ancien) précède l'`await` (ancien ligne 7), donc B lit 0 en ligne 4 et `reserve.js:5` renvoie `false`.
+- **Effet observable attendu du code** : deux réservations concurrentes sur le stock d'une seule place (`inventory.js:1`, `let available = 1`) réussissent toutes deux — les deux appels résolvent à `true` —, alors que `README.md:3-4` exige qu'au plus l'une réussisse. Le compteur finit à 0, ce qui masque le problème d'un coup d'œil, mais deux appelsants croient détenir la place unique.
+- **Mécanisme** : vérification-à-l'instant-de-la-vérification / usage-à-l'instant-de-l'usage — le contrôle de `reserve.js:5` ne protège plus l'écriture de `reserve.js:7`, séparées par un point de suspension (`reserve.js:6`) — aggravé par la mise à jour perdue (écriture d'une valeur locale périmée).
+
+Aucun autre écart à la spécification : rien d'autre dans le README n'est demandé, et le diff n'ajoute aucun comportement non réclamé.
+
+## Sécurité
+
+- Secrets et noms protégés : rien relevé (aucune clé, jeton, `.env`, `.git/`, `~/.smolcoder/`).
+- Commandes shell et injection : rien relevé (aucun appel shell).
+- Chemins et liens : rien relevé (aucune construction de chemin).
+- Dépendances ajoutées : rien relevé (pas de `package.json` touché).
+- Données envoyées au réseau : rien relevé (aucun appel réseau, socket ou écoute).
+
+**Constat sécurité : aucun.**
+
+Bilan : 1 constat (standards 0, spécification 1, sécurité 0) · standards : aucun · spécification : invariante « deux réservations simultanées ne peuvent pas toutes les deux réussir » (`README.md:3-4`) violée par le déplacement de l'écriture après l'`await` (`reserve.js:6-7`, contre l'ordre `reserve.js:6-7` d'avant) · sécurité : aucun.
+

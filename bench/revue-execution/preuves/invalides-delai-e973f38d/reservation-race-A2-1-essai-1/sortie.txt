@@ -1,0 +1,42 @@
+● lmstudio @ mtplx · mtplx-qwen38-27b-optimized-speed-fp16 · ctx 262,144 · edit mode
+Je commence par lire la fiche `revue-de-code`, puis j'inspecte le dépôt.
+
+
+Je prépare la revue selon la fiche : statut git, résolution du point `reference` et lecture des fichiers.
+
+
+Diff confirmed: move `writeAvailable` after `await audit()`. Currently verifying the behavior empirically (new version vs. reference version), without touching the repository files.
+
+
+Vérification positive : la version candidate laisse deux réservations concurrentes réussir toutes les deux, là où la version `reference` n'en laissait qu'une. J'ai créé deux fichiers dits de diagnostic dans `.scratch/` (jamais modifié de fichier du dépôt) : `.scratch/test.js` et `.scratch/old/`.
+
+## Standards
+
+Aucun standard documenté dans le dépôt (pas d'`AGENTS.md`, pas de `REVIEW.md` ; les trois fichiers sont `inventory.js`, `reserve.js`, `README.md`), et aucun outillage de vérification (`package.json` absent). Sur la grille, le diff est un réordonnancement de deux lignes : aucun défaut repérable (pas de nom mystérieux, de duplication, de généralité spéculative ni de changement divergent). **Aucun écart.**
+
+## Spécification
+
+Spécification : `README.md` — « Le stock contient une seule place. Deux réservations simultanées ne peuvent pas toutes les deux réussir. L'audit asynchrone ne modifie pas le stock. » (l. 3–4), complétée par « Le changement candidat déplace l'enregistrement de la réservation après l'audit. » (l. 6–7). Le diff fait exactement ce que décrit la seconde phrase, mais viole l'invariant de la première :
+
+**Défaut — double réservation de la place unique.**
+- **Chemin d'appel** : `reserve()` (`reserve.js` l. 3) → `readAvailable()` (l. 4, `inventory.js` l. 3–5) → contrôle (l. 5) → `await audit()` (l. 6, `inventory.js` l. 11–13, qui cède le contrôle une fois sans toucher au stock) → `writeAvailable(available - 1)` (l. 7, `inventory.js` l. 7–9).
+- **Condition déclenchante** : deux appels `reserve()` engagés avant que l'un d'eux n'atteigne `writeAvailable` (deux appels dans le même tick de l'événement loop suffisent, car `audit()` rend la main à la file des micro-tâches).
+- **Effet observable** : les deux appels retournent `true`, car la fenêtre entre le contrôle (l. 5) et l'écriture (l. 7) n'est plus protégeée ; chaque écriture utilise le `available` local capturé **avant** l'`await`, jamais l'état courant — c'est une mise à jour perdue (read-check-write non atomique) : avec stock 2, deux réussites laisseraient 1 place au lieu de 0.
+- **Lignes utiles** : `reserve.js` l. 4, 5, 6, 7 (version de travail) ; `inventory.js` l. 8 (la variable module, jamais re-lue entre le contrôle et l'écriture) ; hunk du diff (le `writeAvailable` passe de l. 6 à l. 8 de la fonction).
+- **Preuve d'exécution** (`node .scratch/test.js`, deux `reserve()` en `Promise.all`) :
+  - version `reference` : `A=true B=false` (une seule réussite, conforme à README l. 3–4) ;
+  - version candidate : `A=true B=true` (invariant violé).
+- Aucune exigence du README n'est absente par omission, et le déplacement lui-même est demandé ; l'écart est interne à la spécification : la seconde phrase, mise en œuvre telle quelle, casse la première.
+
+## Sécurité
+
+- **Secrets et noms protégés** : rien relevé (le diff ne contient aucune donnée sensible).
+- **Commandes shell et injection** : rien relevé (aucun `exec`/`bash -c`/`shell`).
+- **Chemins et liens** : rien relevé (aucun chemin construit).
+- **Dépendances ajoutées** : rien relevé (pas de `package.json` modifié).
+- **Données envoyées au réseau** : rien relevé (`audit()` n'est qu'un `await Promise.resolve()`).
+
+Bilan : 1 constat (standards 0, spécification 1, sécurité 0) · standards : aucun · spécification : double réservation de la place unique, `reserve.js` l. 6–7 · sécurité : aucun.
+
+Oui, j'ai trouvé un défaut concret : le déplacement de `writeAvailable` après `await audit()` permet à deux réservations simultanées de toutes les deux réussir la seule place du stock, violation vérifiée par exécution de l'invariant documenté dans `README.md`.
+

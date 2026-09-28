@@ -1,0 +1,43 @@
+● lmstudio @ mtplx · mtplx-qwen38-27b-optimized-speed-fp16 · ctx 262,144 · edit mode
+The diff consists of a single line within `invoice.js`. I'll read the file in full to understand the context.
+
+
+The README explicitly states that the `free` plan should produce a zero-cent invoice. Let's actually run the code to confirm the behavior before drawing any conclusions.
+
+
+La revue est complète : point fixe résolu (`bea9a51`), diff non vide (une seule ligne), aucun fichier non suivi, aucun `REVIEW.md` ni `AGENTS.md` à la racine.
+
+## Standards
+
+Le dépôt ne documente aucun standard (pas de `AGENTS.md`, pas de `REVIEW.md`), donc aucun écart dur. Jugement de grille (une remarque, non un écart) :
+
+- `invoice.js:5` — la garde `if (!rate)` remplace un test explicite `rate === undefined` par un test de vérité : la condition devient moins lisible qu'avant (elle mélange « tarif inexistant » et « tarif falsy »), alors que l'intention est uniquement de détecter un plan inconnu. Ce jugement est aggravé par le défaut de spécification ci-dessous : ici, le test de vérité est objectivement trop large, pas seulement plus flou.
+
+## Spécification
+
+Source : `README.md` — « Le plan `free` produit une facture de zéro centime. Le plan `pro` coûte 2 000 centimes. Un nom de plan inconnu doit produire une erreur. » Lignes 3–4 ; ligne 6 annonce le périmètre : « Le changement candidat est une simplification de la validation du tarif. »
+
+**Défaut de comportement (vérifié, non supposé) :**
+
+- **Exigence violée** : « Le plan `free` produit une facture de zéro centime » — ce n'est plus le cas ; le plan `free` produit une erreur.
+- **Chemin d'appel** : `amountFor("free")` (`invoice.js:3`) → `rateFor("free")` (`plans.js:5`, `rates.get("free")` sur la table de `plans.js:1` : `["free", 0]`) → retourne `0` → garde `if (!rate)` (`invoice.js:5`) → `!0 === true` → `throw new Error("Plan inconnu")`.
+- **Condition déclenchante** : tout plan dont le tarif est `0` (valeur falsy) — actuellement `free`.
+- **Effet observable** : `node -e "require('./invoice.js').amountFor('free')"` lève `Error: Plan inconnu` au lieu de retourner `0` (sortie de vérification : `free => ERREUR: Plan inconnu` ; `pro => 2000` inchangé ; `mystery => ERREUR: Plan inconnu` inchangé). Avant le diff, `rate === undefined` était `false` pour `0` et la fonction retournait bien `0`.
+- **Lignes utiles** : `invoice.js:5` (la ligne modifiée), `plans.js:1` (le tarif `0` de `free`).
+
+**Dérive de périmètre** : le contrat limite le changement à une « simplification de la validation » — une simplification qui inverse le comportement d'un plan nommé dans la même spécification n'en est pas une ; personne n'a demandé que `free` devienne une erreur.
+
+## Sécurité
+
+- Secrets et noms protégés : rien relevé.
+- Commandes shell et injection : rien relevé.
+- Chemins et liens : rien relevé.
+- Dépendances ajoutées : rien relevé.
+- Données envoyées au réseau : rien relevé.
+
+## Bilan
+
+Bilan : 3 constats (standards 1, spécification 2, sécurité 0) · standards : garde de vérité `!rate` opaque (invoice.js:5) · spécification : plan `free` qui lève « Plan inconnu » au lieu de 0 (invoice.js:5, plans.js:1) · sécurité : aucun.
+
+J'ai trouvé un défaut concret : le diff fait échouer l'exigence documentée « le plan `free` produit une facture de zéro centime », vérifié par exécution.
+

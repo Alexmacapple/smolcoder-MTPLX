@@ -1,0 +1,25 @@
+● lmstudio @ mtplx · mtplx-qwen38-27b-optimized-speed-fp16 · ctx 262,144 · edit mode
+Je lis d'abord la fiche, puis j'inspecte le dépôt et le diff.
+
+
+Le dépôt contient `inventory.js`, `README.md` et `reserve.js`. Je vérifie l'état git et le point `reference`.
+
+
+Je lis le fichier complet et ses dépendances pour comprendre le contexte.
+
+
+The diff just swaps the order of `writeAvailable` and `await audit()` inside the lock. I'll check the tracked files, then verify the actual behavior through execution.
+
+
+There is no `AGENTS.md`/`REVIEW.md`/`package.json`. From here, I'll write a diagnostic script in `.scratch/` that executes the invariants (two simultaneous reservations), both with the candidate code and with the pre-change code.
+
+
+J'ai décelé une erreur dans mon cas 3 ; je réécris le script de diagnostic proprement.
+
+
+The assertion failed because test 1 had already consumed the slot in the module's shared state (`available` = 0), and test 3 was reusing the same instance. It's a bug in my script, not a defect in the code. I'll fix the test.
+
+
+My test 3's assertion was wrong (the state is shared with test 1). I'll fix it to compare before and after.
+
+

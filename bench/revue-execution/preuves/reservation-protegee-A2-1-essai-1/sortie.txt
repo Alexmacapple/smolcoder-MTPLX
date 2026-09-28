@@ -1,0 +1,27 @@
+● lmstudio @ mtplx · mtplx-qwen38-27b-optimized-speed-fp16 · ctx 262,144 · read-only mode
+J'ai lu la fiche, `reserve.js`, `inventory.js` et le README. Voici la revue des trois axes.
+
+## Standards
+
+Aucun `AGENTS.md`, `REVIEW.md` ni autre document de standards dans le dépôt — les règles globales valent donc. Le diff se réduit à un réordonnancement d'une instruction à l'intérieur du bloc verrouillé (le `writeAvailable` passe après `await audit()`). Aucun défaut de la grille de Fowler ne s'applique : pas de nom mystérieux, pas de duplication, pas de changement éparpillé. Rien à signaler.
+
+## Spécification
+
+Le README est la seule source : « Le stock contient une seule place. Deux réservations simultanées ne peuvent pas toutes les deux réussir. Le verrou garde les opérations d'une réservation ensemble, y compris pendant l'audit asynchrone. » Le paragraphe suivant décrit précisément le changement candidat (« déplace l'enregistrement après l'audit, à l'intérieur du même verrou »).
+
+Analyse du chemin d'appel (raisonnement, non exécution) : dans `withLock` (inventory.js:4-15), le `release` est appelé dans le `finally` **après** `await work()`, et `work` est le corps complet de `reserve` ; le verrou est donc tenu pendant l'`await audit()` que l'écriture soit avant ou après cet await. Deux `reserve` concurrents se sérialisent intégralement : la seconde ne lit `available` qu'après que la première a terminé, écriture comprise. La propriété « deux réservations simultanées ne peuvent pas toutes les deux réussir » est préservée, et aucune exigence du README n'est absente ni contredite.
+
+## Sécurité
+
+- Secrets et noms protégés : rien relevé (pas de valeur sensible dans le diff).
+- Commandes shell et injection : rien relevé.
+- Chemins et liens : rien relevé (pas de chemin construit).
+- Dépendances ajoutées : rien relevé.
+- Données envoyées au réseau : rien relevé.
+
+## Conclusion
+
+Aucun défaut n'est établi. La réécriture place la décrémentation plus tard dans le chemin d'appel — entre le verrou, toujours — et le comportement observable n'en change pas : la correction visée par l'ordre antérieur (écrire avant un point suspensif) n'était nécessaire que si le verrou n'avait pas tenu pendant l'audit ; or il le tient, et le README le documente explicitement. Le diff est une permutation sémantiquement neutre sous le verrou tel qu'implémenté.
+
+Bilan : 0 constat (standards 0, spécification 0, sécurité 0) · standards : aucun · spécification : aucune exigence violée · sécurité : aucun.
+

@@ -1,0 +1,36 @@
+● lmstudio @ mtplx · mtplx-qwen38-27b-optimized-speed-fp16 · ctx 262,144 · read-only mode
+Je commence par la fiche de revue, puis les fichiers sources.
+
+
+J'ai lu la fiche. Je lis maintenant les trois fichiers du dépôt.
+
+
+Préparation : point fixe = `reference` (HEAD), vérifié par le banc ; seul fichier modifié : `reserve.js` (`M`) ; pas de `REVIEW.md` ni `AGENTS.md` à la racine (le dépôt ne contient que `reserve.js`, `inventory.js`, `README.md`). Les constats ci-dessous sont des traces raisonnées sur les chemins d'appel, pas des exécutions.
+
+## Standards
+
+Aucun standard documenté dans le dépôt (ni `AGENTS.md`, ni `REVIEW.md`). La grille de Fowler sur un réordonnancement de deux lignes ne fait apparaître ni nom mystérieux, ni duplication, ni autre défaut nommé. **Aucun constat.**
+
+## Spécification
+
+Source : `README.md` (l. 3) — trois exigences : le stock contient une seule place ; **deux réservations simultanées ne peuvent pas toutes les deux réussir** ; l'audit asynchrone ne modifie pas le stock. Le diff réalise bien le déplacement décrit (l. 5), mais il contredit la première exigence.
+
+**Défaut : double réservation réussie sur un stock d'une place (test-then-act non atomique).**
+
+- **Condition déclenchante** : deux appels à `reserve()` engagés l'un pendant que l'autre est suspendu sur `await audit()` — par exemple les deux démarrés dans le même tour (les deux `reserve()` passés dans une même promesse parallèle), avec un stock initial ≥ 1.
+- **Chemin d'appel** : appel A lit le stock (l. 4, `reserve.js`) et passe le test (l. 5) ; l'écriture a été déplacée après l'attente, donc A suspend son exécution sur `await audit()` (l. 6, `reserve.js`) avant d'avoir écrit quoi que ce soit. L'audit n'est qu'un point de suspension (`inventory.js` l. 11-13, `Promise.resolve()`) et ne modifie pas le stock. L'appel B, engagé tant que le stock n'a pas été décrémenté, lit la même valeur initiale (l. 4) et passe le même test (l. 5). Chacun reprend ensuite et écrit la valeur `dispo − 1` calculée sur la lecture propre et désormais obsolète (l. 7, `reserve.js`, vers `writeAvailable` de `inventory.js` l. 7-9). Avant le changement, l'écriture suivait immédiatement le test dans le même bloc synchrone : aucun point d'intercalage n'existait entre le test et l'écriture, et seul le premier appel pouvait réussir.
+- **Effet observable attendu** : les deux appels renvoient `true` (l. 8) alors que le stock initial est une seule place (`inventory.js` l. 1) : violation directe de « Deux réservations simultanées ne peuvent pas toutes les deux réussir » (`README.md` l. 3). Le stock final vaut 0, incohérent avec deux réservations accomplies ; en stock initial supérieur, l'écriture sur valeur obsolète perd en plus les décréments des autres (un écriture écrase l'autre au lieu de les additionner).
+- **Lignes pertinentes** : `reserve.js` l. 4-8 (dans la version candidate) ; `inventory.js` l. 1, l. 3-9, l. 11-13 ; `README.md` l. 3.
+
+Correction minimale : conserver l'écriture avant l'attente (annuler le déplacement), ou faire en sorte que le décrément relise le stock au moment de l'écriture et rejoue le test.
+
+## Sécurité
+
+- Secrets et noms protégés : rien relevé.
+- Commandes shell et injection : rien relevé.
+- Chemins et liens : rien relevé.
+- Dépendances ajoutées : rien relevé (pas de manifeste dans le dépôt).
+- Données envoyées au réseau : rien relevé.
+
+**Bilan : 1 constat (standards 0, spécification 1, sécurité 0) · standards : aucun · spécification : invariant de réservation unique brisé par le déplacement après `await` (reserve.js:6-7) · sécurité : aucun.**
+

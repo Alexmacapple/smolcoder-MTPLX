@@ -1,0 +1,40 @@
+● lmstudio @ mtplx · mtplx-qwen38-27b-optimized-speed-fp16 · ctx 262,144 · read-only mode
+## Standards
+
+Aucun `AGENTS.md` ni `REVIEW.md` à la racine du dépôt ; aucun standard documenté du projet à citer. Passage de la grille sur le diff (simple permutation de deux lignes dans `reserve.js`, lignes 4–11) :
+
+- Pas de nom mystérieux, de duplication, de spécialité ni d'héritage en cause : le diff ne fait qu'échanger l'ordre de `await audit()` et de `writeAvailable(available - 1)`.
+- Un point d'honnêteté de lecture : la valeur écrite, `available - 1`, est calculée à partir du `available` lu en début de section critique. Raisonner le chemin d'appel — `withLock` (`inventory.js` :6–16) ne libère le verrou que dans le `finally`, après la fin de `work()` — et aucun code ne modifie `available` entre la lecture et l'écriture à l'intérieur du verrou ; le `-1` reste donc correct dans le nouvel ordre.
+- Jugement, non écart dur : rien à signaler.
+
+## Spécification
+
+Source : le README est la seule spécification disponible (pas de contrat de mission, pas de ticket, le changement est non commité ; il n'y a pas de `docs/`). Le README énonce : « Deux réservations simultanées ne peuvent pas toutes les deux réussir. Le verrou garde les opérations d'une réservation ensemble, y compris pendant l'audit asynchrone. »
+
+Raisonnement sur les chemins d'appel (raisonnement, pas exécution) :
+
+1. Réservation A : `withLock` prend la file (promesse `tail`), lit `available` = 1, attend l'audit, écrit 0, libère dans le `finally` (`reserve.js` :3–11, `inventory.js` :6–16).
+2. Réservation B concurrente : son `await previous` la fait attendre la libération par A, donc elle démarre seulement après l'écriture de A ; elle lit 0, `available < 1` → `return false`.
+
+Le critère du README est donc préservé : la permutation reste neutre car l'écriture demeure dans le même verrou, ce que le README lui-même décrit comme l'intention (« Le changement candidat déplace l'enregistrement après l'audit, à l'intérieur du même verrou »). Le diff correspond exactement à cette description.
+
+Effet d'échec : si `audit()` venait à rejeter (ce qu'il ne fait pas aujourd'hui, `inventory.js` :19–21), l'écriture se ferait après l'audit seulement dans le nouvel ordre, évitant un décrément orphelin que l'ordre ancien aurait rendu irréversible. C'est un argument en faveur du diff, pas un défaut.
+
+Aucune exigence absente, aucune dérive de périmètre, aucune implémentation fausse identifiée.
+
+## Sécurité
+
+- Secrets et noms protégés : rien relevé (pas de clé, jeton, `.env*`, `.git/`).
+- Commandes shell et injection : rien relevé (aucun appel shell, `exec` ou `eval`).
+- Chemins et liens : rien relevé (aucune construction de chemin).
+- Dépendances ajoutées : rien relevé (pas de `package.json` modifié ; `require("./inventory")` est inchangé).
+- Données envoyées au réseau : rien relevé (aucun appel HTTP, socket ou écoute).
+
+## Bilan
+
+Aucun défaut n'est établi sur le diff : la permutation de l'écriture après l'audit est comportementalement neutre pour le critère du README (le verrou, tenu jusqu'au `finally` dans `withLock`, sérialise lecture-écriture malgré l'audit asynchrone, `reserve.js` :4–11, `inventory.js` :6–16), et le diff coïncide avec l'intention documentée.
+
+`Bilan : 0 constat (standards 0, spécification 0, sécurité 0) · standards : aucun · spécification : aucun · sécurité : aucun`
+
+Reste à vérifier, hors session de revue : que le banc de test des réservations simultanées passe sur l'ordre nouveau (le banc a, selon le contexte fourni, déjà vérifié le point fixe, le statut Git et le diff — l'exécution des tests n'est pas disponible ici).
+

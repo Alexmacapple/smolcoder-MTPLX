@@ -1,0 +1,114 @@
+{
+  "reservation-protegee-A-1": {
+    "trouve": false,
+    "faux_positifs": 0,
+    "preuve": "Aucun défaut n'est établi",
+    "justification": "Le modèle suit withLock jusqu'au finally et constate que B lit après l'écriture d'A."
+  },
+  "reservation-protegee-A2-1": {
+    "trouve": false,
+    "faux_positifs": 0,
+    "preuve": "Aucun défaut n'est établi",
+    "justification": "Le modèle constate que release suit await work, audit compris."
+  },
+  "tarif-zero-A-1": {
+    "trouve": true,
+    "faux_positifs": 0,
+    "preuve": "plan `free` (taux 0) rejeté par `!rate`",
+    "justification": "La réponse donne free, le retour 0 de rateFor, la garde et l'erreur observable."
+  },
+  "tarif-zero-A2-1": {
+    "trouve": true,
+    "faux_positifs": 0,
+    "preuve": "le plan `free` est rejeté",
+    "justification": "La réponse suit le tarif 0 jusqu'à la branche de rejet et cite le README."
+  },
+  "reservation-race-A-1": {
+    "trouve": true,
+    "faux_positifs": 0,
+    "preuve": "deux réservations simultanées réussissent toutes les deux",
+    "justification": "La réponse déroule deux lectures de 1 avant les écritures et deux retours true."
+  },
+  "reservation-race-A2-1": {
+    "trouve": true,
+    "faux_positifs": 0,
+    "preuve": "deux réservations simultanées",
+    "justification": "La réponse décrit la valeur capturée avant await, puis deux écritures obsolètes."
+  },
+  "reservation-protegee-A-2": {
+    "trouve": false,
+    "faux_positifs": 0,
+    "preuve": "Aucun défaut n'est établi",
+    "justification": "Le modèle constate que le verrou est gardé pendant tout work."
+  },
+  "reservation-protegee-A2-2": {
+    "trouve": false,
+    "faux_positifs": 0,
+    "preuve": "0 défaut établi",
+    "justification": "Le modèle écarte la course et qualifie explicitement d'inatteignable le rejet hypothétique d'audit."
+  },
+  "tarif-zero-A-2": {
+    "trouve": true,
+    "faux_positifs": 0,
+    "preuve": "le plan `free` lève",
+    "justification": "La réponse établit que 0 déclenche !rate et rompt la facture nulle."
+  },
+  "tarif-zero-A2-2": {
+    "trouve": true,
+    "faux_positifs": 0,
+    "preuve": "plan `free` ne produit plus 0 centime",
+    "justification": "La réponse décrit le chemin et l'effet ; le jugement de style duplique ce même mécanisme sans autre défaut affirmé."
+  },
+  "reservation-race-A-2": {
+    "trouve": true,
+    "faux_positifs": 0,
+    "preuve": "deux réservations simultanées réussissent toutes les deux",
+    "justification": "La réponse explicite le point de suspension entre test et écriture et les deux succès."
+  },
+  "reservation-race-A2-2": {
+    "trouve": true,
+    "faux_positifs": 0,
+    "preuve": "deux réservations simultanées ne peuvent pas toutes les deux réussir",
+    "justification": "La réponse décrit le snapshot du stock partagé et le double retour true."
+  },
+  "reservation-protegee-B-1": {
+    "trouve": false,
+    "faux_positifs": 0,
+    "preuve": "0 défaut établi",
+    "justification": "La réponse suit le verrou et qualifie l'appel hors verrou de chemin futur non établi."
+  },
+  "reservation-protegee-B-2": {
+    "trouve": false,
+    "faux_positifs": 0,
+    "preuve": "Bilan : 0 constat",
+    "justification": "La réponse déroule les deux ordres concurrents et constate que le verrou empêche le second succès."
+  },
+  "tarif-zero-B-1": {
+    "trouve": true,
+    "faux_positifs": 0,
+    "preuve": "le plan `free` (tarif `0`) est rejeté",
+    "justification": "La réponse suit le retour 0 jusqu'à !rate et à l'erreur ; certaines citations de lignes sont décalées."
+  },
+  "tarif-zero-B-2": {
+    "trouve": true,
+    "faux_positifs": 0,
+    "preuve": "le plan `free` produit désormais une erreur",
+    "justification": "La réponse décrit la condition free, la garde falsy et l'erreur."
+  },
+  "reservation-race-B-1": {
+    "trouve": true,
+    "faux_positifs": 2,
+    "preuve": "double réservation concurrente",
+    "preuves_supplementaires": [
+      "Généralité spéculative",
+      "Obsession du primitif"
+    ],
+    "justification": "La course est correctement décrite. Deux constats de standards sont injustifiés : généralité spéculative pour un réordonnancement et obsession du primitif sur inventory.js inchangé."
+  },
+  "reservation-race-B-2": {
+    "trouve": true,
+    "faux_positifs": 0,
+    "preuve": "double réservation sous simultanéité",
+    "justification": "La réponse donne deux lectures de 1, deux écritures de 0 et deux retours true, sans autre défaut affirmé."
+  }
+}

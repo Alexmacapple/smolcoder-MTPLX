@@ -1,0 +1,28 @@
+● lmstudio @ mtplx · mtplx-qwen38-27b-optimized-speed-fp16 · ctx 262,144 · edit mode
+J'ai lu la fiche. Je prépare maintenant la revue : statut du dépôt, point `reference`, diff.
+
+
+Préparation complète : un seul fichier modifié (`reserve.js`), aucun fichier nouveau non suivi, point `reference` = HEAD (`5f1468e`). Il n'y a ni `REVIEW.md` ni `AGENTS.md` à la racine. Je vérifie la version au point `reference` et je marque l'étape terminée.
+
+
+Confirmed the diff: the only change is the reordering of a single line (`writeAvailable` moved from before `await audit()` to after), and in both versions the statement is inside `withLock`. `inventory.js` is unchanged.
+
+
+Axe 1 : aucune norme documentée dans le dépôt (ni `AGENTS.md` ni `REVIEW.md`). Axe 2 : la spécification est `README.md`. Je vais maintenant valider avec des diagnostics (scripts dans `.scratch/`, aucun fichier du dépôt n'est modifié).
+
+
+Fix the read probe for part (b): it has to be placed between the check and the write (during the audit window). That is, it should be scheduled after `reserve()` is called.
+
+
+Also, we need to restore `audit` before the second reservation in part (c). Otherwise, the second one will fail on the audit, not on stock.
+
+
+Unexpected result: for `n=10`, the number of successes is 0 (suspicious — probably an artifact from my test: the single slot was already consumed by the n=2 round), and furthermore in the candidate (b) it shows 0, which contradicts the expected timeline. I'll re-read my own script and debug the microtask ordering.
+
+
+Found it: my cache-clearing filter uses a path containing a literal `/..`, which doesn't match the normalized keys of `require.cache` — so the candidate's (b) was reusing the instance already consumed in (a). This is an artifact of my test, not of the code. Fix both scripts.
+
+
+The crash in (c) for the candidate is suspicious — the error is propagating as an uncaught exception. In order to pinpoint the cause, I'll re-read the current script precisely.
+
+

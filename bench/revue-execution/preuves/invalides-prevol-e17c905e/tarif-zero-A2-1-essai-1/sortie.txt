@@ -1,0 +1,36 @@
+● lmstudio @ mtplx · mtplx-qwen38-27b-optimized-speed-fp16 · ctx 262,144 · edit mode
+**Préparation** — `git status --short` : une seule modification, `M invoice.js` (pas de fichier non suivi, pas de travail humain distinct). `reference` se résout (`66bb0fe Référence`). `git diff reference` : un seul hunk, une seule ligne, dans `invoice.js`. Pas de `AGENTS.md` ni de `REVIEW.md` à la racine ; la source de spécification est le `README.md`.
+
+## Standards
+
+Aucun standard documenté dans le dépôt (pas d'`AGENTS.md`, pas de `REVIEW.md`) : aucun écart dur.
+
+Sur la grille de Fowler (jugements, pas des violations) :
+
+- **Obsession du primitif** (`invoice.js:5`) : le concept « tarif connu / tarif absent » est porté par un simple nombre testé en booléen. L'ancien code distinguait l'absence (`rate === undefined`) d'une valeur légitime ; le nouveau les confond. C'est cette conflation qui cause le défaut de comportement signalé à l'axe 2.
+- **Nom mystérieux** (symptôme, non cause) : le message `Error("Plan inconnu")` est désormais lancé pour un plan connu (`free`), ce qui induit en erreur quiconque le lit.
+
+## Spécification
+
+Source : `README.md` (« Le plan `free` produit une facture de zéro centime. Le plan `pro` coûte 2 000 centimes. Un nom de plan inconnu doit produire une erreur. »).
+
+- **Critère 1 violé (défaut confirmé par exécution)** :
+  - *Chemin d'appel* : `plans.js:1` `const rates = new Map([["free", 0], ["pro", 20]])` → `plans.js:3-5` `rateFor("free")` renvoie `0` → `invoice.js:4` `const rate = rateFor(plan)` (valeur `0`) → `invoice.js:5` `if (!rate) throw new Error("Plan inconnu")` : `!0` est `true`, le `throw` se déclenche.
+  - *Condition déclenchante* : tout plan dont le tarif est falsey ; concrètement le plan `free` (tarif `0`).
+  - *Effet observable* : `amountFor("free")` lève `Error: Plan inconnu` au lieu de renvoyer `0`. Vérifié en lançant les deux versions : référence → `free -> 0` ; arbre de travail → `free -> ERROR: Plan inconnu`.
+- Critère 2 (`pro`) : toujours respecté (`pro -> 2000`, vérifié).
+- Critère 3 (nom inconnu → erreur) : toujours respecté (`unknown -> ERROR: Plan inconnu`), mais pour la même raison que `free` : le test ne distingue plus « tarif absent » de « tarif nul ». Le critère passe par accident, pas par construction.
+- Dérive de périmètre : aucune — le diff n'ajoute aucun comportement au-delà du resserrement de la validation.
+
+## Sécurité
+
+- Secrets et noms protégés : rien relevé.
+- Commandes shell et injection : rien relevé (aucun `eval`, `exec`, `child_process`).
+- Chemins et liens : rien relevé (aucune manipulation de chemin).
+- Dépendances ajoutées : rien relevé (pas de `package.json` modifié ; diff d'une ligne).
+- Données envoyées au réseau : rien relevé.
+
+**Bilan : 2 constats (standards 1, spécification 1, sécurité 0) · standards : confusion absence/zéro du tarif en test booléen (invoice.js:5, jugement de grille) · spécification : critère « free → 0 centime » violé (invoice.js:5, confirmé par exécution) · sécurité : aucun.**
+
+Oui, j'ai trouvé un défaut concret : le plan `free` lève `Plan inconnu` au lieu de produire sa facture de zéro, régression vérifiée en exécutant les deux versions du code.
+

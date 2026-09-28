@@ -1,0 +1,39 @@
+● lmstudio @ mtplx · mtplx-qwen38-27b-optimized-speed-fp16 · ctx 262,144 · read-only mode
+Je commence par lire la fiche de revue, puis les fichiers source.
+
+
+La fiche et les trois fichiers sont lus (pas de `REVIEW.md`, ni `AGENTS.md` dans le dépôt ; point fixe et diff fournis par le banc, je ne re-lance rien). Analyse raisonnée des chemins d'appel, sans exécution.
+
+## Standards
+
+Aucun standard documenté dans le dépôt (ni `AGENTS.md`, ni `REVIEW.md` : seuls `reserve.js`, `inventory.js`, `README.md` existent). Grille de Fowler appliquée au diff : il ne déplace qu'une seule ligne — aucun nom mystérieux, aucune duplication, aucune obsession de données ni autre odeur introduite. **Aucun constat.** (Le motif de concurrence identifié plus bas est un défaut fonctionnel, non une odeur de grille : il figure à l'axe Spécification.)
+
+## Spécification
+
+Source : `README.md` (aucun contrat de mission ni ticket dans cette session). Il fixe l'invariant : « Le stock contient une seule place. Deux réservations simultanées ne peuvent pas toutes les deux réussir. »
+
+**Constat — course check-then-act, mise à jour perdue** (l'implémentation du diff contredit l'invariant du README) :
+
+- **Condition déclenchante** : deux appels à `reserve()` lancés dans le même tour synchrone (ex. `Promise.all([reserve(), reserve()])`), donc avant que le premier n'ait écrit le stock.
+- **Chemin d'appel** :
+  - `reserve.js:4` lit `available` (valeur 1) ; `reserve.js:5` passe le contrôle ; `reserve.js:6` `await audit()` — point de suspension : l'appel A est suspendu **sans avoir écrit** (c'est là que le diff change tout, car l'écriture passait avant ce point en version HEAD).
+  - `audit()` (`inventory.js:12`, `await Promise.resolve()`) laisse passer les microtâches : l'appel B exécute alors `reserve.js:4`, lit encore 1 (module-level `let available = 1`, `inventory.js:1`), passe `reserve.js:5`, se suspend à son tour à `reserve.js:6`.
+  - A reprend : `reserve.js:7` écrit `available - 1` = 0 et rend `true`. B reprend : `reserve.js:7` réécrit 0 (snapshot obsolète de `inventory.js:8`, simple affectation non atomique) et rend `true`.
+- **Effet observable** : les deux réservations simultanées réussissent (`true` et `true`) sur un stock d'une seule place, qui finit à 0 — violation directe de « Deux réservations simultanées ne peuvent pas toutes les deux réussir. » En version HEAD, `writeAvailable` s'exécutait avant le premier `await`, si bien que B lisait 0 et renvoyait `false`. À stock initial supérieur à 1, le même motif donne en plus un stock final incohérent (K appels concurrents écrivent tous `stock-1` au lieu de `stock-K`).
+- Le README reste exact sur « L'audit asynchrone ne modifie pas le stock » : le défaut n'est pas dans `audit()`, c'est la réécriture d'un snapshot lu avant la suspension. Correction naturelle : décrémenter de façon atomique (comparer puis écrire la valeur courante au moment de l'écriture, ou verrouiller), ce qui n'exige pas de remettre l'ordre HEAD si l'audit après écriture est le comportement voulu.
+- Pas de dérive de périmètre : le déplacement lui-même est annoncé par le README ; c'est son effet sur l'invariant qui est le problème.
+
+## Sécurité
+
+- **Secrets et noms protégés** : rien relevé — aucune valeur sensible dans le diff.
+- **Commandes shell et injection** : rien relevé — aucun `exec`/shell, aucune chaîne interpolée en commande.
+- **Chemins et liens** : rien relevé — aucun chemin construit ; l'état est une variable de module en mémoire.
+- **Dépendances ajoutées** : rien relevé — pas de `package.json` ni manifeste modifié dans le diff.
+- **Données envoyées au réseau** : rien relevé — aucun appel réseau, socket ou port.
+
+---
+
+Bilan : 1 constat (standards 0, spécification 1, sécurité 0) · standards : aucun · spécification : deux réservations simultanées réussissent toutes les deux — snapshot obsolète écrit après suspension (`reserve.js:6-7`), invariant « une seule place » du README violé · sécurité : aucun.
+
+À noter : ce bilan est une déduction sur les chemins d'appel ; je n'ai pas exécuté le code (session en lecture seule). La cause profonde est le read-modify-write non atomique sur l'état partagé de `inventory.js` ; l'ordre HEAD masquait le défaut uniquement en plaçant l'écriture avant la première suspension.
+

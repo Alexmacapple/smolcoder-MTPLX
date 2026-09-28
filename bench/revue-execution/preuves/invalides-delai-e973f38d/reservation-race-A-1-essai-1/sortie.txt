@@ -1,0 +1,39 @@
+● lmstudio @ mtplx · mtplx-qwen38-27b-optimized-speed-fp16 · ctx 262,144 · edit mode
+La preuve du défaut est déjà obtenue (`true true` sur le diff). Je corrige le chemin du comparatif :
+
+
+Les trois axes sont prêts ; voici la revue du diff entre `reference` (108ac7b) et l'arbre de travail. Seul fichier modifié : `reserve.js` (réordonnancement de deux lignes : l'écriture du stock passe après `await audit()`). Aucun `REVIEW.md` ni `AGENTS.md` au racine du dépôt ; les fichiers `.scratch/` créés pour cette revue sont mes diagnostics, hors du changement candidat.
+
+## Standards
+
+Aucun standard documenté dans le dépôt (pas d'`AGENTS.md`, pas de `REVIEW.md` au racine) ; la grille de Fowler n'y a pas de prise : le diff est un déplacement de deux instructions sans nom, duplication, grappe de données ni abstraction nouvelle.
+
+## Spécification
+
+Source : `README.md` — « Le stock contient une seule place. Deux réservations simultanées ne peuvent pas toutes les deux réussir. L'audit asynchrone ne modifie pas le stock. »
+
+**Défaut vérifié — double réservation d'une seule place** (cas c : le comportement est apparemment celui demandé par la ligne « Le changement candidat déplace l'enregistrement de la réservation après l'audit », mais il contredit le critère de concurrence du même README) :
+
+- **Chemin d'appel** : `reserve()` (`reserve.js:2`) → `readAvailable()` (`inventory.js:3`) → garde `available < 1` (`reserve.js:5`) → `await audit()` (`reserve.js:6` → `inventory.js:9-11`, `await Promise.resolve()`) → `writeAvailable(available - 1)` (`reserve.js:7`).
+- **Condition déclenchante** : deux appels `reserve()` démarrés dans le même tour synchrone (ex. `Promise.all([reserve(), reserve()])`).
+- **Effet observable** : les deux appels lisent `available = 1` avant qu'aucun n'écrive ; à la reprise, chacun écrit sa copie locale `1 - 1 = 0` et les deux renvoient `true`. Prépulsé par `node .scratch/diag.js` (inventaire rechargé neuf pour chaque version) :
+  - `diff (écriture après l'audit)      -> deux concurrents :  true true`
+  - `référence (écriture avant l'audit)  -> deux concurrents :  true false`
+
+  Sur un stock supérieur à 1, le même enchaînement lecture → `await` → écriture de la copie locale serait une « mise à jour perdue » : le compteur diminuerait d'un par concurrent.
+- **Lignes utiles** : `reserve.js:5` (garde), `reserve.js:6` (`await` qui suspend entre la garde et l'écriture), `reserve.js:7` (écriture différée) ; le diff retire l'ancienne ligne d'écriture qui précédait le `await`.
+
+Le point « l'audit asynchrone ne modifie pas le stock » reste respecté, et aucune dérive de périmètre : le README décrit bien ce déplacement comme intention.
+
+## Sécurité
+
+- Secrets et noms protégés : rien relevé.
+- Commandes shell et injection : rien relevé (aucun shell, aucun `exec`).
+- Chemins et liens : rien relevé (aucun chemin construit depuis une entrée).
+- Dépendances ajoutées : rien relevé (pas de `package.json`).
+- Données envoyées au réseau : rien relevé.
+
+Bilan : 1 constat (standards 0, spécification 1, sécurité 0) · standards : aucun · spécification : critère « deux réservations simultanées ne peuvent pas toutes les deux réussir » violé (reserve.js:6-7) · sécurité : aucun.
+
+J'ai trouvé un défaut concret : l'écriture du stock différée après `await audit()` permet à deux réservations concurrentes de toutes réussir sur une seule place.
+

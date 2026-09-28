@@ -1,0 +1,34 @@
+● lmstudio @ mtplx · mtplx-qwen38-27b-optimized-speed-fp16 · ctx 262,144 · read-only mode
+La fiche est lue. Je lis maintenant les fichiers du dépôt (il n'y a ni `REVIEW.md` ni `AGENTS.md` de projet à la racine).
+
+
+# Revue du changement candidat (`invoice.js`, HEAD `reference`)
+
+Base : le banc a établi le point fixe, le statut Git (`M invoice.js`) et le diff ; je les prends tels quels. À la racine il n'y a ni `REVIEW.md` ni `AGENTS.md` de projet ; en l'absence de contrat de mission dans cette session, la spécification est le `README.md`.
+
+## Standards
+
+Aucun standard documenté dans le dépôt (pas d'`AGENTS.md`, pas de `REVIEW.md`) : aucun écart dur. Passage de la grille de Fowler sur le diff (une ligne) : rien ne s'applique — pas de nom mystérieux, de duplication, de spéculation ni de switch répété. **Aucun constat.**
+
+## Spécification
+
+Un défaut est établi : le diff casse une exigence du README.
+
+- **Exigence** : `README.md:2` — « Le plan `free` produit une facture de zéro centime. »
+- **Condition déclenchante** : tout appel `amountFor("free")`, c'est-à-dire chaque facturation du plan `free`.
+- **Chemin d'appel** : `amountFor` (`invoice.js:3`) → `rateFor("free")` (`plans.js:4–6`) → `rates.get("free")`, le littéral `plans.js:1` (`new Map([["free", 0], ["pro", 20]])`) renvoie `0`.
+- **Effet observable du code** : la ligne modifiée `invoice.js:5` (`if (!rate) throw new Error("Plan inconnu");`) teste la vérité ; `!0` est `true`, la branche `throw` est prise. Le code produit donc une erreur `Error("Plan inconnu")` — avec un message trompeur, le plan `free` étant connu — là où l'ancienne écriture (`rate === undefined`) laissait passer `0` et retournait `0 * 100`, soit la facture de zéro centime exigée.
+- **Lignes pertinentes** : `invoice.js:5` (le défaut) et `plans.js:1` (le tarif `0` qui le déclenche).
+- **Portée** : la différence comportementale est confinée au cas tarif `0`. Le plan `pro` (`20`) reste facturé 2 000 centimes ; un plan inconnu (renvoie `undefined`, `!undefined` → `true`) reste rejeté, conformément à `README.md:3`. Aucun comportement non demandé n'est introduit : la dérive est ici une régression d'exigence existante, pas un élargissement de périmètre.
+- Correction la plus directe : restaurer `rate === undefined` (ou tester `rates.has(plan)`).
+
+## Sécurité
+
+- Secrets et noms protégés : rien relevé.
+- Commandes shell et injection : rien relevé (pas d'`exec`, pas de shell).
+- Chemins et liens : rien relevé.
+- Dépendances ajoutées : rien relevé (pas de `package.json` touché ni présent).
+- Données envoyées au réseau : rien relevé.
+
+**Bilan : 1 constat (standards 0, spécification 1, sécurité 0) · standards : aucun · spécification : le plan `free` est rejeté avec « Plan inconnu » au lieu de produire une facture de zéro centime (`invoice.js:5`, tarif `0` en `plans.js:1`) · sécurité : aucun.**
+

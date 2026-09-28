@@ -1,0 +1,44 @@
+● lmstudio @ mtplx · mtplx-qwen38-27b-optimized-speed-fp16 · ctx 262,144 · read-only mode
+Préparation (vérifications matérielles déjà faites par le banc : point fixe `reference`/HEAD, statut `M reserve.js`, diff non vide). Le dépôt ne contient que `inventory.js`, `README.md` et `reserve.js` : pas de `REVIEW.md` ni d'`AGENTS.md` projet. La source de spécification est le `README.md` (travail non commité, aucun ticket ni contrat de mission). Mon analyse des chemins d'appel est un raisonnement sur l'ordre d'exécution possible dans l'événement-loop, pas une exécution.
+
+## Standards
+
+**(a) Standards documentés.** Aucun `AGENTS.md` ni `REVIEW.md` dans le dépôt : aucun écart dur à signaler.
+
+**(b) Défauts de la grille (jugements, pas de violations automatiques) :**
+
+1. **Généralité spéculative** — `reserve.js:5-6` : `await audit(); writeAvailable(available - 1);` Ordonne l'écriture après la suspension en la justifiant par un besoin absent : `audit()` (`inventory.js:9-11`) ne peut ni échouer ni rejeter (`await Promise.resolve()`), et aucune exigence ne dit que la réservation dépende du succès de l'audit. Report corrigerait : rétablir l'écriture avant le point de suspension, ou offrir une opération atomique.
+2. **Obsession du primitif** — `inventory.js:1-9` : le concept « place réservable » est un nombre brut `available` module-level, exposé en lecture et écriture séparées (`readAvailable`/`writeAvailable`) sans opération qui vérifie et décrémente d'un seul bloc. C'est la cause racine du défaut de l'axe spécification ; report corrigerait : une `tryReserve()` atomique, sans `await` entre le contrôle et l'effet.
+
+## Spécification
+
+Source : `README.md` (aucun autre contrat disponible).
+
+**(a) Exigences absentes ou partielles.** Aucune exigence positive non couverte.
+
+**(b) Comportements non demandés.** Le diff introduit une dépendance que personne n'a demandée : l'enregistrement du stock n'aurait lieu qu'après l'audit. Le `README.md:6` décrit ce déplacement, mais le `README.md` ne pose que l'invariant des lignes 3-4 comme exigence ; la motivation « n'enregistrer que si l'audit réussit » n'existe nulle part dans la spécification ni dans le code (`audit` ne peut pas échouer).
+
+**(c) Exigence qui semble implémentée mais dont l'implémentation est fausse — défaut établi.**
+
+- **Exigence violée** : `README.md:3-4` — « Deux réservations simultanées ne peuvent pas toutes les deux réussir. »
+- **Condition déclenchante** : deux appels `reserve()` qui démarrent avant que l'un n'atteigne `writeAvailable`. La fenêtre contrôle→écriture s'étend désormais sur un point de suspension : `await audit()` cède toujours au moins un micro-task (`inventory.js:10`), donc deux appels lancés dans le même tour d'événement-loop (ou deux tours adjacents) chevauchent systématiquement la fenêtre.
+- **Chemin d'appel (deux ordres d'exécution concurrents, raisonnés)** :
+  - A : `readAvailable()` → 1 (`reserve.js:3` via `inventory.js:3-5`) → contrôle franchi (`reserve.js:4`) → suspendu à `await audit()` (`reserve.js:5`).
+  - B : `readAvailable()` → 1 (aucune écriture n'a eu lieu) → contrôle franchi → suspendu.
+  - A reprend : `writeAvailable(1 - 1)` → 0 (`reserve.js:6`, `inventory.js:7-9`) → retourne `true`.
+  - B reprend : `writeAvailable(available - 1)` avec la valeur **stale** capturée à `reserve.js:3` → réécrit 0 → retourne `true`.
+  - Ordre non concurrent (B démarre après la fin d'A) : B lit 0 et retourne `false` — le défaut n'apparaît qu'avec le chevauchement.
+- **Effet observable attendu du code** : les deux réservations réussissent (`true`, `true`) pour un stock d'une place ; le stock final reste 0. La place unique est réservée deux fois. À l'inverse, à HEAD l'écriture précède toute suspension : A écrit 0 avant que B ne lise, B obtient 0 et retourne `false` — l'invariant tenait avant le diff.
+- **Généralisation** (si le stock dépassait 1) : chaque écriture est recalculée depuis la valeur stale de `reserve.js:3`, donc les mises à jour se perdent : N réussites simultanées pourraient laisser un stock supérieur à la déduction réelle.
+- **Lignes pertinentes** : `reserve.js:3-6` ; `inventory.js:1-11` ; `README.md:3-4`.
+
+## Sécurité
+
+- **Secrets et noms protégés** : rien relevé.
+- **Commandes shell et injection** : rien relevé (aucun `exec`, aucun shell).
+- **Chemins et liens** : rien relevé (état en mémoire, aucun accès au système de fichiers).
+- **Dépendances ajoutées** : rien relevé (aucun `package.json` dans le dépôt).
+- **Données envoyées au réseau** : rien relevé (`audit` attend un micro-task local, aucun appel réseau).
+
+**Bilan : 3 constats (standards 2, spécification 1, sécurité 0) · standards : généralité spéculative sur un besoin absent (reserve.js:5-6) · spécification : double réservation concurrente — l'invariant README.md:3-4 est violé, le défaut était absent à HEAD (reserve.js:4-6) · sécurité : aucun.**
+

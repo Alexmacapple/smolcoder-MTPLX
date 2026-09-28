@@ -1,0 +1,181 @@
+{
+  "etape": "aa",
+  "protocole_sha256": "ad5e17b4776a32d48b793951da4c4e11214598222b21f73719358a19f6ecd49e",
+  "cellules": {
+    "reservation-protegee-A-1": {
+      "sortie_sha256": "2545d1d5ac4655a317d6a9cceab6b41cd9c3b155949fe307028acc45045f4d7b",
+      "trouve": false,
+      "faux_positifs": 0,
+      "preuve": "Aucun défaut n'est établi",
+      "preuves_supplementaires": [],
+      "justification": "Le modèle suit withLock jusqu'au finally et constate que B lit après l'écriture d'A.",
+      "duree_s": 315.42,
+      "mutation": false,
+      "ecritures_tentees": 0,
+      "prompt_sha256": "7b030bbdc32a979ac673d6da530c100dee6df5d1be348ff2a86bfae6905b8042",
+      "fiche_sha256": "626dae46a62b15b18b942f9eab4848ff3123aded0c25d8ecf87f15cd24179ee9"
+    },
+    "reservation-protegee-A2-1": {
+      "sortie_sha256": "c32f17e388a95cbb813f0af7cddf02100f7ac0fb48b0b8bfdb348491da5f3e34",
+      "trouve": false,
+      "faux_positifs": 0,
+      "preuve": "Aucun défaut n'est établi",
+      "preuves_supplementaires": [],
+      "justification": "Le modèle constate que release suit await work, audit compris.",
+      "duree_s": 76.05,
+      "mutation": false,
+      "ecritures_tentees": 0,
+      "prompt_sha256": "7b030bbdc32a979ac673d6da530c100dee6df5d1be348ff2a86bfae6905b8042",
+      "fiche_sha256": "626dae46a62b15b18b942f9eab4848ff3123aded0c25d8ecf87f15cd24179ee9"
+    },
+    "tarif-zero-A-1": {
+      "sortie_sha256": "f30dbc7dc1b09738c024e551ecc2d25046ace217d3a306178e4de340db6dcb60",
+      "trouve": true,
+      "faux_positifs": 0,
+      "preuve": "plan `free` (taux 0) rejeté par `!rate`",
+      "preuves_supplementaires": [],
+      "justification": "La réponse donne free, le retour 0 de rateFor, la garde et l'erreur observable.",
+      "duree_s": 113.11,
+      "mutation": false,
+      "ecritures_tentees": 0,
+      "prompt_sha256": "f2ac96b08002d9b6703a0ea3125c50c86620b1ecec5f0d924febb6687854b78c",
+      "fiche_sha256": "626dae46a62b15b18b942f9eab4848ff3123aded0c25d8ecf87f15cd24179ee9"
+    },
+    "tarif-zero-A2-1": {
+      "sortie_sha256": "c838dee32d4cff537003ac25005384a06ba91e1a0e4e3ac581acbaf8ad04f9c3",
+      "trouve": true,
+      "faux_positifs": 0,
+      "preuve": "le plan `free` est rejeté",
+      "preuves_supplementaires": [],
+      "justification": "La réponse suit le tarif 0 jusqu'à la branche de rejet et cite le README.",
+      "duree_s": 119.61,
+      "mutation": false,
+      "ecritures_tentees": 0,
+      "prompt_sha256": "f2ac96b08002d9b6703a0ea3125c50c86620b1ecec5f0d924febb6687854b78c",
+      "fiche_sha256": "626dae46a62b15b18b942f9eab4848ff3123aded0c25d8ecf87f15cd24179ee9"
+    },
+    "reservation-race-A-1": {
+      "sortie_sha256": "52e4b633f72b266e29c6a0527b8674ca0f317d649eb08d47c509ff273513e228",
+      "trouve": true,
+      "faux_positifs": 0,
+      "preuve": "deux réservations simultanées réussissent toutes les deux",
+      "preuves_supplementaires": [],
+      "justification": "La réponse déroule deux lectures de 1 avant les écritures et deux retours true.",
+      "duree_s": 312.28,
+      "mutation": false,
+      "ecritures_tentees": 0,
+      "prompt_sha256": "b1899c7600277d243834f9c576a415081a9a3946fc88ffbe53bb86784456822a",
+      "fiche_sha256": "626dae46a62b15b18b942f9eab4848ff3123aded0c25d8ecf87f15cd24179ee9"
+    },
+    "reservation-race-A2-1": {
+      "sortie_sha256": "f4a7eb67b5d7f86903ac45c5278a178598ad1aa9444fb76191aaf082e5de7f0d",
+      "trouve": true,
+      "faux_positifs": 0,
+      "preuve": "deux réservations simultanées",
+      "preuves_supplementaires": [],
+      "justification": "La réponse décrit la valeur capturée avant await, puis deux écritures obsolètes.",
+      "duree_s": 181.82,
+      "mutation": false,
+      "ecritures_tentees": 0,
+      "prompt_sha256": "b1899c7600277d243834f9c576a415081a9a3946fc88ffbe53bb86784456822a",
+      "fiche_sha256": "626dae46a62b15b18b942f9eab4848ff3123aded0c25d8ecf87f15cd24179ee9"
+    },
+    "reservation-protegee-A-2": {
+      "sortie_sha256": "2baadeb19ed95b15b353511125a3ea72918fe8a0bdd87f7f875967b4ad035f62",
+      "trouve": false,
+      "faux_positifs": 0,
+      "preuve": "Aucun défaut n'est établi",
+      "preuves_supplementaires": [],
+      "justification": "Le modèle constate que le verrou est gardé pendant tout work.",
+      "duree_s": 136.13,
+      "mutation": false,
+      "ecritures_tentees": 0,
+      "prompt_sha256": "7b030bbdc32a979ac673d6da530c100dee6df5d1be348ff2a86bfae6905b8042",
+      "fiche_sha256": "626dae46a62b15b18b942f9eab4848ff3123aded0c25d8ecf87f15cd24179ee9"
+    },
+    "reservation-protegee-A2-2": {
+      "sortie_sha256": "c898fe4f19c90c764f72756324400e18f2110aa8b5bee6ea3265d8e6d1f65955",
+      "trouve": false,
+      "faux_positifs": 0,
+      "preuve": "0 défaut établi",
+      "preuves_supplementaires": [],
+      "justification": "Le modèle écarte la course et qualifie explicitement d'inatteignable le rejet hypothétique d'audit.",
+      "duree_s": 242.6,
+      "mutation": false,
+      "ecritures_tentees": 0,
+      "prompt_sha256": "7b030bbdc32a979ac673d6da530c100dee6df5d1be348ff2a86bfae6905b8042",
+      "fiche_sha256": "626dae46a62b15b18b942f9eab4848ff3123aded0c25d8ecf87f15cd24179ee9"
+    },
+    "tarif-zero-A-2": {
+      "sortie_sha256": "d193866e116b0000999e56af36339159446cdabb15cd51b03bd0d4d4a9b86a63",
+      "trouve": true,
+      "faux_positifs": 0,
+      "preuve": "le plan `free` lève",
+      "preuves_supplementaires": [],
+      "justification": "La réponse établit que 0 déclenche !rate et rompt la facture nulle.",
+      "duree_s": 79.56,
+      "mutation": false,
+      "ecritures_tentees": 0,
+      "prompt_sha256": "f2ac96b08002d9b6703a0ea3125c50c86620b1ecec5f0d924febb6687854b78c",
+      "fiche_sha256": "626dae46a62b15b18b942f9eab4848ff3123aded0c25d8ecf87f15cd24179ee9"
+    },
+    "tarif-zero-A2-2": {
+      "sortie_sha256": "73e5d9a9adab95e2b2e8737e534f401cfd5f816cec4d05fa046ef8f44ac41ea0",
+      "trouve": true,
+      "faux_positifs": 0,
+      "preuve": "plan `free` ne produit plus 0 centime",
+      "preuves_supplementaires": [],
+      "justification": "La réponse décrit le chemin et l'effet ; le jugement de style duplique ce même mécanisme sans autre défaut affirmé.",
+      "duree_s": 159.15,
+      "mutation": false,
+      "ecritures_tentees": 0,
+      "prompt_sha256": "f2ac96b08002d9b6703a0ea3125c50c86620b1ecec5f0d924febb6687854b78c",
+      "fiche_sha256": "626dae46a62b15b18b942f9eab4848ff3123aded0c25d8ecf87f15cd24179ee9"
+    },
+    "reservation-race-A-2": {
+      "sortie_sha256": "70a246b20cacc067cc4cc9705606cfed9620aeb217d3857a71e74aa96a14d4ab",
+      "trouve": true,
+      "faux_positifs": 0,
+      "preuve": "deux réservations simultanées réussissent toutes les deux",
+      "preuves_supplementaires": [],
+      "justification": "La réponse explicite le point de suspension entre test et écriture et les deux succès.",
+      "duree_s": 169.29,
+      "mutation": false,
+      "ecritures_tentees": 0,
+      "prompt_sha256": "b1899c7600277d243834f9c576a415081a9a3946fc88ffbe53bb86784456822a",
+      "fiche_sha256": "626dae46a62b15b18b942f9eab4848ff3123aded0c25d8ecf87f15cd24179ee9"
+    },
+    "reservation-race-A2-2": {
+      "sortie_sha256": "a740d3355a569c71edde3236180dcd6a1adae6840d31c81b2d6651586af7dcbc",
+      "trouve": true,
+      "faux_positifs": 0,
+      "preuve": "deux réservations simultanées ne peuvent pas toutes les deux réussir",
+      "preuves_supplementaires": [],
+      "justification": "La réponse décrit le snapshot du stock partagé et le double retour true.",
+      "duree_s": 232.85,
+      "mutation": false,
+      "ecritures_tentees": 0,
+      "prompt_sha256": "b1899c7600277d243834f9c576a415081a9a3946fc88ffbe53bb86784456822a",
+      "fiche_sha256": "626dae46a62b15b18b942f9eab4848ff3123aded0c25d8ecf87f15cd24179ee9"
+    }
+  },
+  "series": {
+    "A": {
+      "cellules": 6,
+      "vrais_defauts": 4,
+      "faux_positifs": 0,
+      "mutations": 0,
+      "ecritures_tentees": 0,
+      "duree_mediane_s": 152.70999999999998
+    },
+    "A2": {
+      "cellules": 6,
+      "vrais_defauts": 4,
+      "faux_positifs": 0,
+      "mutations": 0,
+      "ecritures_tentees": 0,
+      "duree_mediane_s": 170.485
+    }
+  },
+  "ecart_aa": 0
+}

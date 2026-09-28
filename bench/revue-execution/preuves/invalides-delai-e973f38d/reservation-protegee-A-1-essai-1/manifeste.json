@@ -1,0 +1,16 @@
+{
+  "cellule": "reservation-protegee-A-1",
+  "fixture": "reservation-protegee",
+  "serie": "A",
+  "repetition": 1,
+  "tentative": 1,
+  "protocole_sha256": "e973f38d96d22aa88fe7c9502a0095f92f00d4273398a2636b323ddf2f1cdd33",
+  "statut": "non_comptee",
+  "fiche_sha256": "626dae46a62b15b18b942f9eab4848ff3123aded0c25d8ecf87f15cd24179ee9",
+  "timeout": true,
+  "code_sortie": 143,
+  "fiche_lue": true,
+  "mutation": true,
+  "modele_attendu": "mtplx-qwen38-27b-optimized-speed-fp16",
+  "duree_s": 300.5
+}

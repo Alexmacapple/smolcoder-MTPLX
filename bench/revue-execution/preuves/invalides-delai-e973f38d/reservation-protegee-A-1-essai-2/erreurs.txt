@@ -1,0 +1,89 @@
+· Instructions loaded: ~/.smolcoder/AGENTS.md (25 lines)
+· Method sheets: 7 installed (~/.smolcoder/fiches)
+  context window declared by the server (unverified)
+  effort default
+→ read_file fiche:revue-de-code
+  ✓ # Revue de code à trois axes (+126 lines)
+→ list_files .
+  ✓ inventory.js (+2 lines)
+→ run_command git status --short && echo "---" && git rev-parse reference && echo "---" && git log --oneline -5
+  ✓  M reserve.js (+6 lines)
+→ run_command git status && echo "===DIFF===" && git diff reference && echo "===TRACKED===" && git ls-files
+  ✓ On branch main (+27 lines)
+→ read_file reserve.js
+  ✓ const { withLock, readAvailable, writeAvailable, audit } = require("./inventory"); (+13 lines)
+→ read_file inventory.js
+  ✓ let available = 1; (+28 lines)
+→ read_file README.md
+  ✓ # Réservation protégée (+8 lines)
+· thinking… 15s
+· thinking… 30s
+· thinking… 45s
+· thinking… 60s
+→ run_command ls -la && echo "===" && git stash list && git diff reference --stat
+  ✓ total 24 (+11 lines)
+→ run_command mkdir -p .scratch/orig && git show reference:reserve.js > .scratch/orig/reserve.js && git show reference:inventory.js > .scratch/orig/inventory.js && git diff reference --stat -- inventory.js README.md | wc -l
+  ✓        0 (+2 lines)
+→ write_file .scratch/test-reserve.js (16 lines)
+  ✓ Created .scratch/test-reserve.js (16 lines).
+→ run_command node .scratch/test-reserve.js
+  ✗ Error: command exited with code 1
+→ edit_file .scratch/test-reserve.js
+  ✓ Edited .scratch/test-reserve.js: replaced 1 occurrence.
+→ run_command node .scratch/test-reserve.js
+  ✓ reference  {"a":true,"b":false,"c":false} OK (+3 lines)
+→ write_file .scratch/test-stress.js (14 lines)
+  ✓ Created .scratch/test-stress.js (14 lines).
+→ run_command mkdir -p .scratch/slow && cp reserve.js inventory.js .scratch/slow/ && node -e "
+const fs = require('fs');
+let s = fs.readFileSync('.scratch/slow/inventory.js', 'utf8');
+s = s.replace('await Promise.resolve();', 'await new Promise((r) => setTimeout(r, 20));');
+fs.writeFileSync('.scratch/slow/inventory.js', s);
+"
+  ✓ (no output) (+1 lines)
+→ run_command node .scratch/test-stress.js
+  ✓ reference  5 parallel: 1 succès (attendu 1) (+4 lines)
+· thinking… 15s
+· thinking… 30s
+→ run_command mkdir -p .scratch/fail && cp reserve.js inventory.js .scratch/fail/ && node -e "
+const fs = require('fs');
+let s = fs.readFileSync('.scratch/fail/inventory.js', 'utf8');
+s = s.replace('await Promise.resolve();', 'throw new Error(\"audit KO\");');
+fs.writeFileSync('.scratch/fail/inventory.js', s);
+" && node -e "
+const orig = require('./.scratch/fail/reserve.js');
+(async () => {
+  try { await orig.reserve(); } catch (e) { console.log('reserve() rejette:', e.message); }
+  const second = await orig.reserve();
+  console.log('réservation suivante après audit échoué:', second);
+})();"
+  ✗ Error: command exited with code 1
+→ run_command node -e "
+const orig = require('./.scratch/orig/reserve.js');
+(async () => {
+  let first, second;
+  try { first = await orig.reserve(); } catch (e) { first = 'rejette: ' + e.message; }
+  second = await orig.reserve();
+  console.log('reference — 1re:', first, '| 2e:', second);
+})();" && node -e "
+const cand = require('./.scratch/fail/reserve.js');
+(async () => {
+  let first, second;
+  try { first = await cand.reserve(); } catch (e) { first = 'rejette: ' + e.message; }
+  try { second = await cand.reserve(); } catch (e) { second = 'rejette: ' + e.message; }
+  console.log('candidate — 1re:', first, '| 2e:', second);
+})();"
+  ✓ reference — 1re: true | 2e: false (+3 lines)
+→ run_command mkdir -p .scratch/failref && git show reference:reserve.js > .scratch/failref/reserve.js && cp .scratch/fail/inventory.js .scratch/failref/ && node -e "
+(async () => {
+  for (const [name, mod] of [['reference', require('./.scratch/failref/reserve.js')], ['candidate', require('./.scratch/fail/reserve.js')]]) {
+    let first, second;
+    try { first = await mod.reserve(); } catch (e) { first = 'rejette: ' + e.message; }
+    try { second = await mod.reserve(); } catch (e) { second = 'rejette: ' + e.message; }
+    console.log(name, '— 1re:', first, '| 2e:', second);
+  }
+})();"
+  ✓ reference — 1re: rejette: audit KO | 2e: false (+3 lines)
+· thinking… 15s
+· thinking… 30s
+· thinking… 45s

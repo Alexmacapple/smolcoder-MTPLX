@@ -1,0 +1,44 @@
+● lmstudio @ mtplx · mtplx-qwen38-27b-optimized-speed-fp16 · ctx 262,144 · read-only mode
+Je commence par lire la fiche de méthode, puis le diff dans son contexte.
+
+
+Préparation : point fixe `reference` (HEAD), statut fourni `M reserve.js` (seul changement candidat, aucun travail humain à séparer), diff non vide, et aucun `REVIEW.md` ni `AGENTS.md` à la racine (vérifié par recherche). Les fichiers du dépôt sont `reserve.js`, `inventory.js`, `README.md` ; la lecture confirme que l'arbre porte bien l'ordre candidat.
+
+## Analyse des chemins d'appel
+
+**Mécanisme du verrou** (`inventory.js:4-14`) : chaque appel à `withLock` capture la queue `tail` (l.5), y branche une nouvelle promesse (l.7), puis attend la précédente (l.8) ; le `release()` ne se déclenche qu'au `finally`, c'est-à-dire après que `work()` a entièrement abouti (l.9-13). Par analyse des chemins d'appel, la closure `work` d'un appelant ne peut démarrer qu'après la fin complète de celle du précédent : les réservations sont strictement séquentielles, rejet inclus.
+
+**Cas normal** (stock initial 1, `inventory.js:1`) : lecture (reserve.js:5), contrôle `available < 1` (reserve.js:6), puis — l'ordre des deux instructions ne changeant pas le fait qu'elles sont toutes deux dans la section verrouillée (reserve.js:4-10) — audit (reserve.js:7) et décrément (reserve.js:8). État final identique aux deux ordres : stock 0, `true` retourné.
+
+**Cas limite / erreur** : refus si stock 0 (reserve.js:6) — identique aux deux ordres, aucun écriture. Un rejet de `audit()` serait inobservable avec l'implémentation courante (`inventory.js:24-26`, simple attente d'une promesse résolue) ; en supposition, l'ancien ordre aurait consommé la place avant l'échec, le nouvel ordre non. Différence d'hypothèse, pas défaut établi.
+
+**Deux ordres concurrents** (A puis B sur une place) : B est suspendu à l'attente de la queue (`inventory.js:8`) jusqu'au `release()` de A (reserve.js:9-10 → `inventory.js:12`) ; quel que soit l'ordre interne, B lit donc le stock déjà décrémenté (reserve.js:5) et renvoie `false` (reserve.js:6). Résultat invariant : une seule réservation réussit. La propriété promise par le README est préservée.
+
+**Chemin non établi (signalé, non imputable au diff comme défaut)** : `readAvailable` est exporté (`inventory.js:16-18,28`) et peut être appelé hors verrou pendant la suspension de `await audit()` ; l'ancien ordre exposerait alors le stock déjà décrémenté, le nouvel ordre le stock intact pendant que la réservation est « en vol ». Aucun lecteur direct n'existe dans ce dépôt (seul `reserve.js` l'utilise, sous verrou) : aucun effet observable n'est établi ici.
+
+## Standards
+
+Aucun standard documenté dans le dépôt (ni `AGENTS.md`, ni `REVIEW.md`) ; rien à citer. Sur la grille : le diff est un simple réordonnancement de deux déclarations, sans nom, duplication, abstraction ni divergence — aucun défaut de grille ne s'applique.
+
+**Aucun défaut établi.**
+
+## Spécification
+
+Source : le README (« Réservation protégée »). Il exige : (1) une place unique, deux réservations simultanées ne peuvent toutes deux réussir — chemin concurrents ci-dessus, préservé ; (2) « le verrou garde les opérations d'une réservation ensemble, y compris pendant l'audit asynchrone » — l'audit et l'écriture demeurent tous deux dans la closure verrouillée (reserve.js:4-10), préservé. Le README décrit précisément le changement candidat : « déplace l'enregistrement après l'audit, à l'intérieur du même verrou » — le diff fait exactement cela. Aucune exigence absente, aucune dérive de périmètre.
+
+**Aucun défaut établi.**
+
+## Sécurité
+
+- Secrets et noms protégés : rien relevé (aucun littéral sensible, aucune lecture de `.env*`/`.git`).
+- Commandes shell et injection : rien relevé (aucun shell, `exec` ni `eval`).
+- Chemins et liens : rien relevé (aucune manipulation de chemin).
+- Dépendances ajoutées : rien relevé (`require("./inventory")` inchangé, aucun manifeste modifié).
+- Données envoyées au réseau : rien relevé (`audit` n'attend qu'une promesse résolue, `inventory.js:24-26`).
+
+**Aucun défaut établi.**
+
+Bilan : 0 constat (standards 0, spécification 0, sécurité 0) · standards : aucun · spécification : aucun · sécurité : aucun
+
+Remarque de méthode : l'analyse ci-dessus raisonne sur les chemins d'appel et leurs effets attendus ; elle n'est pas le résultat d'une exécution, et cette session n'en a pas effectué (les deux chemins signalés « non établis » le demeurent tant qu'aucun appelant hors dépôt n'utilise `readAvailable`/`audit` différemment).
+

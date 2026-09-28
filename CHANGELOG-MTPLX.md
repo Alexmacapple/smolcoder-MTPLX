@@ -2753,7 +2753,7 @@ SHA `76ae538` reporté sur l'entrée précédente.
 
 ## 2026-09-28
 
-### `(ce commit)` — Architecture : lecture progressive du fork — Réf #66
+### `0f62027` — Architecture : lecture progressive du fork — Réf #66
 
 `docs/architecture-evolution-fork.md` et `CHANGELOG-MTPLX.md`. Nouvelle page
 de référence à divulgation progressive : la compatibilité MTPLX, les règles de
@@ -2765,6 +2765,26 @@ un rapport de mesure. Les verdicts #52 (**PROTÉGÉ**, échantillon borné) et #
 Vérifications : contrôle documentaire 7/7, 37 liens relatifs résolus et
 `npm test` 376/376. La CLI PDD n'est pas installée : cette page est rédigée à
 partir des sources locales, sans prétendre à des reçus PDD générés.
+
+## 2026-09-29
+
+### `(ce commit)` — Étude #68 : revue par simulation — Réf #68
+
+`bench/revue-execution/` (protocole, consigne, variante de fiche, trois cas
+avec base et candidat, banc, tests, annotations, analyse et preuves publiées),
+`docs/etude-revue-execution-2026-09-29.md` et `CHANGELOG-MTPLX.md`.
+Comparaison locale A/A puis A/B sur Qwen 3.8 27B : 18 cellules comptées,
+quatre défauts cibles trouvés sur quatre dans chaque série ; B ajoute deux
+faux positifs. Le verdict pré-enregistré est **REJECT** : la variante de la
+fiche n'est pas adoptée. Les réponses, traces d'appels, manifestes et diffs
+des essais comptés et des prévols invalidés sont publiés sous `preuves/` ;
+les instantanés et le binaire restent dans le dossier local ignoré par Git.
+La fiche de production et `src/` ne changent pas.
+
+Vérifications : trois vérités terrain, trois diffs candidats non vides,
+analyse A/A puis A/B recalculée depuis les preuves publiées, cas d'une cellule
+manquante donnant `INCONCLUSIVE`, syntaxe Python et `npm test` 376/376.
+Aucune mise à jour de l'issue distante.
 
 ## Hors dépôt (machine locale)
 

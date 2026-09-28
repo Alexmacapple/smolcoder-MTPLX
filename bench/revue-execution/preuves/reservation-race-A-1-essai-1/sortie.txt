@@ -1,0 +1,52 @@
+● lmstudio @ mtplx · mtplx-qwen38-27b-optimized-speed-fp16 · ctx 262,144 · read-only mode
+Tous les fichiers sont lus (le dépôt ne contient que `inventory.js`, `README.md`, `reserve.js` — ni `AGENTS.md` ni `REVIEW.md` à la racine). Voici la revue, en lecture seule : le raisonnement ci-dessous suit les chemins d'appel du code tel qu'il est écrit ; ce n'est pas une exécution.
+
+## Standards
+
+- **Standard documenté du dépôt** : aucun. Le workspace ne contient pas d'`AGENTS.md` ni de `REVIEW.md` ; il n'y a donc pas d'écart dur à citer.
+- **Grille** appliquée au diff (une seule ligne déplacée, `writeAvailable` passé après `await audit()`) : aucun défaut de la grille n'est introduit par le déplacement lui-même (pas de duplication, grappe, switch répété, etc. dans le diff). La valeur brute `available` tenue pour « une place du stock » (obsession du primitif éventuelle, `reserve.js:4`) préexiste au diff et n'en fait pas partie.
+
+**Constats : aucun.**
+
+## Spécification
+
+**Source** : `README.md` (pas de contrat de mission, pas de ticket cité, pas de `docs/`). La README documente à la fois l'invariante (l. 3–4 : « Le stock contient une seule place. Deux réservations simultanées ne peuvent pas toutes les deux réussir. L'audit asynchrone ne modifie pas le stock. ») et le changement lui-même (l. 6–7).
+
+- **(a) Exigence absente/partielle** : rien.
+- **(b) Comportement non demandé** : rien — le déplacement est documenté par la README (l. 6–7).
+
+- **(c) Exigence implémentée mais fausse** — **constat S1 (défaut établi)** :
+
+  **Condition déclenchante** : deux appels à `reserve()` engagés avant la reprise de l'un des audits, c'est-à-dire démarrés dans la même phase synchrone (par ex. `reserve(); reserve();` dans le même tick). Le cas décalé dans le temps (un appel terminé avant le début de l'autre) n'est pas touché.
+
+  **Chemin d'appel** (raisonnement statique, non exécution) :
+  1. Appel A — `reserve()` : `readAvailable()` (`reserve.js:4`) renvoie 1 (module chargé, `inventory.js:1` `available = 1`) ; le test `1 < 1` (`reserve.js:5`) passe ; `await audit()` (`reserve.js:6`) : `audit()` s'interrompt sur `await Promise.resolve()` (`inventory.js:12`) et rend la main.
+  2. Appel B — engagé avant la reprise de A : `readAvailable()` renvoie **encore 1**, car aucun `writeAvailable` n'a encore eu lieu ; le test passe ; `await audit()` rend à nouveau la main.
+  3. Phase des microtâches : A se reprend, exécute `writeAvailable(1 - 1)` (`reserve.js:7`) → stock 0, renvoie `true` ; B se reprend et exécute à son tour `writeAvailable(1 - 1)` → stock 0 de nouveau, renvoie `true`. La conclusion ne dépend pas de l'ordre de reprise : A et B écrivent tous deux la même valeur calculée à partir de leur lecture obsolète.
+
+  **Effet observable attendu du code** : les deux appels renvoient `true` — deux réservations simultanées réussissent toutes les deux sur un stock d'une place, en violation de l'invariante `README.md:3–4`. Le stock final vaut 0 (les deux écritures écrasent par la même valeur, donc pas de stock négatif ici), mais aucun appel n'a été refusé.
+
+  **Lignes pertinentes** : `reserve.js:4` (lecture captée avant le rendement de main), `:5` (test sur la valeur captée), `:6` (le `await` qui sépare test et écriture), `:7` (écriture fondée sur la valeur de `:4` et non sur le stock courant) ; `inventory.js:12` (rendement de main de l'audit). **Cause racine** : avant le changement, les lignes lecture/test/écriture étaient contiguës (synchrones) — un second appel concurrent observait le stock 0 et renvoyait `false` ; l'insertion du `await` entre le test et l'écriture casse cette atomicité. Facette secondaire de la même cause : l'écriture ne re-lit pas le stock, donc toute modification du stock entre `:4` et `:7` (notamment via `writeAvailable` exporté, `inventory.js:7–9`) serait perdue (perte de mise à jour).
+
+- **(d) Plan approuvé** : aucun.
+
+**Constats : 1 (S1).**
+
+## Sécurité
+
+Parcours des cinq points sur le diff :
+
+- **Secrets et noms protégés** : rien relevé — aucune valeur sensible dans `reserve.js`.
+- **Commandes shell et injection** : rien relevé — aucun shell, `exec`, `eval`.
+- **Chemins et liens** : rien relevé — aucun chemin construit.
+- **Dépendances ajoutées** : rien relevé — pas de `package.json` dans le dépôt ; le diff ne touche que `reserve.js`.
+- **Données envoyées au réseau** : rien relevé — `audit()` n'est qu'un `await Promise.resolve()` (`inventory.js:12`), sans I/O réseau.
+
+**Constats : aucun.**
+
+---
+
+**Bilan : 1 constat (standards 0, spécification 1, sécurité 0) · standards : aucun · spécification : invariante README:3–4 « deux réservations simultanées ne peuvent pas toutes les deux réussir » violée — test et écriture séparés par le `await` de reserve.js:6, écriture fondée sur la lecture obsolète de reserve.js:4 (reserve.js:6–7) · sécurité : aucun**
+
+Ce qui reste : session en lecture seule, aucune exécution possible ; le constat repose sur la lecture des chemins d'appel et sur les vérifications de point fixe, statut et diff faites par le banc. Aucune correction n'a été demandée ; pour la trame, soit restaurer la contiguïté lecture/test/écriture, soit rendre le décrément atomique (re-lecture avant écriture).
+

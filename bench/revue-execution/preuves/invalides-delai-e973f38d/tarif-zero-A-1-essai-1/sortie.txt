@@ -1,0 +1,33 @@
+● lmstudio @ mtplx · mtplx-qwen38-27b-optimized-speed-fp16 · ctx 262,144 · edit mode
+Le diff est minuscule : une ligne dans `invoice.js` (`rate === undefined` → `!rate`). Je vérifie le comportement réel avec Node.
+
+
+Diagnostic confirmé : `amountFor("free")` lève une erreur au lieu de produire une facture nulle. Voici la revue.
+
+## Standards
+
+Aucun standard documenté dans le dépôt : pas de `REVIEW.md`, pas d'`AGENTS.md`. La grille n'apporte pas de constat supplémentaire au-delà de ce que révèle l'axe spécification (le test d'absence d'un tarif y a été fusionné avec le test « valeur nulle », mais l'effet observable relève de la spécification ; je ne le compte pas deux fois).
+
+## Spécification
+
+La source est `README.md`. Trois exigences, vérifiées une à une :
+
+- « Le plan `free` produit une facture de zéro centime. » → **exigence violée.**
+  - Chemin d'appel : `amountFor("free")` → `rateFor("free")` → `amountFor` lève.
+  - Condition déclenchante : `plans.js:1` enregistre `["free", 0]`, donc `rate` vaut `0` ; à `invoice.js:5`, la condition modifiée `if (!rate)` est vraie car `!0 === true` — la case « tarif nul » est confondue avec la case « clé absente » que détectait l'ancien `rate === undefined`.
+  - Effet observable : au lieu de retourner `0` (`0 * 100`), la fonction lève `Error("Plan inconnu")`. Vérifié par exécution : `free => ERREUR: Plan inconnu`.
+- « Le plan `pro` coûte 2 000 centimes. » → respecté : `pro => 2000`.
+- « Un nom de plan inconnu doit produire une erreur. » → respecté : `mystery => ERREUR: Plan inconnu`.
+
+## Sécurité
+
+- Secrets et noms protégés : rien relevé.
+- Commandes shell et injection : rien relevé (aucun `exec`/shell, aucune donnée externe).
+- Chemins et liens : rien relevé (aucune manipulation de chemin).
+- Dépendances ajoutées : rien relevé (pas de `package.json` touché).
+- Données envoyées au réseau : rien relevé (aucun appel réseau).
+
+Bilan : 1 constat (standards 0, spécification 1, sécurité 0) · standards : aucun · spécification : le plan `free` lève « Plan inconnu » au lieu de produire une facture nulle (invoice.js:5, tarif 0 défini dans plans.js:1) · sécurité : aucun.
+
+Oui, j'ai trouvé un défaut concret : le test `!rate` (invoice.js:5) rejette le tarif légitime du plan `free`, en violation de l'exigence du README, ce que je confirme par exécution directe.
+

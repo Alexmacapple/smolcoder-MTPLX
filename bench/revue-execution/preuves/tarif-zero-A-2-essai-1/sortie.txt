@@ -1,0 +1,34 @@
+● lmstudio @ mtplx · mtplx-qwen38-27b-optimized-speed-fp16 · ctx 262,144 · read-only mode
+J'ai lu la fiche, le diff, `invoice.js`, `plans.js` et le `README.md`. Je passe les trois axes un par un.
+
+## Standards
+
+Il n'existe ni `AGENTS.md` ni `REVIEW.md` à la racine du projet (le dépôt contient seulement `invoice.js`, `plans.js`, `README.md`) : aucun standard documenté à citer, donc aucun écart dur possible.
+
+Grille de Fowler sur le diff : le changement est une condition de validation sur une ligne, sans nom mystérieux, duplication, switch répété ni autre motif de la grille. Aucun défaut de grille établi — ce défaut est d'abord comportemental, et il ressort de l'axe spécification.
+
+## Spécification
+
+Le `README.md` est la source : « Le plan `free` produit une facture de zéro centime. Le plan `pro` coûte 2 000 centimes. Un nom de plan inconnu doit produire une erreur. »
+
+**Constat (c) — exigence implémentée mais fausse (régression) :**
+
+- **Condition déclenchante :** tout appel avec un plan dont le tarif est `0`, concretement `amountFor("free")` ; plus généralement n'importe quelle entrée fauxy autre qu'`undefined` (`0`, `null`, `""`).
+- **Chemin d'appel :** `module.exports = { amountFor }` (`invoice.js:7`) → `amountFor(plan)` → `rateFor(plan)` (`invoice.js:3`) → `plans.js:4` `rates.get("free")` qui renvoie `0` (entrée `["free", 0]` de la `Map`, `plans.js:1`).
+- **Effet observable attendu du code :** `!0` est `true`, donc la ligne modifiée (`invoice.js:5`, `if (!rate) throw new Error("Plan inconnu")`) lance une exception, alors que l'ancienne ligne `if (rate === undefined)` passait et renvoyait `0 * 100 = 0` (`invoice.js:6`). Le contrat README « Le plan `free` produit une facture de zéro centime » est rompu : l'appel lève « Plan inconnu » au lieu de retourner 0.
+- **Cas non affectés :** un plan inconnu renvoie `undefined` de `rates.get` (`plans.js:4`) et les deux versions lèvent bien l'erreur — la seconde exigence du README reste respectée ; de même `rateFor("pro")` → `20`, `!20` est `false`, facture de 2 000 centimes inchangée.
+
+Correction minimale : restaurer la testant l'absence de tarif, p. ex. `if (rate === undefined) throw …` (ou `if (!(plan in rates))` côté `plans.js` si l'on veut que `null` soit rejeté).
+
+## Sécurité
+
+- Secrets et noms protégés : rien relevé — aucune clé, jeton, `.env`, `.git/` ni `~/.smolcoder/` dans le diff.
+- Commandes shell et injection : rien relevé — aucune exécution de shell, aucune donnée externe injectée.
+- Chemins et liens : rien relevé — le code ne construit aucun chemin.
+- Dépendances ajoutées : rien relevé — pas de `package.json` modifié ni de paquet nouveau.
+- Données envoyées au réseau : rien relevé — aucun appel réseau.
+
+C'est une revue en lecture seule raisonnée sur les chemins d'appel, pas une exécution du code ; le banc a déjà vérifié le point fixe, le statut et le diff.
+
+Bilan : 1 constat (standards 0, spécification 1, sécurité 0) · standards : aucun · spécification : le plan `free` lève « Plan inconnu » au lieu de retourner 0, contraire au README (invoice.js:5, plans.js:1) · sécurité : aucun
+

@@ -1,0 +1,33 @@
+{
+  "cellule": "reservation-race-B-1",
+  "fixture": "reservation-race",
+  "serie": "B",
+  "repetition": 1,
+  "tentative": 1,
+  "protocole_sha256": "ad5e17b4776a32d48b793951da4c4e11214598222b21f73719358a19f6ecd49e",
+  "statut": "comptee",
+  "fiche_sha256": "bbaeb1c4e7c7e186e6e89db53a093ae0f2bb8ca9959cdcfb5fcddad318dcb219",
+  "prompt_sha256": "b1899c7600277d243834f9c576a415081a9a3946fc88ffbe53bb86784456822a",
+  "mode": "ro",
+  "code_sortie": 0,
+  "fiche_lue": true,
+  "ecritures_tentees": [],
+  "mutation": false,
+  "modele_attendu": "mtplx-qwen38-27b-optimized-speed-fp16",
+  "stats": {
+    "backend": "lmstudio",
+    "outcome": "completed",
+    "verification": null,
+    "model": "mtplx-qwen38-27b-optimized-speed-fp16",
+    "durationMs": 208574,
+    "modelCalls": 4,
+    "toolCalls": 5,
+    "generatedTokens": 5948,
+    "thinkingTokensEst": 4809,
+    "genTokPerSec": 32,
+    "promptTokensLast": 4775,
+    "contextWindow": 262144,
+    "planDone": null
+  },
+  "duree_s": 209.35
+}

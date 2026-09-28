@@ -1,0 +1,13 @@
+diff --git a/invoice.js b/invoice.js
+index 79c42ac..1f6654c 100644
+--- a/invoice.js
++++ b/invoice.js
+@@ -2,7 +2,7 @@ const { rateFor } = require("./plans");
+ 
+ function amountFor(plan) {
+   const rate = rateFor(plan);
+-  if (rate === undefined) throw new Error("Plan inconnu");
++  if (!rate) throw new Error("Plan inconnu");
+   return rate * 100;
+ }
+ 

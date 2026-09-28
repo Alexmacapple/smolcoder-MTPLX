@@ -1,0 +1,16 @@
+Effectue une revue en lecture seule du changement candidat. Lis la fiche
+`fiche:revue-de-code`, puis les fichiers source utiles et le README. Les
+commandes et les écritures sont indisponibles dans cette session : le banc a
+déjà vérifié le point fixe, le statut Git et le diff ci-dessous. Suis les
+trois axes de la fiche ; raisonne sur les chemins d'appel et leurs effets,
+sans présenter une simulation mentale comme une exécution réelle. Pour chaque
+défaut affirmé, donne la condition déclenchante, le chemin d'appel, l'effet
+observable attendu du code et les lignes pertinentes. Si aucun défaut n'est
+établi, dis-le explicitement.
+
+Point fixe : {{REFERENCE}}
+Statut Git avant la revue :
+{{STATUT}}
+
+Diff du changement candidat :
+{{DIFF}}

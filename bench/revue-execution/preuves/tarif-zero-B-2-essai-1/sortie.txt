@@ -1,0 +1,34 @@
+● lmstudio @ mtplx · mtplx-qwen38-27b-optimized-speed-fp16 · ctx 262,144 · read-only mode
+Je commence par la fiche de revue, puis j'inspecterai le diff dans son contexte.
+
+
+La fiche est posée ; le dépôt ne contient que `invoice.js`, `plans.js` et `README.md` (pas d'`AGENTS.md`, pas de `REVIEW.md`, pas de fichier de spécification autre que le README). Le diff a été fourni par le banc — lecture seule, aucune exécution ni simulation présentée comme telle ; les constats ci-dessous sont des raisonnements sur les chemins d'appel.
+
+## Standards
+
+Aucun standard documenté dans le dépôt (pas d'`AGENTS.md` ni de `REVIEW.md` à la racine) : aucun écart dur à citer. Sur la grille de Fowler, la modification est une ligne unique, minimale et sans duplication, nom mystérieux ni abstraction ajoutée. **Aucun défaut de standards établi.**
+
+## Spécification
+
+Source : `README.md` (pas de contrat de mission, pas de ticket, pas de plan approuvu). Le README énonce le contrat observable : « Le plan `free` produit une facture de zéro centime » (`README.md:3`) ; le même paragraphe exige qu'un nom inconnu produise une erreur.
+
+**Défaut établi — le plan `free` produit désormais une erreur au lieu de zéro centime :**
+
+- **Condition déclenchante** : tout appel avec un plan enregistré dont le tarif est `0`, en particulier `plan === "free"` (`plans.js:1` : `["free", 0]`).
+- **Chemin d'appel** : `amountFor("free")` → `rateFor("free")` (`plans.js:3` : `return rates.get(plan);`) renvoie `0` → `invoice.js:5` (ligne modifiée) : `if (!rate)` évalue `!0` → `true` → `throw new Error("Plan inconnu")`.
+- **Effet observable attendu du code** : l'exception `Error("Plan inconnu")` est levée, au lieu du retour `0 * 100 = 0` (`invoice.js:6`), ce que le README stipule. Avant le changement, `rate === undefined` était `false` pour `0` et la facture zéro centime retournée.
+- **Lignes pertinentes** : `invoice.js:5` (modifiée), `plans.js:1` et `plans.js:3`, `README.md:3`.
+- **Note de portée** : `!rate` est également falsy pour `null`/`NaN`, mais la `Map` ne contient que des nombres ; le cas concret déclencheur est donc le tarif `0`. Et le README présente la modification comme une « simplification de la validation du tarif » (`README.md:5`) — cette simplification contredit la première exigence du même document.
+
+Toutes les exigences demandées (pro → 2 000 centimes, inconnu → erreur) restent couvertes ; seul le critère `free` est cassé.
+
+## Sécurité
+
+- Secrets et noms protégés : rien relevé.
+- Commandes shell et injection : rien relevé (pas d'exécution de commande).
+- Chemins et liens : rien relevé.
+- Dépendances ajoutées : rien relevé (pas de `package.json`).
+- Données envoyées au réseau : rien relevé.
+
+Bilan : 1 constat (standards 0, spécification 1, sécurité 0) · standards : aucun · spécification : le plan `free` lève « Plan inconnu » au lieu de facturer zéro centime (`invoice.js:5`, contradictoire avec `README.md:3`) · sécurité : aucun.
+

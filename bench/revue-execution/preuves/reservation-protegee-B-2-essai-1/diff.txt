@@ -1,0 +1,14 @@
+diff --git a/reserve.js b/reserve.js
+index 92fc433..4ad48b2 100644
+--- a/reserve.js
++++ b/reserve.js
+@@ -4,8 +4,8 @@ async function reserve() {
+   return withLock(async () => {
+     const available = readAvailable();
+     if (available < 1) return false;
+-    writeAvailable(available - 1);
+     await audit();
++    writeAvailable(available - 1);
+     return true;
+   });
+ }
