@@ -2751,6 +2751,21 @@ Vérification observée : `analyse.py --etape ab` sur les manifestes bruts,
 avec le SHA du pré-enregistrement et le protocole figé. Documentation seule.
 SHA `76ae538` reporté sur l'entrée précédente.
 
+## 2026-09-28
+
+### `(ce commit)` — Architecture : lecture progressive du fork — Réf #66
+
+`docs/architecture-evolution-fork.md` et `CHANGELOG-MTPLX.md`. Nouvelle page
+de référence à divulgation progressive : la compatibilité MTPLX, les règles de
+conduite, le harnais, le laboratoire et l'ergonomie y sont séparés. Chaque
+affirmation structurante renvoie au code, à une décision d'architecture ou à
+un rapport de mesure. Les verdicts #52 (**PROTÉGÉ**, échantillon borné) et #53
+(**INCONCLUSIVE**, non adopté) remplacent les formulations obsolètes.
+
+Vérifications : contrôle documentaire 7/7, 37 liens relatifs résolus et
+`npm test` 376/376. La CLI PDD n'est pas installée : cette page est rédigée à
+partir des sources locales, sans prétendre à des reçus PDD générés.
+
 ## Hors dépôt (machine locale)
 
 - Fork créé : `Alexmacapple/smolcoder-MTPLX`.
