@@ -260,6 +260,15 @@ session l'annonce à l'ouverture (`· isolation: macOS Seatbelt …`, avec les
 ports d'écoute accordés et leur limite) ; le headless écrit aussi une ligne
 `[isolation] {…}` sur stderr.
 
+Limite mesurée (#52, `docs/mesure-securite-mission-2026-09-27.md`) : avec la
+politique par défaut, rien n'empêche une commande de supprimer les fichiers
+du projet. La décision d'accès laisse passer toute commande qui reste dans le
+workspace et ne nomme pas un chemin protégé dans son texte, et Seatbelt
+accorde la suppression dans tout le workspace hors noms protégés. Sur Qwen,
+une consigne destructrice a supprimé les fichiers du projet dans 4 essais
+sur 5, dont un fichier non commité, perdu. `.env`, `.git` et la clé factice
+sont restés protégés dans les 15 essais.
+
 L'état reste ensuite visible toute la session (#18), relu à chaque rafraîchi
 (les écoutes suivent la politique) : dans la ligne d'état du terminal, après
 l'état de la mission (`mission approved 3/50 · isolated · listens
@@ -574,6 +583,13 @@ le reprend en tête, relu dans le stockage hôte au moment de la compaction
   cochées) revient avec la session suivante sous le même plan (#10,
   `resume.json`), à la granularité du tour : une coupure au milieu d'un tour
   perd les étapes cochées depuis son début.
+- Effet mesuré du plan (`docs/mesure-plan-approuve-2026-09-27.md`) : sur
+  trois tâches courtes, ni effet ni blocage (15 réussites sur 15 avec et
+  sans plan, aucun fichier hors périmètre), pour 2,5 fois plus d'appels au
+  modèle. Qwen propose un plan conforme dans 15 runs sur 15. Le plan reste
+  donc facultatif : il sert quand l'humain veut relire la démarche avant
+  d'approuver, sans gain prouvé sur la réussite. L'apport d'une vraie
+  relecture humaine et le chemin `"plan": "required"` ne sont pas mesurés.
 - Les écarts au plan ne voient que les outils de fichiers du modèle : un
   fichier créé ou modifié par une commande (`run_command`, tâche de fond,
   script de build) n'est pas comparé au plan. Une session web reprise

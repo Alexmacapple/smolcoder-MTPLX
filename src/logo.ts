@@ -17,8 +17,23 @@ export const LOGO_ROWS: readonly string[] = [
 /** Every row is padded to this many cells. */
 export const LOGO_WIDTH = LOGO_ROWS[0].length;
 
-/** The logo as one block of text (trailing padding removed) for the web page. */
+/** The SMOL logo as one block of text (trailing padding removed). */
 export const LOGO_TEXT = LOGO_ROWS.map((r) => r.trimEnd()).join("\n");
+
+/** The web UI's own logo, ALEX, in the same block font: the sidebar header,
+ * the welcome screen and a fresh session all use it; the terminal banner
+ * keeps SMOL. */
+export const WEB_LOGO_ROWS: readonly string[] = [
+  " █████╗  ██╗      ███████╗ ██╗  ██╗",
+  "██╔══██╗ ██║      ██╔════╝ ╚██╗██╔╝",
+  "███████║ ██║      █████╗    ╚███╔╝ ",
+  "██╔══██║ ██║      ██╔══╝    ██╔██╗ ",
+  "██║  ██║ ███████╗ ███████╗ ██╔╝ ██╗",
+  "╚═╝  ╚═╝ ╚══════╝ ╚══════╝ ╚═╝  ╚═╝",
+];
+
+/** The web logo as one block of text (trailing padding removed). */
+export const WEB_LOGO_TEXT = WEB_LOGO_ROWS.map((r) => r.trimEnd()).join("\n");
 
 /** One-line fallback for wherever the art does not fit. */
 export function plainBrand(version: string): string {
