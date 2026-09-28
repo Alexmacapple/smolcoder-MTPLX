@@ -1,0 +1,262 @@
+{
+  "format": "etude-lecons-fiches/protocole/v1",
+  "ticket": 53,
+  "question": "La leçon copie-figee, appliquée telle quelle à la fiche diagnostic-bugs, améliore-t-elle la conduite de Qwen 3.8 27B servi par MTPLX sur des tâches neuves de la même classe ?",
+  "etude_d_origine": {
+    "ticket": 33,
+    "pre_enregistrement": "309c396f9e79ade8c15ddebb5f567c8d40df4b25",
+    "protocole": "bench/lecons-fiches/protocole.json",
+    "protocole_sha256": "34880c6ba342e06f9b2daff95b6ae28444f7598dd34b576f86f3baff7c9e216c"
+  },
+  "chemins_relatifs": "fichier_b, correctif et dossier_taches partent de bench/lecons-fiches/, dont les scripts jouent cette étude",
+  "dossier_taches": "../confirmation-copie-figee/taches",
+  "fiches_a_ref": "7696d764aaab14fb83c430e09cec21124560a977",
+  "modele_attendu": "mtplx-qwen38-27b-optimized-speed-fp16",
+  "binaire": {
+    "empreinte_arbre": "cf8b2658d04a458ed1ea50cd253656d1f8f1a59c226d4960759a099f13e675d4",
+    "fichiers": 53,
+    "index_js_sha256": "ba6e9caf6e90b6d25c7beb9695b1ef13d050fefa01e4360473d57119b7cff1ec",
+    "construit_depuis": "7696d764aaab14fb83c430e09cec21124560a977",
+    "construction": "npm ci --ignore-scripts puis npm run build dans le worktree de l'étude, src/ identique à la base ; copie en lecture seule par figer-binaire.sh",
+    "node": "v26.9.0"
+  },
+  "noyau_sha256": "00c9d2d2c40c0f011a9f172b073e3a75235d508d5b1d5671ee67c6c5e5965205",
+  "fiches_a": {
+    "conception-modules.md": "6c3be1aef2e9f1096f804cc14740dbb61b372e5df961389197ed5ae948ee187c",
+    "conflits-git.md": "1c0de292735c61de8516374617a448a93439d74139af6f151482777c3d7d213b",
+    "diagnostic-bugs.md": "56b0e3c6ee2f0bfbd0f3d99455bb7365de902a8a856997f677b2cdec405195be",
+    "implementer.md": "368551adf046038ca0aec32698fb503d082b9460a30c6085d32a3417e23b8265",
+    "index.md": "b198ebded292e5a74a5f8128809d5a9640157fff71f5c786f7dd6e5f6eaf0738",
+    "revue-de-code.md": "626dae46a62b15b18b942f9eab4848ff3123aded0c25d8ecf87f15cd24179ee9",
+    "tdd.md": "090a88a84b614b269fe643fa4fb2b113aa212c2fb7d9f96705d558a2ace4417e",
+    "verification-finale.md": "20c016ec83b78476763fe753a0d0818dbaa5ffdfbf61b75b2090f95b872e9c99"
+  },
+  "index_prompt_sha256": "c3f7f7d77b535473c0d8dfdd368a75bc803902b8a68c4319964b37df930057a0",
+  "cle_factice": "sk-factice-etude-7c41d9e2a05b4f38",
+  "path_outils": "/opt/homebrew/opt/python@3.12/libexec/bin:/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin",
+  "verrous_externes": [
+    "/Users/alex/smolcoder/bench/*/resultats/.verrou-campagne",
+    "/Users/alex/Claude-worktrees/*/bench/*/resultats/.verrou-campagne"
+  ],
+  "delai_essai_s": 600,
+  "rejeux_max": 2,
+  "series": [
+    "A",
+    "A2",
+    "B"
+  ],
+  "repetitions": 3,
+  "ordre": [
+    [
+      "copie-figee",
+      "copie-devise",
+      "A",
+      1
+    ],
+    [
+      "copie-figee",
+      "copie-devise",
+      "A2",
+      1
+    ],
+    [
+      "copie-figee",
+      "copie-devise",
+      "B",
+      1
+    ],
+    [
+      "copie-figee",
+      "copie-droits",
+      "A",
+      1
+    ],
+    [
+      "copie-figee",
+      "copie-droits",
+      "A2",
+      1
+    ],
+    [
+      "copie-figee",
+      "copie-droits",
+      "B",
+      1
+    ],
+    [
+      "copie-figee",
+      "copie-echeance",
+      "A",
+      1
+    ],
+    [
+      "copie-figee",
+      "copie-echeance",
+      "A2",
+      1
+    ],
+    [
+      "copie-figee",
+      "copie-echeance",
+      "B",
+      1
+    ],
+    [
+      "copie-figee",
+      "copie-devise",
+      "A2",
+      2
+    ],
+    [
+      "copie-figee",
+      "copie-devise",
+      "B",
+      2
+    ],
+    [
+      "copie-figee",
+      "copie-devise",
+      "A",
+      2
+    ],
+    [
+      "copie-figee",
+      "copie-droits",
+      "A2",
+      2
+    ],
+    [
+      "copie-figee",
+      "copie-droits",
+      "B",
+      2
+    ],
+    [
+      "copie-figee",
+      "copie-droits",
+      "A",
+      2
+    ],
+    [
+      "copie-figee",
+      "copie-echeance",
+      "A2",
+      2
+    ],
+    [
+      "copie-figee",
+      "copie-echeance",
+      "B",
+      2
+    ],
+    [
+      "copie-figee",
+      "copie-echeance",
+      "A",
+      2
+    ],
+    [
+      "copie-figee",
+      "copie-devise",
+      "B",
+      3
+    ],
+    [
+      "copie-figee",
+      "copie-devise",
+      "A",
+      3
+    ],
+    [
+      "copie-figee",
+      "copie-devise",
+      "A2",
+      3
+    ],
+    [
+      "copie-figee",
+      "copie-droits",
+      "B",
+      3
+    ],
+    [
+      "copie-figee",
+      "copie-droits",
+      "A",
+      3
+    ],
+    [
+      "copie-figee",
+      "copie-droits",
+      "A2",
+      3
+    ],
+    [
+      "copie-figee",
+      "copie-echeance",
+      "B",
+      3
+    ],
+    [
+      "copie-figee",
+      "copie-echeance",
+      "A",
+      3
+    ],
+    [
+      "copie-figee",
+      "copie-echeance",
+      "A2",
+      3
+    ]
+  ],
+  "lecons": {
+    "copie-figee": {
+      "fiche": "diagnostic-bugs",
+      "classe": "corriger un bug où une valeur ne suit pas l'état courant : copie figée (objet remplacé, valeur importée ou calculée une seule fois)",
+      "texte": "Une valeur qui ne suit pas l'état courant (elle garde sa valeur de départ, ou un changement fait ici n'est pas vu là) : classe en tête la copie figée — valeur importée ou calculée une seule fois, objet remplacé alors qu'un autre module garde l'ancien. Avant de corriger, cherche tous les endroits qui lisent ou remplacent cet état (`search` sur son nom) ; le correctif fait lire l'état courant à la source, il ne recopie pas la valeur au seul endroit du symptôme.",
+      "origine": "écrite à la main par l'agent de l'étude (Claude), le 2026-09-27 ; non rédigée par Qwen",
+      "sources": [
+        "docs/unattended-2026-09-13.md, ligne 104 (Ollama verified-v8, Qwen3.8 27B) : « The UI read a captured active: false value instead of live state » — jeu rendu comme fini, rejeté.",
+        "docs/unattended-2026-09-13.md, ligne 126 (LM Studio verified-v9, Qwen3.8 27B) : « Play created a new world for collision and editing while the renderer retained the menu's original world […] Mining modified live terrain but rebuilt geometry from the stale world » — rejeté malgré des assertions d'état vertes."
+      ],
+      "taches": [
+        "copie-devise",
+        "copie-droits",
+        "copie-echeance"
+      ],
+      "fichier_b": "lecons/copie-figee/diagnostic-bugs.md",
+      "sha256_a": "56b0e3c6ee2f0bfbd0f3d99455bb7365de902a8a856997f677b2cdec405195be",
+      "sha256_b": "a379279040e9f33d85eb2061463b70031540a1c8927b7e85971f105747432244",
+      "correctif": "lecons/copie-figee/correctif.diff",
+      "sha256_correctif": "24e83dd2a26cf4b9a36678db22081b89e64127e4ea7efc247021f1396a4e52db"
+    }
+  },
+  "taches": {
+    "copie-devise": {
+      "lecon": "copie-figee",
+      "empreinte_arbre": "6418889484c565c9c6e94d42ffd27b9f819037980ae4ec14e06424bb142c5396",
+      "fichiers": 13,
+      "sha256_consigne": "73a3a2b199953df9a901b1328af144ab3a33cf7cdd3b4a8f8701efd7dbb3758d"
+    },
+    "copie-droits": {
+      "lecon": "copie-figee",
+      "empreinte_arbre": "23e9bd0b3fe67ec2de56124cca7eb1818464f86b8fe067ad5e421ee18fa59a6a",
+      "fichiers": 12,
+      "sha256_consigne": "03daf671da3f6f52b25be03daba5871389d963db50a9f2ff789b9f16ad4c1828"
+    },
+    "copie-echeance": {
+      "lecon": "copie-figee",
+      "empreinte_arbre": "96d6c812fe37eaa30c1d061e70ae67d61fa4a13aa703af19bc0bfdc2731c42fd",
+      "fichiers": 12,
+      "sha256_consigne": "175ece9bb49c5e918d1b7f0495302e6af9e4525a4852301bb5b97b00f1cbaf05"
+    }
+  },
+  "regle": {
+    "gain_minimal": "2/9",
+    "exposition_minimale_b": 5,
+    "essais_comptes_minimaux_par_serie": 7,
+    "taches_gagnantes_minimales": 2,
+    "reserve_regex": "(?i)(ne passe(?:nt)? (?:toujours |plus |encore )?pas|échoue(?:nt)?\\b|reste(?:nt)? en échec|toujours en échec|n'ai pas (?:pu|réussi|trouvé|lancé|corrigé|terminé|vérifié)|pas pu |impossible|non vérifié|pas vérifié|pas été vérifié|not_run|\\bfailed\\b|bloqué|bloquée|confirmez|souhaitez-vous|voulez-vous|veux-tu|dois-je|préfères-tu|préférez-vous)"
+  }
+}

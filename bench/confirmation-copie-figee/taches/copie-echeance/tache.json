@@ -1,0 +1,8 @@
+{
+  "lecon": "copie-figee",
+  "classe": "bug d'état qui ne suit pas l'état courant : date du jour figée à l'import par les arguments par défaut de deux modules (loans.py, où le symptôme apparaît, et fines.py)",
+  "commande_documentee": "python3 -m unittest discover -s tests",
+  "autorises": ["^[^/]+\\.py$", "^tests/.+$"],
+  "tests_visibles": ["tests/test_loans.py"],
+  "mutations": []
+}

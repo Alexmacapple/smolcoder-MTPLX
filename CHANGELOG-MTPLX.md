@@ -2332,6 +2332,39 @@ main, les limites et ce qui reste non vérifié. Documentation seule :
 runner, protocole, `src/`, `test/` et `docs/skills/` inchangés. SHA
 `c64cc80` reporté sur l'entrée précédente.
 
+### `88c7fa2` — Étude #53 : protocole pré-enregistré — Réf #53
+
+`bench/confirmation-copie-figee/` (nouveau : `protocole.json`, trois
+tâches sous `taches/`, `essai.sh`, `campagne.sh`, `figer-binaire.sh`,
+`test-confirmation.sh`), `docs/etude-confirmation-copie-figee-2026-09-27.md`
+(nouveau), `bench/lecons-fiches/essai.sh`, `etude.py`, `fiches-a.sh`.
+Étude de confirmation de la leçon `copie-figee` (#33, INCONCLUSIVE par
+k4 seul), pré-enregistrée avant le premier essai : même correctif (fichiers
+de #33, SHA-256 `24e83dd2…52db`), même règle k1 à k5, trois tâches neuves
+de la classe « copie figée », distinctes de celles de #33 par le domaine et
+le mécanisme (`copie-devise` : taux capturé par une fermeture dans un autre
+module que celui du symptôme ; `copie-droits` : rôle puis permissions
+copiés à l'ouverture de session, rôle changé par un autre module ;
+`copie-echeance` : date du jour figée par des arguments par défaut dans
+deux modules), 27 essais (A, A2, B × 3 tâches × 3 répétitions). Binaire
+construit depuis `7696d76`, figé hors Git (empreinte `cf8b2658…75d4`,
+reproduite par une reconstruction) ; fiches A de `7696d76`,
+`diagnostic-bugs.md` inchangé depuis `309c396`. Les scripts de #33 lisent
+deux champs facultatifs du protocole (`dossier_taches`, `fiches_a_ref`),
+sans effet quand ils sont absents ; un verrou externe peut être désigné par
+motif, le verrou de l'essai étant écarté (rouge montré sans ce garde-fou :
+l'essai se bloquait sur son propre verrou). Protocole, tâches, correctifs
+et résultats de #33 inchangés.
+
+Vérifications, sans modèle : `test-confirmation.sh` PASS (34 contrôles,
+aucun sauté ; pour chaque tâche, référence `succes`, correctif naïf et
+fixture d'origine `echec_test` classés faux succès) ;
+`bench/lecons-fiches/test-etude.sh` PASS (34) ; `npm test` 374/374 ;
+`shellcheck -S warning` sans avertissement ; `ruff` ne signale que B008
+dans la fixture `copie-echeance`, qui est le bug étudié. `src/`, `test/` et
+`docs/skills/` inchangés. Aucun essai MTPLX à ce commit. SHA `8f89ba1`
+reporté sur l'entrée précédente.
+
 ### `cb507fa` — Mesure #29 : runner et écarts déclarés
 
 `bench/mesure-plan-approuve/` (nouveau : `plan.json`, `essai.sh`,
@@ -2590,7 +2623,7 @@ longues détachées, et liste les quatre lancements interrompus et les deux
 essais provisoires non comptés à déclarer. Documentation seule. SHA
 `b5917dc` reporté sur l'entrée précédente.
 
-### (ce commit) — Reprise : pièges de fin de campagne #53 — Réf #53
+### `3b667d6` — Reprise : pièges de fin de campagne #53 — Réf #53
 
 `docs/reprise-codex-2026-09-28.md`, d'après le compte rendu de retrait de
 l'agent Claude de #53. `lancement.log` écrit le statut de chaque essai,
@@ -2668,7 +2701,7 @@ Vérifications : boucle rouge avec empreinte `null`, puis
 avertissement. La troisième campagne complète a été menée à ce SHA ; son
 analyse et son rapport figurent ci-dessous. Aucune fermeture de l'issue #52.
 
-### (ce commit) — Revalidation #52 : verdict protégé — Réf #52
+### `3562527` — Revalidation #52 : verdict protégé — Réf #52
 
 `docs/mesure-securite-mission-revalidation-2026-09-28.md`,
 `CHANGELOG-MTPLX.md` et les résultats ignorés de
@@ -2684,6 +2717,39 @@ Vérifications : `test-securite.sh` 41/41 avant campagne, pré-vol complet,
 campagne locale de 30 cellules terminée avec le code 0 et analyse
 déterministe `PROTÉGÉ`. Aucun push, aucune fermeture ni aucun commentaire sur
 l'issue #52. SHA à reporter au prochain changement.
+### `76ae538` — Étude #53 : étape A/A sans lecture de B — Réf #53
+
+`bench/lecons-fiches/analyse.py`,
+`bench/confirmation-copie-figee/test-confirmation.sh`,
+`docs/etude-confirmation-copie-figee-2026-09-27.md`. Après la campagne,
+l'analyse A/A ouvrait tous les manifestes avant de filtrer B ; un verdict A/A
+ne pouvait donc pas démontrer qu'il ignorait B. Le chargeur sélectionne
+maintenant la série depuis le nom du dossier avant de lire le manifeste. Un
+manifeste B invalide est ignoré par A/A, rouge avant le correctif puis vert.
+L'écart est déclaré dans le rapport ; protocole, tâches, fiches et résultats
+bruts sont intacts.
+
+Vérifications observées : `test-confirmation.sh` PASS (34 contrôles),
+`test-etude.sh` PASS (34 contrôles), `npm test` 374/374. Étape A/A réelle :
+A 6/9, A2 8/9, écart 2/9 ; quatre tentatives non figées écartées. B n'a pas
+été lu ni analysé ; l'étape A/B reste à faire après publication de cette
+étape. SHA `88c7fa2` reporté sur l'entrée précédente.
+
+### `996fdee` — Étude #53 : verdict INCONCLUSIVE — Réf #53
+
+`docs/etude-confirmation-copie-figee-2026-09-27.md`. Après publication de
+l'étape A/A, l'analyse A/B recalcule la règle pré-enregistrée sur les 27
+essais comptés : A 6/9, A2 8/9, B 9/9 ; gain 1/9, inférieur à l'écart A/A et
+au seuil de 2/9. Les garanties et l'exposition B sont tenues, mais aucune
+tâche ne dépasse strictement les deux séries A : INCONCLUSIVE, donc NO-GO.
+Les quatre manifestes non figés restent écartés ; données brutes, protocole,
+fiches et code produit sont intacts. Le rapport consigne une lecture manuelle
+d'un manifeste A, A2 et B de la même tâche. Le chapeau #34 est à fermer selon
+la règle de #53 ; aucune fiche n'est adoptée.
+
+Vérification observée : `analyse.py --etape ab` sur les manifestes bruts,
+avec le SHA du pré-enregistrement et le protocole figé. Documentation seule.
+SHA `76ae538` reporté sur l'entrée précédente.
 
 ## Hors dépôt (machine locale)
 

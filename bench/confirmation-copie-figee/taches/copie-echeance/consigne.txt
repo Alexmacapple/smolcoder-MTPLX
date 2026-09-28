@@ -1,0 +1,1 @@
+Le suivi des prêts ne tient pas compte de la date du jour : un prêt n'est jamais signalé en retard, même des semaines après son échéance, et le test tests/test_loans.py échoue. Corrige le bug.

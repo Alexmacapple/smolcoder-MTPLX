@@ -11,6 +11,7 @@ Usage : analyse.py <resultats> --sha <SHA du pré-enregistrement> --etape aa|ab
 
 import argparse
 import json
+import re
 import statistics
 import sys
 from fractions import Fraction
@@ -18,15 +19,23 @@ from pathlib import Path
 
 ICI = Path(__file__).resolve().parent
 COMPTES = {"succes", "echec_test", "echec_execution"}
+SERIE_DANS_NOM = re.compile(r"-(A2|A|B)(?:[-.]|$)")
 
 
 def charger(resultats, sha, series, accepter_non_fige, protocole_sha):
     retenus, ecartes, doublons = {}, [], []
     for chemin in sorted(Path(resultats).glob("*/manifeste.json")):
+        nom = chemin.parent.name
+        serie_dans_nom = SERIE_DANS_NOM.search(nom)
+        if not serie_dans_nom:
+            ecartes.append((nom, "série absente du nom du dossier"))
+            continue
+        if serie_dans_nom.group(1) not in series:
+            continue
         try:
             m = json.loads(chemin.read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError):
-            ecartes.append((chemin.parent.name, "manifeste illisible"))
+            ecartes.append((nom, "manifeste illisible"))
             continue
         if m.get("format") != "etude-lecons-fiches/v1":
             continue
