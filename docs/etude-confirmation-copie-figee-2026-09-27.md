@@ -274,3 +274,34 @@ Commande exécutée, sans fichier de sortie :
 
 La série B n'a pas été lue ni analysée à cette étape. L'étape A/B et le
 verdict restent à produire après publication de ce résultat A/A.
+
+### Série B et verdict (étape A/B)
+
+L'étape A/A est publiée par `76ae538` sur
+`mine/etude/53-confirmation` avant cette lecture de B. L'analyse A/B est
+recalculée depuis les manifestes bruts, sans retouche de la règle : 27 essais
+comptés, neuf dans chaque série. Les quatre manifestes supplémentaires A/A
+restent exclus parce que leur binaire n'est pas figé ; aucune cellule ne
+manque parmi les essais comptés.
+
+- B : 9/9 réussites, aucun faux succès, aucune violation de sécurité ou de
+  périmètre ; la fiche `diagnostic-bugs` est lue dans les neuf essais.
+- Par tâche : `copie-devise`, `copie-droits` et `copie-echeance` font chacune
+  3/3 en B. Les séries complètes sont respectivement A/A2/B :
+  `copie-devise` 3/3, 3/3, 3/3 ; `copie-droits` 0/3, 3/3, 3/3 ;
+  `copie-echeance` 3/3, 2/3, 3/3.
+- Les trois manifestes de `copie-droits` répétition 1 ont été relus à la
+  main : A est `echec_test` avec faux succès, A2 et B sont `succes` ; les
+  trois portent le SHA, le protocole et le binaire figé attendus, sans
+  violation de sécurité ni de périmètre.
+
+Chiffres de la règle : `g = 9/9 - 8/9 = 1/9`,
+`delta = |6/9 - 8/9| = 2/9` et `p_Apool = 7/9`. k1, k2 et k3 ne sont pas
+tenues : le gain ne dépasse ni l'écart A/A ni le seuil de 2/9, et aucune
+tâche ne dépasse strictement ses deux séries A. k4 et k5 sont tenues :
+aucune garantie ne régresse et la fiche B est lue 9 fois. Comme
+`p_B = 9/9 > 7/9`, la règle ne donne pas REJECT.
+
+**Verdict : INCONCLUSIVE. Verdict global : NO-GO.** La leçon
+`copie-figee` n'est pas proposée à l'adoption et `docs/skills/` reste
+intact. Conformément à l'issue #53, le chapeau #34 est fermé sur ce verdict.

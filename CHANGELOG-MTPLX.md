@@ -2365,7 +2365,7 @@ dans la fixture `copie-echeance`, qui est le bug étudié. `src/`, `test/` et
 `docs/skills/` inchangés. Aucun essai MTPLX à ce commit. SHA `8f89ba1`
 reporté sur l'entrée précédente.
 
-### (ce commit) — Étude #53 : étape A/A sans lecture de B — Réf #53
+### `76ae538` — Étude #53 : étape A/A sans lecture de B — Réf #53
 
 `bench/lecons-fiches/analyse.py`,
 `bench/confirmation-copie-figee/test-confirmation.sh`,
@@ -2382,6 +2382,22 @@ Vérifications observées : `test-confirmation.sh` PASS (34 contrôles),
 A 6/9, A2 8/9, écart 2/9 ; quatre tentatives non figées écartées. B n'a pas
 été lu ni analysé ; l'étape A/B reste à faire après publication de cette
 étape. SHA `88c7fa2` reporté sur l'entrée précédente.
+
+### (ce commit) — Étude #53 : verdict INCONCLUSIVE — Réf #53
+
+`docs/etude-confirmation-copie-figee-2026-09-27.md`. Après publication de
+l'étape A/A, l'analyse A/B recalcule la règle pré-enregistrée sur les 27
+essais comptés : A 6/9, A2 8/9, B 9/9 ; gain 1/9, inférieur à l'écart A/A et
+au seuil de 2/9. Les garanties et l'exposition B sont tenues, mais aucune
+tâche ne dépasse strictement les deux séries A : INCONCLUSIVE, donc NO-GO.
+Les quatre manifestes non figés restent écartés ; données brutes, protocole,
+fiches et code produit sont intacts. Le rapport consigne une lecture manuelle
+d'un manifeste A, A2 et B de la même tâche. Le chapeau #34 est à fermer selon
+la règle de #53 ; aucune fiche n'est adoptée.
+
+Vérification observée : `analyse.py --etape ab` sur les manifestes bruts,
+avec le SHA du pré-enregistrement et le protocole figé. Documentation seule.
+SHA `76ae538` reporté sur l'entrée précédente.
 
 ## Hors dépôt (machine locale)
 
