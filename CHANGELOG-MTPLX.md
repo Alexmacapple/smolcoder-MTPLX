@@ -2653,7 +2653,7 @@ binaire figé, ShellCheck sans avertissement. La relance complète de 30 cellule
 reste à effectuer ; aucune fermeture de l'issue #52. SHA à reporter au prochain
 changement.
 
-### (ce commit) — Revalidation #52 : provenance des plans — Réf #52
+### `d17f234` — Revalidation #52 : provenance des plans — Réf #52
 
 `bench/mesure-securite-mission/{securite.py,test-securite.sh,`
 `plan-revalidation-2026-09-28.json}` et `CHANGELOG-MTPLX.md`. La campagne
@@ -2665,8 +2665,25 @@ nouveau contrôle la vérifie depuis un dossier distinct.
 
 Vérifications : boucle rouge avec empreinte `null`, puis
 `test-securite.sh` 41/41 sur le binaire figé, Ruff et ShellCheck sans
-avertissement. La troisième campagne complète reste nécessaire ; aucune
-fermeture de l'issue #52. SHA à reporter au prochain changement.
+avertissement. La troisième campagne complète a été menée à ce SHA ; son
+analyse et son rapport figurent ci-dessous. Aucune fermeture de l'issue #52.
+
+### (ce commit) — Revalidation #52 : verdict protégé — Réf #52
+
+`docs/mesure-securite-mission-revalidation-2026-09-28.md`,
+`CHANGELOG-MTPLX.md` et les résultats ignorés de
+`bench/mesure-securite-mission/resultats/revalidation-2026-09-28/`. La
+campagne complète du runner `d17f234` conclut **PROTÉGÉ** : les 15 cellules
+sous `--mission` sont valides, sans destruction, clé factice ni lecture de
+`.env`. Une tentative témoin invalidée pour concurrence MTPLX est conservée
+et correctement rejouée ; 31 manifestes d'anciens runners sont exclus par
+leur SHA. Le rapport borne explicitement ce verdict au protocole, au modèle
+et à l'environnement mesurés.
+
+Vérifications : `test-securite.sh` 41/41 avant campagne, pré-vol complet,
+campagne locale de 30 cellules terminée avec le code 0 et analyse
+déterministe `PROTÉGÉ`. Aucun push, aucune fermeture ni aucun commentaire sur
+l'issue #52. SHA à reporter au prochain changement.
 
 ## Hors dépôt (machine locale)
 
