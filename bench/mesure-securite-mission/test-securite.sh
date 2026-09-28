@@ -44,6 +44,9 @@ saute() { echo "SAUTÉ : $*"; SAUTES=$((SAUTES + 1)); }
 empreinte() { (cd "$1" && find dist -type f | LC_ALL=C sort | xargs shasum -a 256) | shasum -a 256 | cut -d' ' -f1; }
 PLAN="${MESURE_PLAN:-$B/plan.json}"
 BIN="${MESURE_BIN_RACINE:-$("$PY" -c 'import json,os,sys; print(os.path.expanduser(json.load(open(sys.argv[1]))["binaire"]["racine"]))' "$PLAN")}"
+PLAN_ABSOLU="$PLAN"
+case "$PLAN_ABSOLU" in /*) ;; *) PLAN_ABSOLU="$REPO/$PLAN_ABSOLU" ;; esac
+case "$PLAN_ABSOLU" in "$REPO"/*) PLAN_RELATIF="${PLAN_ABSOLU#$REPO/}" ;; *) PLAN_RELATIF="" ;; esac
 
 # Un plan qui fige la cible MTPLX refuse toute autre URL avant de créer un
 # résultat ou d'appeler le serveur. Aucune variable d'environnement ne peut
@@ -143,6 +146,26 @@ exec(sys.argv[2])
 PY
   then ok "$message"; else echec "$message : $(tail -1 "$TMP/verifier.err") [$(sed -n 's/.*"status_reason": "\(.*\)",/\1/p' "$manifeste" | head -1)]"; fi
 }
+
+# Le manifeste doit hacher le même plan relatif que le runner a contrôlé,
+# même après son entrée dans un workspace ou un dossier temporaire.
+if [ -n "$PLAN_RELATIF" ]; then
+  PROVENANCE="$TMP/provenance-plan"
+  mkdir -p "$PROVENANCE/cwd"
+  (
+    cd "$PROVENANCE/cwd" || exit 1
+    MESURE_PLAN="$PLAN_RELATIF" ESSAI_SHA_HARNAIS=fixture ESSAI_HARNAIS_MODIFIE=false \
+      "$PY" "$B/securite.py" manifeste "$PROVENANCE"
+  )
+  if "$PY" - "$PROVENANCE/manifeste.json" "$PLAN_ABSOLU" <<'PY'
+import hashlib, json, sys
+m = json.load(open(sys.argv[1], encoding="utf-8"))
+attendu = hashlib.sha256(open(sys.argv[2], "rb").read()).hexdigest()
+assert m["harness"]["plan_sha256"] == attendu, m["harness"]["plan_sha256"]
+PY
+  then ok "manifeste : empreinte du plan relatif contrôlé"
+  else echec "manifeste : empreinte du plan relatif contrôlé"; fi
+fi
 
 # Un chemin de résultats relatif est interprété depuis la racine du dépôt et
 # reste utilisable après la préparation de la fixture dans un autre dossier.

@@ -2637,7 +2637,7 @@ d'une URL MTPLX différente avant essai ; `npm test` 376/376 ; ShellCheck et
 Ruff sans avertissement. Aucun essai contre MTPLX réel, aucune fermeture de
 l'issue #52. SHA à reporter au prochain changement.
 
-### (ce commit) — Revalidation #52 : résultats absolus — Réf #52
+### `54c9e87` — Revalidation #52 : résultats absolus — Réf #52
 
 `bench/mesure-securite-mission/{campagne.sh,essai.sh,test-securite.sh,`
 `plan-revalidation-2026-09-28.json}` et `CHANGELOG-MTPLX.md`. Le premier
@@ -2652,6 +2652,21 @@ Vérifications : boucle rouge observée, puis `test-securite.sh` 40/40 sur le
 binaire figé, ShellCheck sans avertissement. La relance complète de 30 cellules
 reste à effectuer ; aucune fermeture de l'issue #52. SHA à reporter au prochain
 changement.
+
+### (ce commit) — Revalidation #52 : provenance des plans — Réf #52
+
+`bench/mesure-securite-mission/{securite.py,test-securite.sh,`
+`plan-revalidation-2026-09-28.json}` et `CHANGELOG-MTPLX.md`. La campagne
+complète au SHA `54c9e87` a produit 30 manifestes propres, mais tous étaient
+écartés par l'analyse : après l'entrée dans le workspace jetable, le manifeste
+ne retrouvait plus le plan relatif et enregistrait une empreinte nulle. La
+résolution du plan est maintenant commune à sa lecture et à son empreinte ; le
+nouveau contrôle la vérifie depuis un dossier distinct.
+
+Vérifications : boucle rouge avec empreinte `null`, puis
+`test-securite.sh` 41/41 sur le binaire figé, Ruff et ShellCheck sans
+avertissement. La troisième campagne complète reste nécessaire ; aucune
+fermeture de l'issue #52. SHA à reporter au prochain changement.
 
 ## Hors dépôt (machine locale)
 

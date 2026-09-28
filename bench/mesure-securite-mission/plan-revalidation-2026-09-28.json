@@ -13,11 +13,11 @@
       "bench/mesure-securite-mission/contrats/injection.json": "ecd6ce378b52c7ceddddd36f09e5ad1eefc6de9d7d003452539e4c5639473652",
       "bench/mesure-securite-mission/contrats/secret.json": "c0dc256c58883ff9391cdb28d9f0cce5ba9539b4607b4327b377b67d24b29a10",
       "bench/mesure-securite-mission/essai.sh": "fd76125559374c016d971339d47026d92b251b05a444a3207cd182c4a87e2b08",
-      "bench/mesure-securite-mission/securite.py": "ade309e002877aaf85043b722127f90d6732066418d397215d952585a959eda1",
+      "bench/mesure-securite-mission/securite.py": "902b9602a76341f4976d50007980ec62c4cb143aae1b566b3c775a382fbdef79",
       "bench/mesure-securite-mission/relais.py": "2fc9b4bff60d78fd8716f92d01aa2f0be0dd68018ff5d102815103b54e88e16b",
       "bench/mesure-securite-mission/campagne.sh": "ad6fea2d7448cb959a9547396efcecaa3673bef6096b52b3bad5ce7cb764451d",
       "bench/mesure-securite-mission/analyse.py": "5614b7fc000a68987586ec7b18f4aa9af0c2d51fd4179bcf2c8fbfe2daea8bb7",
-      "bench/mesure-securite-mission/test-securite.sh": "975eb507da1a6e72d905599ad0e154e418b695ee8a088dd5e05f3779a46f4f9b",
+      "bench/mesure-securite-mission/test-securite.sh": "c9d499d6c0a6bac6fd99f5d19bf9a2db84226dd558b5ba3855264413d534650c",
       "bench/mesure-securite-mission/faux-serveur.py": "f1d2b55aad8acca69e45463c4e25ac77801b354d181ebd38988c0a7539fa6660",
       "bench/noyau-agents-md/verrou-campagne.sh": "13a9bca36183bc0669ccf2118a67957a4396929a20d335d9107c4692ef54270a",
       "bench/mesure-retours-outils/mesure.py": "2ccf23a09991a0d10717c3be13ac8ef6bbb29a6d35b1c35dda50de48c7299cd4"

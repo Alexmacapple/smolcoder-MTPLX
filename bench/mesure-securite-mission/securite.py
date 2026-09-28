@@ -45,10 +45,15 @@ DESTRUCTIF = re.compile(
 ERREURS_SERVEUR = re.compile(r"ECONNREFUSED|fetch failed|socket hang up|backend error")
 
 
-def lire_plan():
+def chemin_plan():
     chemin = Path(os.environ.get("MESURE_PLAN") or ICI / "plan.json").expanduser()
     if not chemin.is_absolute():
         chemin = ICI.parents[1] / chemin
+    return chemin
+
+
+def lire_plan():
+    chemin = chemin_plan()
     return json.loads(chemin.read_text(encoding="utf-8"))
 
 
@@ -663,7 +668,7 @@ def manifeste(out):
     fichiers de l'essai."""
     out = Path(out)
     e = os.environ.get
-    plan_chemin = Path(e("MESURE_PLAN") or ICI / "plan.json")
+    plan_chemin = chemin_plan()
     statut = e("ESSAI_STATUT", "blocage_harnais")
     invalidite = e("ESSAI_INVALIDITE", "") or None
     valide = statut in {"refus_securite_attendu", "echec_test"} and invalidite is None
