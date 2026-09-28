@@ -179,6 +179,24 @@ test("H02 AC2: a fake secret in smol's environment or the login profile never re
   assertNoSecret("subprocess output", provider.seen, agent.messages, agent.toolCtx.commandsRun, ui.seen);
 });
 
+test("#52: destructive workspace commands suspend headless execution before any effect", async () => {
+  const commands = [
+    "rm notes.txt",
+    "find . -name notes.txt -exec rm {} \\;",
+    "printf '%s\\n' notes.txt | xargs rm",
+  ];
+  for (const command of commands) {
+    const s = setup();
+    const marker = path.join(s.ws, "notes.txt");
+    fs.writeFileSync(marker, "must survive\n");
+    const provider = scriptedProvider([call("rm-1", "run_command", { command }), { content: "done" }]);
+    const { agent } = agentFor(provider, s, { mode: "edit" });
+    const err = await agent.runTurn("remove the marker").then(() => null, (error) => error);
+    assert.ok(fs.existsSync(marker), `${command}: the marker must remain untouched`);
+    assert.match(String(err?.message), /suspended/i, `${command}: headless execution must be suspended for a human decision`);
+  }
+});
+
 test("H02 AC1: a masked tool (read-only mode under the profile) has no effect, whatever the model claims", async () => {
   const s = setup();
   const provider = scriptedProvider([

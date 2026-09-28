@@ -96,6 +96,9 @@ export const BYPASS_UNDER_MISSION =
 const BASE_ENV = ["PATH", "HOME", "TERM", "LANG"];
 /** Sans elles, presque rien ne démarre sous Windows. */
 const WINDOWS_ENV = ["SystemRoot", "ComSpec", "PATHEXT"];
+/** Les formes de suppression mesurées par #52 : commande directe, find -exec
+ * et xargs. Elles exigent toujours une décision humaine sous mission. */
+const RM_PROGRAM = /(?:^|[;&|]+\s*|\b(?:exec|xargs)\s+)(?:command\s+)?(?:\/(?:[\w.-]+\/)*)?rm(?=\s|$)/;
 
 /** L'environnement minimal explicite des sous-processus du profil : PATH,
  * HOME, TERM, LANG et ce que la politique nomme, rien d'autre. */
@@ -260,6 +263,7 @@ function commandDecision(
   if (rule === "deny") return deny(`${noun} is not allowed under the mission profile (policy "${key}": "deny")`, [], command);
   const ask = (why: string): Decision => ({ ...base, verdict: "ask", paths: [], reason: why, command, exec });
   if (rule === "ask") return ask(`${noun} needs a human decision under the mission profile (policy "${key}": "ask").`);
+  if (RM_PROGRAM.test(command)) return ask("this command invokes rm inside the workspace, which needs a human decision under the mission profile.");
   const escape = commandEscapesWorkspace(command, ws);
   if (escape) return ask(`this command ${escape}, which needs a human decision under the mission profile (bypass does not change that).`);
   return { ...base, verdict: "allow", paths: [], reason: "stays inside the workspace", command, exec };

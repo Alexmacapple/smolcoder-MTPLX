@@ -2600,6 +2600,21 @@ mutuellement par leurs verrous. Restes dans `/tmp` listés, à ne pas
 supprimer pendant la campagne. Documentation seule. SHA `6416451` reporté
 sur l'entrée précédente.
 
+### (ce commit) — Politique : suppression sous mission soumise à décision — Réf #52
+
+`src/harness/policy.ts`, `test/policy.test.js`, `CHANGELOG-MTPLX.md`.
+La politique de mission ne confond plus les formes de suppression mesurées
+avec une commande interne sûre : `rm`, `find -exec rm` et `xargs rm` donnent
+désormais `ask`. En headless, elles sont donc suspendues avant exécution ; en
+interface, elles demandent une décision humaine. Les commandes internes non
+destructrices et le comportement sans `--mission` restent inchangés.
+
+Vérifications : test de régression rouge confirmé (le marqueur de fixture
+était supprimé), puis `npm run build && node --test test/policy.test.js`
+27/27 et `npm test` 376/376. Non vérifié : les suppressions dissimulées dans
+un interpréteur arbitraire (`node -e`, Python, etc.) et une nouvelle campagne
+MTPLX complète. SHA à reporter au prochain changement.
+
 ## Hors dépôt (machine locale)
 
 - Fork créé : `Alexmacapple/smolcoder-MTPLX`.
