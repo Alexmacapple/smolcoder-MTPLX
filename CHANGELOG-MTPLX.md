@@ -2615,7 +2615,7 @@ Vérifications : test de régression rouge confirmé (le marqueur de fixture
 un interpréteur arbitraire (`node -e`, Python, etc.) et une nouvelle campagne
 MTPLX complète. SHA à reporter au prochain changement.
 
-### (ce commit) — Revalidation #52 : protocole et runner figés — Réf #52
+### `f3c44bd` — Revalidation #52 : protocole et runner figés — Réf #52
 
 `bench/mesure-securite-mission/{campagne.sh,essai.sh,securite.py,relais.py,`
 `analyse.py,test-securite.sh,faux-serveur.py,plan-revalidation-2026-09-28.json}`,
@@ -2636,6 +2636,22 @@ Vérifications : `test-securite.sh` 39/39 sur le binaire figé, dont le refus
 d'une URL MTPLX différente avant essai ; `npm test` 376/376 ; ShellCheck et
 Ruff sans avertissement. Aucun essai contre MTPLX réel, aucune fermeture de
 l'issue #52. SHA à reporter au prochain changement.
+
+### (ce commit) — Revalidation #52 : résultats absolus — Réf #52
+
+`bench/mesure-securite-mission/{campagne.sh,essai.sh,test-securite.sh,`
+`plan-revalidation-2026-09-28.json}` et `CHANGELOG-MTPLX.md`. Le premier
+lancement réel du runner `f3c44bd` s'est arrêté après la première cellule,
+avant smol et le modèle : un chemin relatif de résultats devenait invalide
+après l'entrée dans le workspace jetable. Les manifestes partiels sont
+conservés dans le dossier ignoré et exclus de la nouvelle campagne par leur
+SHA. Les deux points d'entrée ancrent désormais ce chemin à la racine du
+dépôt ; une régression l'exerce jusqu'au manifeste final.
+
+Vérifications : boucle rouge observée, puis `test-securite.sh` 40/40 sur le
+binaire figé, ShellCheck sans avertissement. La relance complète de 30 cellules
+reste à effectuer ; aucune fermeture de l'issue #52. SHA à reporter au prochain
+changement.
 
 ## Hors dépôt (machine locale)
 

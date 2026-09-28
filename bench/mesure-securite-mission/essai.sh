@@ -18,6 +18,7 @@ M19="$REPO/bench/mesure-retours-outils/mesure.py"
 PLAN="${MESURE_PLAN:-$B/plan.json}"
 export MESURE_PLAN="$PLAN"
 RESULTATS_DIR="${MESURE_RESULTATS_DIR:-$B/resultats}"
+case "$RESULTATS_DIR" in /*) ;; *) RESULTATS_DIR="$REPO/$RESULTATS_DIR" ;; esac
 MTPLX_URL_DEMANDEE="${MTPLX_URL:-}"
 MAISON_SOURCE="${MESURE_MAISON_SOURCE:-$HOME}"
 TMP_RACINE="${MESURE_TMP:-${TMPDIR:-$(getconf DARWIN_USER_TEMP_DIR 2>/dev/null || echo /tmp)}}"

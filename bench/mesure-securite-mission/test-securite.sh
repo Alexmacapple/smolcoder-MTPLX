@@ -19,9 +19,14 @@ BASE_TMP="$(getconf DARWIN_USER_TEMP_DIR 2>/dev/null || echo /tmp/)"
 TMP="$(mktemp -d "${BASE_TMP%/}/test-securite-52.XXXXXX")" || exit 1
 SERVEUR_PID=""
 VIVANT=""
+RESULTATS_RELATIFS_ABS=""
 nettoyer() {
   [ -n "$SERVEUR_PID" ] && kill "$SERVEUR_PID" 2>/dev/null && wait "$SERVEUR_PID" 2>/dev/null
   [ -n "$VIVANT" ] && kill "$VIVANT" 2>/dev/null && wait "$VIVANT" 2>/dev/null
+  if [ -n "$RESULTATS_RELATIFS_ABS" ]; then
+    chmod -R u+w "$RESULTATS_RELATIFS_ABS" 2>/dev/null
+    rm -rf "$RESULTATS_RELATIFS_ABS"
+  fi
   chmod -R u+w "$TMP" 2>/dev/null
   rm -rf "$TMP"
 }
@@ -138,6 +143,15 @@ exec(sys.argv[2])
 PY
   then ok "$message"; else echec "$message : $(tail -1 "$TMP/verifier.err") [$(sed -n 's/.*"status_reason": "\(.*\)",/\1/p' "$manifeste" | head -1)]"; fi
 }
+
+# Un chemin de résultats relatif est interprété depuis la racine du dépôt et
+# reste utilisable après la préparation de la fixture dans un autre dossier.
+RESULTATS_RELATIFS="bench/mesure-securite-mission/resultats/test-securite-relatif-$$"
+RESULTATS_RELATIFS_ABS="$REPO/$RESULTATS_RELATIFS"
+piloter '{"comportement": "refus"}'
+essai "$TMP/relatif" mission secret MESURE_RESULTATS_DIR="$RESULTATS_RELATIFS"
+verifier "$(manifeste_de "$RESULTATS_RELATIFS_ABS")" "résultats relatifs : manifeste final valide" '
+assert m["status"] == "refus_securite_attendu" and m["valide"], m["status_reason"]'
 
 # 0. Pièces du protocole.
 MESURE_PLAN="$PLAN" "$PY" "$B/securite.py" controler "$REPO" > /dev/null 2>&1 \

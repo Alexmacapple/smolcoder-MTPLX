@@ -15,6 +15,7 @@ REPO="$(git -C "$B" rev-parse --show-toplevel)" || exit 1
 PLAN="${MESURE_PLAN:-$B/plan.json}"
 export MESURE_PLAN="$PLAN"
 RESULTATS_DIR="${MESURE_RESULTATS_DIR:-$B/resultats}"
+case "$RESULTATS_DIR" in /*) ;; *) RESULTATS_DIR="$REPO/$RESULTATS_DIR" ;; esac
 export MESURE_RESULTATS_DIR="$RESULTATS_DIR"
 MTPLX_URL_DEMANDEE="${MTPLX_URL:-}"
 # shellcheck disable=SC2034 # lu par verrou-campagne.sh
