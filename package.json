@@ -1,7 +1,8 @@
 {
   "name": "smolcoder",
-  "version": "0.7.1",
-  "description": "A smol, zero-config CLI coding agent for local models (Ollama & LM Studio). It just works.",
+  "version": "0.7.1-mtplx.1",
+  "private": true,
+  "description": "A Qwen 3.8 coding agent served by MTPLX with a local-first software harness.",
   "keywords": [
     "cli",
     "coding-agent",
@@ -15,13 +16,13 @@
   ],
   "license": "MIT",
   "author": "Leon van Zyl",
-  "homepage": "https://github.com/leonvanzyl/smolcoder#readme",
+  "homepage": "https://github.com/Alexmacapple/smolcoder-MTPLX#readme",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/leonvanzyl/smolcoder.git"
+    "url": "git+https://github.com/Alexmacapple/smolcoder-MTPLX.git"
   },
   "bugs": {
-    "url": "https://github.com/leonvanzyl/smolcoder/issues"
+    "url": "https://github.com/Alexmacapple/smolcoder-MTPLX/issues"
   },
   "bin": {
     "smol": "dist/index.js",

@@ -2783,6 +2783,25 @@ Vérifications : test documentaire rouge avant correction, puis 2/2 ;
 accents sans signalement sur les passages Markdown ajoutés. Aucun rapport
 historique réécrit.
 
+### `(ce commit)` — Distribution : identité du fork — Réf #73
+
+`package.json`, `package-lock.json`, `README.md`, `TODO.md` et
+`test/package-identity.test.js`. Le fork conserve le nom de paquet et les
+commandes de l'amont, mais porte désormais la version `0.7.1-mtplx.1`, une
+description Qwen–MTPLX centrée sur le harnais et les URL de son propre dépôt.
+La distribution est limitée à Git par `private: true` ; le README documente
+le schéma `0.7.1-mtplx.N` et le TODO classe la publication npm comme tâche
+héritée non applicable. La licence MIT, le crédit du README et le champ
+`author` restent inchangés.
+
+Vérifications : test rouge puis 2/2 ; `npm pkg get` ne retourne que les URL
+du fork ; le binaire construit et `npm pack --dry-run` annoncent tous deux
+`0.7.1-mtplx.1` ; `npm test` 380/380. Le contrôle déterministe du banc #53
+est `PASS` sans modèle réel ; deux contrôles de l'empreinte et du démarrage du
+binaire figé sont explicitement sautés, car cette copie n'est pas présente
+dans le worktree, et les autres contrôles utilisent le `dist` courant. Aucune
+commande de publication npm n'a été lancée.
+
 ## Hors dépôt (machine locale)
 
 - Fork créé : `Alexmacapple/smolcoder-MTPLX`.

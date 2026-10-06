@@ -136,6 +136,12 @@ entrée dans `CHANGELOG-MTPLX.md`.
 
 ## Installer et lancer
 
+Décision de distribution : ce fork est distribué par Git uniquement et
+n'est pas publié sur npm. Le paquet reste nommé `smolcoder`, mais il est
+marqué privé pour empêcher une publication accidentelle. Ses versions suivent
+le schéma `0.7.1-mtplx.N` : `0.7.1` désigne la base amont et `N` la révision
+du fork MTPLX.
+
 ```bash
 npm install -g git+https://github.com/Alexmacapple/smolcoder-MTPLX.git
 ```

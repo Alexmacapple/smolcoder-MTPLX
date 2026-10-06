@@ -39,4 +39,6 @@
 - [ ] **Plan persistence across sessions** (write/restore from the workspace?).
 - [ ] **Per-backend effort memory** — one saved effort for both backends is awkward now that the
   levels differ (`high` → `medium` on qwen/LM Studio, `→ thinking on` on Ollama).
-- [ ] **npm publish** — package `smolcoder`, command `smol`; repo at github.com/leonvanzyl/smolcoder. First release pending.
+- [ ] **npm publish — tâche héritée de l'amont, non applicable au fork** : la
+  décision du fork est une distribution par Git uniquement ; aucune
+  publication npm n'est prévue (#73).
