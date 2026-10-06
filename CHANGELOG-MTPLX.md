@@ -2820,6 +2820,26 @@ valident les échecs initiaux, les solutions de référence, les cinq statuts et
 le refus d'une mesure `[stats]` incomplète ; empreintes du protocole conformes.
 Aucun essai réel MTPLX n'a été lancé avant ce commit de préinscription.
 
+### `(ce commit)` — Banc : pilote A/A des tâches représentatives — Réf #72
+
+`docs/pilote-taches-representatives-2026-10-07.md` et
+`CHANGELOG-MTPLX.md`. Les six essais préinscrits ont été exécutés sans
+sélection ni rejeu : cinq réussissent et un échoue à l'oracle externe. A1
+compte deux succès et un échec de tâche ; A2 compte trois succès. Les deux
+bras étant identiques, cet écart constitue une mesure de variabilité A/A et
+n'autorise aucune conclusion sur un mécanisme. Les deux essais de préservation
+gardent intact le fichier humain non suivi et tous les diffs restent dans les
+chemins autorisés.
+
+Les manifestes complets portent le SHA `f8d70db` et la même empreinte du
+binaire. Le contexte annoncé est de 262 144 tokens, le plafond du harnais de
+32 768 et l'usage observé du dernier prompt de 3 128 à 4 088 tokens. Aucun
+compactage ni aucune reprise ne sont observés. Le rapport consigne les durées,
+les appels au modèle et aux outils, les tokens générés, l'échec discriminant
+sur le format monétaire et la pression mémoire aperçue au pré-vol. Les données
+brutes restent locales et ignorées par Git ; aucun résultat n'a été publié et
+aucune issue n'a été fermée.
+
 ## Hors dépôt (machine locale)
 
 - Fork créé : `Alexmacapple/smolcoder-MTPLX`.
