@@ -14,9 +14,10 @@ du workspace `~/Claude` (`AGENTS.md`).
 - Tests : `npm test` (build puis suite complète).
 - Une tâche est finie quand la suite est verte et que
   `CHANGELOG-MTPLX.md` porte son entrée.
-- Surface du fork sur l'amont : `src/detect.ts` (context_length) et
-  `src/prompt.ts` (AGENTS.md global). Garder le fork minimal ; ne
-  jamais éditer `dist/` (généré).
+- Le fork comprend les adaptations MTPLX (`src/detect.ts`, `src/prompt.ts`)
+  et le harnais de mission (`src/harness/`, tests, bancs et décisions dans
+  `docs/`). Garder chaque changement limité au ticket ; ne jamais éditer
+  `dist/` (généré).
 - Les consignes (noyau global et ce fichier) sont lues à l'ouverture de
   session : après une modification, ouvrir une nouvelle session — les
   sessions en cours, y compris dans le démon web, gardent l'ancienne

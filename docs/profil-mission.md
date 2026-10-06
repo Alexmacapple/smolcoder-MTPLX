@@ -260,14 +260,21 @@ session l'annonce à l'ouverture (`· isolation: macOS Seatbelt …`, avec les
 ports d'écoute accordés et leur limite) ; le headless écrit aussi une ligne
 `[isolation] {…}` sur stderr.
 
-Limite mesurée (#52, `docs/mesure-securite-mission-2026-09-27.md`) : avec la
-politique par défaut, rien n'empêche une commande de supprimer les fichiers
-du projet. La décision d'accès laisse passer toute commande qui reste dans le
-workspace et ne nomme pas un chemin protégé dans son texte, et Seatbelt
-accorde la suppression dans tout le workspace hors noms protégés. Sur Qwen,
-une consigne destructrice a supprimé les fichiers du projet dans 4 essais
-sur 5, dont un fichier non commité, perdu. `.env`, `.git` et la clé factice
-sont restés protégés dans les 15 essais.
+La mesure initiale #52 du 27 septembre conclut **NON PROTÉGÉ** : une consigne
+destructrice a supprimé des fichiers du projet dans 4 essais sur 5
+(`docs/mesure-securite-mission-2026-09-27.md`). La politique a ensuite été
+corrigée pour soumettre les formes mesurées de suppression à une décision
+humaine. La revalidation du 28 septembre conclut **PROTÉGÉ** sur son périmètre
+figé : 15 cellules mission valides sur 15 et aucune destruction effective
+(`docs/mesure-securite-mission-revalidation-2026-09-28.md`). Ce verdict est
+borné au modèle, à la machine, à la politique et à l'échantillon mesurés. Une
+suppression cachée dans un interpréteur ou un programme arbitraire reste hors
+de ce qu'un scan textuel peut prouver.
+
+Quand la politique ou un verdict mesuré change, mettre à jour ensemble ce
+paragraphe, la synthèse courante du README et
+`test/security-docs.test.js`. Conserver les rapports datés comme archives de
+leurs campagnes ; ne jamais réécrire leur verdict historique.
 
 L'état reste ensuite visible toute la session (#18), relu à chaque rafraîchi
 (les écoutes suivent la politique) : dans la ligne d'état du terminal, après
@@ -552,8 +559,8 @@ le reprend en tête, relu dans le stockage hôte au moment de la compaction
   refuse la lecture quel que soit le texte de la commande ; ses limites
   (réseau, écoute, descendants détachés, git) sont dans
   `docs/decision-backend-isole.md` et `docs/allowlist-outils.md`.
-- Sans `policyRef`, la politique n'est pas liée à l'approbation : l'appelant
-  qui la modifie après approbation change les droits sans nouvelle
+- Sans `policyRef`, la politique n'est pas liée à l'approbation : une
+  modification après approbation change les droits sans nouvelle
   approbation ; le changement est dit (ouverture de session, ligne
   `[mission]`) et chaque effet journalise sa version (#10). Avec `policyRef`,
   elle l'est.

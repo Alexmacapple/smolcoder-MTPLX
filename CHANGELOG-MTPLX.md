@@ -2766,6 +2766,23 @@ Vérifications : contrôle documentaire 7/7, 37 liens relatifs résolus et
 `npm test` 376/376. La CLI PDD n'est pas installée : cette page est rédigée à
 partir des sources locales, sans prétendre à des reçus PDD générés.
 
+### `(ce commit)` — Documentation : vérité mesurée de la sécurité — Réf #70
+
+`README.md`, `docs/profil-mission.md`, `AGENTS.md` et
+`test/security-docs.test.js`. La documentation courante distingue désormais
+le verdict initial **NON PROTÉGÉ** du 27 septembre et la revalidation
+**PROTÉGÉ** du 28 septembre. Elle borne cette dernière au modèle, à la
+machine, à la politique et à l'échantillon mesurés, puis rappelle la limite
+des commandes cachées dans un interpréteur ou un programme arbitraire. Les
+rapports datés restent des archives inchangées. Les chantiers clos ont été
+retirés de la liste courante et la surface du fork inclut le harnais de
+mission existant.
+
+Vérifications : test documentaire rouge avant correction, puis 2/2 ;
+`npm test` 378/378 avec TypeScript 5.9.3 issu du verrou npm ; contrôle des
+accents sans signalement sur les passages Markdown ajoutés. Aucun rapport
+historique réécrit.
+
 ## Hors dépôt (machine locale)
 
 - Fork créé : `Alexmacapple/smolcoder-MTPLX`.

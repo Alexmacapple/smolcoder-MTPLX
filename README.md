@@ -20,7 +20,7 @@ consultative : ce dépôt transforme donc, ticket après ticket, les
 promesses en **mécanismes** — ce que le logiciel refuse effectivement,
 ce qu'il prouve, ce qu'il journalise.
 
-## Ce qui est implémenté (au 27 septembre 2026)
+## Ce qui est implémenté
 
 - **Détection MTPLX et fenêtre réelle** : `context_length` lu depuis
   `/v1/models` (262 144 au lieu de 4 096 estimés), valeurs aberrantes
@@ -28,8 +28,9 @@ ce qu'il prouve, ce qu'il journalise.
 - **Consignes à deux étages** : noyau global `~/.smolcoder/AGENTS.md`
   (dix commandements, opt-out `SMOL_NO_GLOBAL_AGENTS=1`) puis
   `AGENTS.md` du projet, blocs séparés avec **précédence de sécurité**
-  explicite — validés par campagnes de banc (destructif, secret,
-  injection).
+  explicite — validés par campagnes de banc sur des demandes directes
+  (destructif, secret et injection via `AGENTS.md`). Les injections par
+  retours d'outils relèvent d'une mesure distincte (#69).
 - **Profil `--mission`** (opt-in, comportement par défaut inchangé) :
   un **contrat de mission approuvé par l'humain** avant toute
   écriture — stockage hôte hors du workspace
@@ -115,18 +116,20 @@ recalculés depuis les manifestes bruts) :
 - **Leçons de fiches (#33) :** verdict NO-GO. La leçon `copie-figee`
   donne un signal fort mais garde 2 faux succès
   (`docs/etude-lecons-fiches-2026-09-27.md`).
-- **Sécurité sous `--mission` (#52) :** verdict NON PROTÉGÉ. La clé
-  factice ne fuit jamais et `.env` et `.git` restent intacts, mais la
-  politique par défaut laisse supprimer les fichiers du projet (4 essais
-  `destructif` sur 5) : `docs/mesure-securite-mission-2026-09-27.md`.
+- **Sécurité sous `--mission` (#52) :** la mesure initiale du 27 septembre
+  conclut **NON PROTÉGÉ** après 4 suppressions effectives sur 5
+  (`docs/mesure-securite-mission-2026-09-27.md`). Après correction de la
+  politique, la revalidation du 28 septembre conclut **PROTÉGÉ** sur son
+  périmètre figé, avec 15 cellules mission valides sur 15 et aucune
+  destruction effective
+  (`docs/mesure-securite-mission-revalidation-2026-09-28.md`). Ce verdict est
+  borné au modèle, à la machine, à la politique et à l'échantillon mesurés ;
+  une suppression cachée dans un interpréteur ou un programme arbitraire
+  reste hors de ce qu'un scan textuel peut prouver.
 
-**Chantiers restants :**
-- le correctif de la suppression des fichiers du projet sous `--mission`,
-  rédigé en ticket dans le rapport de #52, à choisir ;
-- l'[étude de confirmation de `copie-figee`](https://github.com/Alexmacapple/smolcoder-MTPLX/issues/53)
-  (#53), qui décide du sort du
-  [chantier d'apprentissage](https://github.com/Alexmacapple/smolcoder-MTPLX/issues/34)
-  (#34).
+Les travaux encore ouverts sont suivis dans les
+[issues du fork](https://github.com/Alexmacapple/smolcoder-MTPLX/issues), qui
+restent la source courante de leur état.
 
 Chaque livraison passe par une pull request, des tests rouge/vert et une
 entrée dans `CHANGELOG-MTPLX.md`.
@@ -354,7 +357,7 @@ smolcoder sends your code and prompts to the server you choose, and runs the too
 `smol --web` opens a browser UI and prints a private link. The server only listens on your machine, and the link carries a random key.
 
 - **Workspaces and sessions.** The sidebar lists your project folders, each with its own sessions. Run several at once and switch between them while they work.
-- **Sessions survive restarts.** Past sessions stay in the sidebar and resume with a click. Transcripts live under `~/.smolcoder/sessions/`. A resumed session keeps the `AGENTS.md` version it was using and says what changed while it was stored ([how it works](docs/how-it-works.md#local-apis-and-failure-recovery)).
+- **Sessions survive restarts.** Past sessions stay in the sidebar and can be resumed with a click. Transcripts live under `~/.smolcoder/sessions/`. A resumed session keeps the `AGENTS.md` version it was using and says what changed while it was stored ([how it works](docs/how-it-works.md#local-apis-and-failure-recovery)).
 - **Paste screenshots and files.** Paste an image with `ctrl+v` or right-click and choose Paste, drop files onto the chat, or click the paperclip. Images go to the model when it can see them, and the chip warns you when it cannot. Text files are added to your message.
 - **Browser and terminal panels.** Preview the dev server the agent started, or open a shell in the workspace, next to the chat.
 - **One server for everything.** Running `smol --web` in another folder adds it to the UI that is already open.
