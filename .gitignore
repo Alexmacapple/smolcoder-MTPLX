@@ -2,3 +2,4 @@ node_modules/
 dist/
 playground/
 .claude/
+bench/injections-retours-outils/resultats/
