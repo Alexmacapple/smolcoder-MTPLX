@@ -16,8 +16,9 @@ import { loadConfig } from "./config";
 import { authorizeHeadless, authorizeProposal, Mission, MISSION_EXIT_CODE, MissionError, missionExitCode, missionReport, proposalInstruction } from "./harness/mission";
 import { keepHostProbesOutOf } from "./harness/host-probe";
 import { BYPASS_UNDER_MISSION, decisionReport, POLICY_SUSPENDED_EXIT_CODE, PolicySuspension } from "./harness/policy";
-import { VERDICT_EXIT_CODE, verdictExitCode, verdictSummary } from "./harness/proofs";
+import { callerChecks, VERDICT_EXIT_CODE, verdictExitCode, verdictSummary } from "./harness/proofs";
 import { isolationLine, missionExecutor } from "./harness/sandbox-executor";
+import { unavailableMissionInitialState } from "./harness/initial-state";
 import { describeExternal, RESUME_SUSPENDED_EXIT_CODE } from "./harness/resume";
 import { sha256 } from "./session-state";
 import { ContextManager } from "./context";
@@ -446,6 +447,17 @@ async function runHeadless(args: CliArgs, mission: Mission | null): Promise<void
   const cfg = loadConfig();
   const chosen = await prepareModel(prefsOf(args), cfg);
   if (!chosen) {
+    if (mission) {
+      const initial = unavailableMissionInitialState({
+        mission,
+        checks: callerChecks(mission.contract, args.verify ? { command: args.verify } : undefined),
+        surface: "headless",
+        model: { state: "unavailable", reason: "aucun serveur ne fournit le modèle demandé" },
+        resume: mission.resume.state(),
+        isolation: { state: "not_checked", reason: "le modèle est indisponible" },
+      });
+      process.stderr.write(`[initial] ${JSON.stringify(initial)}\n`);
+    }
     ui.println(noBackendsMessage());
     ui.close();
     process.exit(1);
@@ -542,6 +554,7 @@ async function runHeadless(args: CliArgs, mission: Mission | null): Promise<void
       process.stderr.write(`[policy] ${JSON.stringify(decisionReport(err.decision))}\n`);
     }
   }
+  if (mission && agent.initialMissionState()) process.stderr.write(`[initial] ${JSON.stringify(agent.initialMissionState())}\n`);
   // Profil mission (#9) : la sortie suit le verdict, constaté après le tour —
   // 0 seulement quand chaque critère requis est `passed` sur les fichiers
   // actuels et que le rapport est écrit ; 4 (suspension) et 3 (contrat)

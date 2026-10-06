@@ -2840,6 +2840,30 @@ sur le format monétaire et la pression mémoire aperçue au pré-vol. Les donn�
 brutes restent locales et ignorées par Git ; aucun résultat n'a été publié et
 aucune issue n'a été fermée.
 
+### `(ce commit)` — Harnais : état initial d'une mission — Réf #71
+
+`src/harness/initial-state.ts`, `src/agent.ts`, `src/harness/proofs.ts`,
+`src/session.ts`, `src/index.ts`, `test/mission-initial-state.test.js` et
+`docs/profil-mission.md`. Avant le premier effet du modèle dans une session
+approuvée, le harnais produit désormais un constat daté du modèle, du contrat,
+de la reprise, de l'isolation, du workspace, des changements humains et des
+vérificateurs. Les contrôles choisis par le contrat ou `--verify` passent une
+fois par la politique et l'exécuteur isolé existants. Un échec antérieur reste
+`already_failed`, séparé du verdict ultérieur ; un contrôle non exécuté n'est
+jamais présenté comme réussi.
+
+Le même objet est rendu par le terminal, l'état web, la ligne headless
+`[initial]` et la rubrique `initial` du rapport existant. Modèle absent,
+isolation indisponible, contrat non approuvé, contrôle refusé, script absent et
+vérificateur non figé gardent des causes distinctes. Le constat seul ne lance
+ni modèle ni réparation, ne crée pas une seconde source de vérité et ne
+change rien hors `--mission`.
+
+Vérifications : test ciblé rouge avant implémentation, puis 5/5 ; missions et
+preuves ciblées 48/48 ; `npm test` 385/385 ; `npm run test:os` 29/29 sur les
+parcours réels headless, web, terminal et Seatbelt. Contrôle des accents sans
+signalement sur la documentation ajoutée.
+
 ## Hors dépôt (machine locale)
 
 - Fork créé : `Alexmacapple/smolcoder-MTPLX`.

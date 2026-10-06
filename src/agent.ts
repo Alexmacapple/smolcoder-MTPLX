@@ -47,6 +47,12 @@ import {
 } from "./harness/proofs";
 import { appendProof, writeReportFiles } from "./harness/store";
 import { EffectHandle, SimulatedCrash } from "./harness/resume";
+import {
+  MissionInitialState,
+  observeMissionInitialState,
+  renderMissionInitialState,
+} from "./harness/initial-state";
+import { IsolatedExecutor, unavailableExecutor } from "./harness/sandbox-executor";
 
 /** Supplied by the caller, never generated or changed by a model tool. */
 export interface Verification {
@@ -105,6 +111,10 @@ export class Agent {
   /** Profil mission (#29) : un run `--propose-plan`, en lecture seule, où
    * l'agent propose son plan ; aucun contrôle d'acceptation n'y tourne. */
   proposalOnly = false;
+  /** #71 : constat de départ de cette session, avant son premier effet de
+   * modèle. Le rapport le conserve séparément des verdicts ultérieurs. */
+  private missionInitial: MissionInitialState | null = null;
+  private missionInitialSent = false;
 
   constructor(
     public provider: Provider,
@@ -171,6 +181,7 @@ export class Agent {
     this.verification = this.callerVerification;
     this.progressFailure = "";
     this.sameVerificationFailures = 0;
+    this.missionInitialSent = false;
     // Session facts feed the compaction state note — stale ones from a
     // cleared conversation would assert work the new task never did.
     this.toolCtx.filesTouched.clear();
@@ -216,7 +227,7 @@ export class Agent {
     const failure = this.verificationResult && !this.verificationResult.passed
       ? `\nLast acceptance failure (actual command output; resolve before completion):\n${truncateMiddle(this.verificationResult.output, 1800)}` : "";
     const progress = this.progressFailure ? `\nLast project check failure (may predate subsequent edits):\n${truncateMiddle(this.progressFailure, 1800)}` : "";
-    return { originalRequest: this.originalRequest, currentRequest: this.currentRequest, verificationLine: this.verificationInstruction() + failure + progress, filesTouched: this.toolCtx.filesTouched, commandsRun: this.toolCtx.commandsRun, planLine: this.toolCtx.plan.compactLine(), ...(this.mission ? { contractLine: this.mission.modelBlock() } : {}) };
+    return { originalRequest: this.originalRequest, currentRequest: this.currentRequest, verificationLine: this.verificationInstruction() + failure + progress, filesTouched: this.toolCtx.filesTouched, commandsRun: this.toolCtx.commandsRun, planLine: this.toolCtx.plan.compactLine(), ...(this.mission ? { contractLine: this.mission.modelBlock() + (this.missionInitial ? renderMissionInitialState(this.missionInitial) : "") } : {}) };
   }
 
   /** Le verdict vient du code de sortie réel ; le texte, projection du même
@@ -376,6 +387,43 @@ export class Agent {
       : undefined;
   }
 
+  /** État initial exposé aux surfaces et au rapport. null hors mission ou
+   * avant la première demande de cette session. */
+  initialMissionState(): MissionInitialState | null {
+    return this.missionInitial;
+  }
+
+  /** Même chemin que les contrôles ordinaires : politique, vérificateurs et
+   * exécuteur isolé. Le constat seul ne lance jamais le modèle ni une
+   * correction ; il est seulement joint à la demande humaine qui suit. */
+  private async ensureMissionInitial(signal: AbortSignal): Promise<string> {
+    const mission = this.mission;
+    if (!mission || this.proposalOnly) return "";
+    const status = mission.status();
+    if (this.missionInitial && (this.missionInitial.contract.approved || status.state !== "approved")) {
+      if (this.missionInitialSent) return "";
+      this.missionInitialSent = true;
+      return renderMissionInitialState(this.missionInitial);
+    }
+    const rawExecutor = this.toolCtx.executor;
+    const executor: IsolatedExecutor = rawExecutor && "status" in rawExecutor && "listening" in rawExecutor && "close" in rawExecutor
+      ? rawExecutor as IsolatedExecutor
+      : unavailableExecutor("aucun exécuteur isolé n'a été fourni par l'hôte");
+    this.missionInitial = await observeMissionInitialState({
+      mission,
+      checks: this.missionChecks,
+      surface: mission.resume.surface,
+      model: { state: "ready", id: this.provider.modelId, backend: this.provider.label },
+      resume: mission.resume.state(),
+      executor,
+      authorize: (command) => this.authorize({ surface: "check", tool: "verification", args: { command } }),
+      signal,
+    });
+    this.missionInitialSent = true;
+    this.ui.status(`· initial mission state: ${this.missionInitial.state} — ${this.missionInitial.reason}`);
+    return renderMissionInitialState(this.missionInitial);
+  }
+
   /** Profil mission (#9) : regénère report.json et report.md dans le stockage
    * hôte, depuis le journal et l'état constaté maintenant. Au début d'un tour,
    * l'état `running` remplace tout vert du tour précédent. */
@@ -395,6 +443,7 @@ export class Agent {
         plan: plan.exists ? { done: plan.doneCount, total: plan.steps.length } : null,
         // #29 : le plan d'implémentation et ses écarts, seulement s'il existe.
         implementationPlan: mission.planReport(),
+        initial: this.missionInitial,
       });
       this.lastScan = scan;
       let files: { json: string; markdown: string } | null = null;
@@ -548,6 +597,9 @@ export class Agent {
     this.progressFailure = "";
     this.sameVerificationFailures = 0;
     this.suspended = false;
+    this.abort = new AbortController();
+    const signal = this.abort.signal;
+    let initialNote = "";
     if (this.mission) {
       // #9 : contrôles de l'hôte, puis rapport « en cours » : aucun vert du
       // tour précédent ne reste affiché pendant que le modèle travaille.
@@ -556,6 +608,14 @@ export class Agent {
         this.missionChecks = [];
         this.verification = undefined;
       } else this.setupMissionChecks();
+      initialNote = await this.ensureMissionInitial(signal);
+      if (signal.aborted) {
+        this.outcome = "cancelled";
+        this.ui.status("· initial mission check cancelled — the model was not called");
+        this.writeMissionReport("cancelled");
+        this.abort = null;
+        return;
+      }
       this.writeMissionReport("running");
     }
     // Earlier user decisions may exist only in a previous turn's summary.
@@ -570,7 +630,7 @@ export class Agent {
     this.currentRequest = requestNote; // the task compaction must never lose
     // #10 : le texte tapé et les consignes du harnais restent séparés dans
     // l'état, sans changer ce que reçoit le modèle.
-    const added = harnessNote + this.verificationInstruction() + this.missionInstruction();
+    const added = harnessNote + initialNote + this.verificationInstruction() + this.missionInstruction();
     this.messages.push({
       role: "user",
       content: typed + (rendered.text ? "\n\n" + rendered.text : "") + added,
@@ -578,9 +638,6 @@ export class Agent {
       parts: { human: typed, harness: added },
       ...(rendered.images.length ? { images: rendered.images } : {}),
     });
-    this.abort = new AbortController();
-    const signal = this.abort.signal;
-
     const t0 = Date.now();
     let completed = false;
     let steps = 0;

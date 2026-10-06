@@ -514,7 +514,7 @@ export class Session {
       workspace: this.workspace,
       commands: this.commands,
       urls: this.taskManager.recentUrls(),
-      ...(this.mission ? { mission: { ...this.mission.status(), id: this.mission.contract.id, fingerprint: this.mission.fingerprint } } : {}),
+      ...(this.mission ? { mission: { ...this.mission.status(), id: this.mission.contract.id, fingerprint: this.mission.fingerprint, initial: this.agent.initialMissionState() } } : {}),
       // #18 : la page garde l'état de l'isolation visible toute la session.
       ...(this.executor ? { isolation: isolationState(this.executor) } : {}),
     };

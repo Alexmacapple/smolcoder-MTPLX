@@ -16,6 +16,7 @@ import * as fs from "fs";
 import * as path from "path";
 import { insideWorkspace, PathRules, protectedSegment } from "../sandbox";
 import type { CommandResult } from "./executor";
+import type { MissionInitialState } from "./initial-state";
 import {
   CheckOwner,
   CriterionStatus,
@@ -705,6 +706,9 @@ export interface VerdictReport {
   journal: string;
   /** Le plan d'implémentation (#29), absent sans plan ni exigence. */
   plan?: PlanReport;
+  /** #71 : constat antérieur au premier effet du modèle dans cette session.
+   * Il ne vaut jamais verdict d'acceptation. */
+  initial?: MissionInitialState;
 }
 
 /** Ce que le rapport lit d'une mission (évite l'import circulaire). */
@@ -767,6 +771,8 @@ export function buildReport(input: {
   plan: { done: number; total: number } | null;
   /** Le plan d'implémentation (#29) ; absent ou null : aucune rubrique. */
   implementationPlan?: PlanReport | null;
+  /** Le constat initial de #71 ; absent hors mission initialisée. */
+  initial?: MissionInitialState | null;
 }): VerdictReport {
   const { mission, verifier, scan, run } = input;
   const read = readProofs(mission.dir);
@@ -808,6 +814,7 @@ export function buildReport(input: {
     run,
     journal,
     ...(input.implementationPlan ? { plan: input.implementationPlan } : {}),
+    ...(input.initial ? { initial: input.initial } : {}),
   };
 }
 
@@ -889,6 +896,23 @@ export function renderReportMarkdown(r: VerdictReport): string {
     r.verifiers.state === "frozen" ? `figés à l'approbation, empreinte ${short(r.verifiers.frozen)}`
       : r.verifiers.state === "changed" ? `modifiés depuis l'approbation (${r.verifiers.changes.join(", ")}) — nouvelle approbation de l'hôte requise, empreinte actuelle ${short(r.verifiers.current)}`
         : `non figés${r.verifiers.reason ? ` (${r.verifiers.reason})` : ""} — approbation de l'hôte requise`;
+  const initial = r.initial
+    ? [
+        "## État initial",
+        "",
+        `Constat du ${r.initial.observedAt}, avant tout effet du modèle dans cette session : **${r.initial.state}** — ${r.initial.reason}.`,
+        `Modèle : ${r.initial.model.state === "ready" ? `${r.initial.model.id} (${r.initial.model.backend}), joignable` : `indisponible (${r.initial.model.reason})`}.`,
+        `Isolation : ${r.initial.isolation.state}${r.initial.isolation.reason ? ` (${r.initial.isolation.reason})` : ""}.`,
+        ...(r.initial.workspace.humanChanges ? ["Changements humains ou externes présents au départ : préservés et non attribués au modèle."] : []),
+        "",
+        ...(r.initial.controls.length
+          ? r.initial.controls.map((control) => `- \`${control.status}\`${control.cause ? ` (${control.cause})` : ""} — \`${control.command}\`${control.executed ? " · exécuté" : " · non exécuté"}`)
+          : ["_(aucun contrôle initial défini)_"]),
+        "",
+        "Ce constat n'est pas un verdict d'acceptation et n'autorise aucune correction.",
+        "",
+      ]
+    : [];
   return [
     `# Verdict — ${r.contract.title}`,
     "",
@@ -899,6 +923,7 @@ export function renderReportMarkdown(r: VerdictReport): string {
     `Vérificateurs : ${verifiers}`,
     ...(r.journal !== "ok" ? [`Journal des preuves : ${r.journal}`] : []),
     "",
+    ...initial,
     "## Critères",
     "",
     ...r.criteria.map(line),

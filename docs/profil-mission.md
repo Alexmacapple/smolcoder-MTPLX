@@ -326,6 +326,48 @@ par une ligne `· verdict: …`, le headless par une ligne `[verdict] {…}` sur
 stderr. Définitions, mécanisme anti-altération, alternatives et limites :
 `docs/decision-preuves-acceptation.md`.
 
+## État initial avant le premier effet du modèle (ticket #71)
+
+À la première demande d'une session sous mission, avant le premier appel au
+modèle, l'hôte produit un constat `smolcoder/mission-initial/v1`. Il réunit
+sans les recopier dans une autre source de vérité : état et approbation du
+contrat, modèle sélectionné et joignable, reprise et verrou d'écriture,
+isolation, empreinte du workspace, changements humains ou externes déjà
+détectés et vérificateurs figés.
+
+Après approbation seulement, les contrôles explicitement choisis par
+`checks` ou `--verify` sont joués une fois comme contrôles initiaux. Ils
+passent par la même décision de politique, le même environnement minimal et
+le même exécuteur isolé que les contrôles d'acceptation. Ils peuvent donc
+avoir des effets : le constat ne les présente jamais comme de simples
+lectures. Aucun contrôle n'est lancé dans un workspace non approuvé, sous une
+reprise suspendue, sans verrou d'écriture, sans isolation disponible ou avec
+des entrées de vérificateur non figées.
+
+Chaque contrôle initial est daté et porte un statut fermé : `passed`,
+`already_failed`, `not_run`, `refused`, `environment_unavailable` ou `error`.
+Un script absent, un refus de politique, une isolation indisponible et un
+contrat non approuvé restent ainsi distincts ; rien de non exécuté ne devient
+vert. Un échec `already_failed` est présenté au modèle comme antérieur à son
+travail. Le constat seul ne déclenche aucun appel au modèle, aucune réparation
+et aucune écriture de l'agent : il est joint à la demande humaine qui démarre
+ensuite le tour.
+
+Le même objet est exposé sur les trois surfaces : ligne d'état du terminal,
+champ `mission.initial` de l'état web et ligne `[initial] {…}` du headless.
+Il est aussi conservé dans la rubrique `initial` de `report.json` et la
+section « État initial » de `report.md`, séparément des verdicts ultérieurs.
+Ainsi, un contrôle rouge au départ puis vert après modification garde ses
+deux attributions. Si aucun modèle n'est joignable, le headless écrit un état
+`environment_unavailable` avant de sortir ; si aucun contrôle n'est défini,
+le constat reste `not_run`.
+
+Le contrôle initial n'est pas un verdict d'acceptation et n'ajoute aucun
+événement `verdict` au journal. Les verdicts décisifs continuent d'être
+produits après le travail, avec leurs propres fichiers, date et tentative.
+Les changements humains présents au départ viennent de la reprise, restent
+nommés à part et ne sont jamais attribués au modèle.
+
 ## Plan d'implémentation approuvé avec le contrat (ticket #29)
 
 Le contrat fixe le besoin et la spécification ; le plan fixe la manière de les
