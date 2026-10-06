@@ -2802,6 +2802,24 @@ binaire figé sont explicitement sautés, car cette copie n'est pas présente
 dans le worktree, et les autres contrôles utilisent le `dist` courant. Aucune
 commande de publication npm n'a été lancée.
 
+### `(ce commit)` — Banc : protocole des tâches représentatives — Réf #72
+
+`bench/taches-representatives/`,
+`docs/protocole-taches-representatives.md` et `CHANGELOG-MTPLX.md`.
+Préinscription d'un pilote A/A sur trois tâches neuves : correction
+multi-fichiers, ajout limité avec acceptation externe et échec initial avec
+fichier humain non suivi à préserver. Le plan fige vingt-cinq pièces, le
+modèle attendu, le plafond de contexte, le délai, l'ordre des six essais et
+cinq statuts fermés. Chaque essai écrit son manifeste avant les préconditions,
+utilise un workspace et un dossier personnel jetables, puis conserve sa trace,
+son espace final et ses coûts. A1 et A2 sont strictement identiques ; aucune
+conclusion sur un mécanisme n'est autorisée.
+
+Vérifications sans modèle : Ruff sans avertissement ; 4 contrôles sur 4
+valident les échecs initiaux, les solutions de référence, les cinq statuts et
+le refus d'une mesure `[stats]` incomplète ; empreintes du protocole conformes.
+Aucun essai réel MTPLX n'a été lancé avant ce commit de préinscription.
+
 ## Hors dépôt (machine locale)
 
 - Fork créé : `Alexmacapple/smolcoder-MTPLX`.

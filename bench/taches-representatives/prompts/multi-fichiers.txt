@@ -1,0 +1,5 @@
+Corrige le calcul et le rendu d'une facture. Une ligne possède un prix unitaire
+et une quantité ; la taxe s'applique au sous-total complet. Le rendu doit
+inclure le code devise et deux décimales. Modifie uniquement `pricing.py` et
+`invoice.py`. Ne modifie pas les tests. Lance `python3 -m unittest -q` avant de
+conclure.

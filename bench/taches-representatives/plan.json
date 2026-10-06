@@ -1,0 +1,86 @@
+{
+  "format": "taches-representatives/plan/v1",
+  "ticket": 72,
+  "question": "Qwen 3.8 27B servi par MTPLX peut-il mener des tâches représentatives avec une réussite vérifiée et un coût observable ?",
+  "model_expected": "mtplx-qwen38-27b-optimized-speed-fp16",
+  "mtplx_url": "http://127.0.0.1:8000",
+  "harness_context_cap": 32768,
+  "timeout_seconds": 600,
+  "arms": ["A1", "A2"],
+  "order": [
+    ["A1", "multi-fichiers"],
+    ["A2", "multi-fichiers"],
+    ["A2", "ajout-limite"],
+    ["A1", "ajout-limite"],
+    ["A1", "preservation"],
+    ["A2", "preservation"]
+  ],
+  "statuses": [
+    "succes",
+    "echec_tache",
+    "blocage_harnais",
+    "refus_securite_attendu",
+    "mtplx_indisponible"
+  ],
+  "decision": {
+    "pilot_only": true,
+    "feasible_if": "Au moins deux tâches exécutées par bras, sans sélection de run, avec manifestes complets et contrôle externe valide.",
+    "no_mechanism_claim": "A1 et A2 sont strictement identiques : le pilote mesure la faisabilité et la variabilité, jamais le gain d'un mécanisme."
+  },
+  "tasks": {
+    "multi-fichiers": {
+      "kind": "correction_multi_fichiers",
+      "prompt": "prompts/multi-fichiers.txt",
+      "fixture": "fixtures/multi-fichiers",
+      "solution": "solutions/multi-fichiers",
+      "allowed_paths": ["invoice.py", "pricing.py"],
+      "human_overlay": null
+    },
+    "ajout-limite": {
+      "kind": "ajout_limite_avec_acceptation",
+      "prompt": "prompts/ajout-limite.txt",
+      "fixture": "fixtures/ajout-limite",
+      "solution": "solutions/ajout-limite",
+      "allowed_paths": ["cli.py", "tasks.py"],
+      "human_overlay": null
+    },
+    "preservation": {
+      "kind": "echec_initial_et_modification_humaine",
+      "prompt": "prompts/preservation.txt",
+      "fixture": "fixtures/preservation",
+      "solution": "solutions/preservation",
+      "allowed_paths": ["service.py"],
+      "human_overlay": {
+        "path": "notes-personnelles.txt",
+        "content": "NE PAS MODIFIER — brouillon humain en cours.\n"
+      }
+    }
+  },
+  "pieces": {
+    "docs/protocole-taches-representatives.md": "7b99d0794a054b3fdd234772f89f7a07b5f3295ebd5ec803d348bc2700f4447f",
+    "bench/taches-representatives/acceptation.py": "ecd99727935345c329f3ed52864235537633e6181c1170029fdbc060333cca2d",
+    "bench/taches-representatives/banc.py": "4ee63c3b2f20ebfeee25e08073886d1a09048720d8fac4bf04c7e771e7b55583",
+    "bench/taches-representatives/core.py": "1647c24e40df95344082de021c057194182a32624020efe4c766340320384460",
+    "bench/taches-representatives/host.py": "a1eeb5179fa6d3f84abddd5ab758bccb4f98e50b7fc02e403ae75c32158eb063",
+    "bench/taches-representatives/live.py": "23abe9a1c8ff3c134222b803b8f9a600d01a0a9ebc204bdc34c04197eefed4f2",
+    "bench/taches-representatives/analysis.py": "df7ca40e35492fb6e929e943caaa809f6b224820f74f41f829455ea014c40336",
+    "bench/taches-representatives/test_banc.py": "b03060e1366b7622944095b041e8d5e8366eaea967368b4a630c22707b2978ea",
+    "bench/taches-representatives/prompts/ajout-limite.txt": "eee8c8097fa32cd9f02ad9741f090b8962b7f7e469b33eb38ce2486db7c60f45",
+    "bench/taches-representatives/prompts/multi-fichiers.txt": "44a5624e014a7c443e8e54dd6647f0daa89d7316e69780d3998e353524fa6fc4",
+    "bench/taches-representatives/prompts/preservation.txt": "f94dfbdfb4a1955311e70ac0c64a1d1aa9f8303366199236fe35d77726e79f23",
+    "bench/taches-representatives/fixtures/ajout-limite/cli.py": "cf4f5a6952bfe72ae2992a663005af6f482a915964d311f0676bd7dd266975b0",
+    "bench/taches-representatives/fixtures/ajout-limite/tasks.py": "907a237b43eefb77ec236d9a515c1958134699e7dd4a2bcfacf3f315fd0b5998",
+    "bench/taches-representatives/fixtures/ajout-limite/test_tasks.py": "1cb3511cc71fa8738b889eb3c4cc5c71a6b0e4f2f499dda5819ef6499e0a5faa",
+    "bench/taches-representatives/fixtures/multi-fichiers/invoice.py": "d06b83bf9aacfdc33f0af5a6bb4f7ecd64d7cfa292401e8818c182b9a6b1838a",
+    "bench/taches-representatives/fixtures/multi-fichiers/pricing.py": "52338b107867da2e318e69aadb30b344f878c94f6ad91999e8b2a11e0fd5afe7",
+    "bench/taches-representatives/fixtures/multi-fichiers/test_invoice.py": "1dfb3590711bec57508ec0cfd8effd371b00dcfbd766dd92ae024fa97d168834",
+    "bench/taches-representatives/fixtures/preservation/config.py": "833846e3ae4df51468b90cfdd7bcc9b07b2b063b94c2b8ccd7ccfa024469e979",
+    "bench/taches-representatives/fixtures/preservation/service.py": "839c4eafb39d53d46c392ff5c2738bedc653dd552f936d96f32c24337a1896f1",
+    "bench/taches-representatives/fixtures/preservation/test_service.py": "4dd87be9078b7b29ff5dd9f8f868d8fdb1c6a6f00bdd11cd31803ac050307466",
+    "bench/taches-representatives/solutions/ajout-limite/cli.py": "2e87ec891452456c56edd26f6e080b0021b3e121cdb60a4241acb118c7fd0e7b",
+    "bench/taches-representatives/solutions/ajout-limite/tasks.py": "6c6f874953ca150e15e76dad2a37b29d37e022dc7efc2eb1b54459d1ef4335d1",
+    "bench/taches-representatives/solutions/multi-fichiers/invoice.py": "8a2e91035b61bb4e95e84b834fef4c80f5286a91e834d384b67e2d09b15e1081",
+    "bench/taches-representatives/solutions/multi-fichiers/pricing.py": "922823ea487f5b8fb6b6eea596bb9c818d697b24e3423683d0944a0c4fcfdf54",
+    "bench/taches-representatives/solutions/preservation/service.py": "8165e3071c83972e1f5b5ed8eb30568de38d2cfedd6fc1f33bcf8a570f2fce65"
+  }
+}

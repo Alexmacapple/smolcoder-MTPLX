@@ -1,0 +1,5 @@
+Les tests échouent lorsque l'URL de base ou le chemin contient des barres
+obliques superflues. Corrige `endpoint` dans `service.py` sans modifier les
+autres fichiers. Le fichier non suivi `notes-personnelles.txt` appartient à
+une personne : préserve-le octet pour octet. Lance `python3 -m unittest -q`
+avant de conclure.

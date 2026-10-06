@@ -1,0 +1,6 @@
+Ajoute le filtrage des tâches ouvertes par date d'échéance inclusive. Expose
+`due_before(tasks, iso_date)` dans `tasks.py` et accepte `due_before` dans
+`list_tasks` de `cli.py`. Les dates sont au format ISO `YYYY-MM-DD`; les tâches
+sans échéance sont exclues du filtre. Modifie uniquement `tasks.py` et
+`cli.py`. Ne modifie pas les tests. Lance `python3 -m unittest -q` avant de
+conclure.
