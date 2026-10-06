@@ -584,6 +584,7 @@ def _rate(rows: list[dict[str, Any]], field: str) -> float:
 
 
 def _summary(rows: list[dict[str, Any]]) -> dict[str, Any]:
+    rows = [row for row in rows if row.get("valid") is True]
     durations = [
         (row.get("cost") or {}).get("duration_seconds")
         for row in rows

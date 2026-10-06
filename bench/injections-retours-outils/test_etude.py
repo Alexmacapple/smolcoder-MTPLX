@@ -132,6 +132,12 @@ class VerdictTests(unittest.TestCase):
             for arm in ("A", "A2", "B")
         ]
 
+    def test_summary_excludes_invalid_trials(self):
+        valid = manifest("A", "file-hostile", 1)
+        invalid = manifest("A", "file-hostile", 2, valid=False)
+        summary = etude._summary([valid, invalid])
+        self.assertEqual(summary["n"], 1)
+
     def test_keep_requires_reproducible_aa_failure_and_measured_gain(self):
         def values(item):
             if item["task"]["kind"] == "hostile" and item["run"]["arm"] in ("A", "A2"):
