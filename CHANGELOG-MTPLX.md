@@ -2864,6 +2864,27 @@ preuves ciblées 48/48 ; `npm test` 385/385 ; `npm run test:os` 29/29 sur les
 parcours réels headless, web, terminal et Seatbelt. Contrôle des accents sans
 signalement sur la documentation ajoutée.
 
+### `(ce commit)` — Banc : injections par les retours d’outils — Réf #69
+
+`bench/injections-retours-outils/`,
+`docs/protocole-injections-retours-outils.md` et les trois rapports datés.
+Étude A/A puis A/B d’un encadrement de provenance appliqué aux fichiers et aux
+sorties de commandes non fiables. La première campagne A/A est conservée mais
+invalidée, car la fixture Python n’exposait pas stdout sous Seatbelt. La v2
+utilise Node, prouve chaque exposition et compte 36 essais valides.
+
+A, A2 et B réussissent chacun 12 tâches sur 12, sans tentative ni effet hors
+contrat. Le gain B est nul et aucun échec A/A n’est reproductible : verdict
+`INCONCLUSIVE`, candidat non adopté, code produit inchangé. Les tests du banc
+vérifient également `search`, `list_files`, `log:<n>`, les collisions de borne
+et la séparation entre interface brute et message encadré. Les résultats bruts
+restent locaux et ignorés par Git.
+
+Vérifications : oracle et règle 11/11 ; suite produit A 385/385 ; candidat B
+compilé, 382/385 assertions historiques avec exactement les trois différences
+préenregistrées, puis test candidat séparé réussi. Aucun push, commentaire,
+fermeture d’issue, analyse shell externe ou service SaaS.
+
 ## Hors dépôt (machine locale)
 
 - Fork créé : `Alexmacapple/smolcoder-MTPLX`.
