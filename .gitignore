@@ -2,3 +2,5 @@ node_modules/
 dist/
 playground/
 .claude/
+__pycache__/
+*.py[cod]

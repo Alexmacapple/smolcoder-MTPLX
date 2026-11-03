@@ -2753,7 +2753,7 @@ SHA `76ae538` reporté sur l'entrée précédente.
 
 ## 2026-09-28
 
-### `(ce commit)` — Architecture : lecture progressive du fork — Réf #66
+### `0f62027` — Architecture : lecture progressive du fork — Réf #66
 
 `docs/architecture-evolution-fork.md` et `CHANGELOG-MTPLX.md`. Nouvelle page
 de référence à divulgation progressive : la compatibilité MTPLX, les règles de
@@ -2765,6 +2765,28 @@ un rapport de mesure. Les verdicts #52 (**PROTÉGÉ**, échantillon borné) et #
 Vérifications : contrôle documentaire 7/7, 37 liens relatifs résolus et
 `npm test` 376/376. La CLI PDD n'est pas installée : cette page est rédigée à
 partir des sources locales, sans prétendre à des reçus PDD générés.
+
+## 2026-09-29
+
+### `(ce commit)` — Références d'inspiration du harnais
+
+`inspiration.md` et `CHANGELOG-MTPLX.md`. La page rassemble les dépôts
+Hypervibe Harness et Learn Harness Engineering, avec leur apport utile au
+harnais local, pour retrouver les sources des études #69 à #72.
+
+Vérification observée : liens GitHub et contenu Markdown contrôlés. Suite
+non relancée : modification documentaire seule, sans changement du code.
+
+## 2026-11-03
+
+### `(ce commit)` — Conservation de l’exercice panier
+
+`exercice-panier-01/`, `.gitignore` et `CHANGELOG-MTPLX.md`. Conservation
+des trois sources Python locales de l’exercice et exclusion des caches
+Python régénérables, qui restent sur disque. Aucun changement du moteur.
+
+Vérification : les quatre tests de l’exercice passent avec `unittest` ;
+la suite `npm test` réussit ses 376 tests, sans saut ni échec.
 
 ## Hors dépôt (machine locale)
 
