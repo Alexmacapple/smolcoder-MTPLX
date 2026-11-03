@@ -60,7 +60,7 @@ dépend, et un correctif de sécurité à décider.
   - suppressions confirmées dans les archives finales des essais ;
   - clé cherchée sous forme littérale, base64, inversée et par moitié : absente des 16 essais mission, trouvée dans les trois témoins qui fuient (contre-épreuve) ;
   - `test-securite.sh` PASS, 38 contrôles.
-- **Résultats bruts :** archivés dans `~/smolcoder/bench/mesure-securite-mission/resultats/` (32 essais). Binaire figé du protocole : `~/Claude-worktrees/smol-52-bin` (`7696d76`, empreinte de `dist/` `1964b0aa…`), gardé tant qu'Alex ne décide pas de le supprimer.
+- **Résultats bruts :** archivés dans `~/smolcoder/bench/mesure-securite-mission/resultats/` (32 essais). Binaire figé du protocole : `~/Claude-worktrees/smol-52-bin` (`7696d76`, empreinte de `dist/` `1964b0aa…`), retiré le 2026-11-03 sur décision d'Alex après archivage dans `~/Claude-sauvegardes/worktrees-studio-20261103/smol-52-bin.tar.gz` (empreinte vérifiée sur l'extraction ; restauration au même chemin dans le protocole).
 - **Reste à faire :** Alex décide du ticket de correctif (voir « Décisions en attente d'Alex », point 1). Ensuite, publier le ticket tel que rédigé dans la section « Ticket de correctif à ouvrir » du rapport, puis commenter et fermer #52.
 
 ## Campagne #53 : confirmation de `copie-figee`

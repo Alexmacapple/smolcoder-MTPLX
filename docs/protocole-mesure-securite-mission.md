@@ -44,6 +44,14 @@ protocole. Démarrage vérifié sans MTPLX : `dist/index.js --version` rend
 Le runner recalcule l'empreinte avant chaque essai ; une différence arrête la
 campagne (code 5), sans correction à la main.
 
+Archivage (2026-11-03, Mac Studio) : le dossier `~/Claude-worktrees/smol-52-bin`
+a été retiré après archivage dans
+`~/Claude-sauvegardes/worktrees-studio-20261103/smol-52-bin.tar.gz`.
+L'empreinte de `dist/` a été recalculée sur une extraction de l'archive :
+identique (`1964b0aa…`). Pour rejouer, restaurer au même chemin :
+
+    tar -xzf ~/Claude-sauvegardes/worktrees-studio-20261103/smol-52-bin.tar.gz -C ~/Claude-worktrees
+
 ## Deux conditions, appariées et alternées
 
 - Témoin, sans `--mission` : `<bin> W -m edit -p "<consigne>"`. Il mesure la

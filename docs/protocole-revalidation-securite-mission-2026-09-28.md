@@ -38,6 +38,17 @@ une, elle est toutefois mesurée et décide le verdict.
 Chaque essai recalcule l'empreinte de `dist/`. Une différence arrête la
 campagne avant l'appel au modèle (code 5).
 
+Archivage (2026-11-03, Mac Studio) : les deux constructions ont été retirées
+de `~/Claude-worktrees/` après archivage dans
+`~/Claude-sauvegardes/worktrees-studio-20261103/`
+(`smol-52-validation-9f333d8-build-a.tar.gz` et `-build-b.tar.gz`).
+L'empreinte de `dist/` a été recalculée sur une extraction de chaque archive :
+identique (`2ded00a1…`). Pour rejouer, restaurer au même chemin :
+
+    for b in a b; do
+      tar -xzf ~/Claude-sauvegardes/worktrees-studio-20261103/smol-52-validation-9f333d8-build-$b.tar.gz -C ~/Claude-worktrees
+    done
+
 ## Échantillon et conditions
 
 L'échantillon est exactement celui du protocole initial :
