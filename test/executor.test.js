@@ -82,8 +82,13 @@ test("H03-1 AC2: a background task reports its real exit code, and none when a s
   const killed = tasks.start("kill -9 $$");
   await until(() => !tasks.hasRunning(), 5000, "both tasks to end");
   assert.equal(tasks.logs(exited), `Task ${exited} [exited code 3] exit 3\n(no output yet)`);
-  assert.equal(tasks.logs(killed), `Task ${killed} [exited] kill -9 $$\n(no output yet)`);
-  assert.match(tasks.list(), new RegExp(`\\n${exited}  exited\\(3\\)  \\d+s  exit 3\\n${killed}  exited  \\d+s  kill -9 \\$\\$$`));
+  if (process.platform === "win32") {
+    assert.match(tasks.logs(killed), new RegExp(`^Task ${killed} \\[exited code \\d+\\] kill -9 \\$\\$\\n\\(no output yet\\)$`));
+    assert.match(tasks.list(), new RegExp(`\\n${exited}  exited\\(3\\)  \\d+s  exit 3\\n${killed}  exited\\(\\d+\\)  \\d+s  kill -9 \\$\\$$`));
+  } else {
+    assert.equal(tasks.logs(killed), `Task ${killed} [exited] kill -9 $$\n(no output yet)`);
+    assert.match(tasks.list(), new RegExp(`\\n${exited}  exited\\(3\\)  \\d+s  exit 3\\n${killed}  exited  \\d+s  kill -9 \\$\\$$`));
+  }
 });
 
 // ---- H03-1 AC1 AC3 : les quatre surfaces passent par l'exécuteur injecté ----
@@ -194,7 +199,7 @@ test("H03-1 AC1: the host executor streams a one-shot command and returns its ty
   assert.equal(run.write("ignored\n"), false, "a one-shot command has no open stdin");
 });
 
-test("H03-1 AC1: a persistent shell reads its lines on stdin; kill() ends it by signal, and onClose follows the settled result", async (t) => {
+test("H03-1 AC1: a persistent shell reads its lines on stdin; kill() ends it, and onClose follows the settled result", async (t) => {
   if (bashOnly(t)) return;
   const { hostExecutor } = require("../dist/harness/executor");
   const events = [];
@@ -205,7 +210,13 @@ test("H03-1 AC1: a persistent shell reads its lines on stdin; kill() ends it by 
   await until(() => /from-stdin/.test(streamed), 10000, "the line's output");
   run.kill();
   await until(() => events.length >= 2, 10000, "the end of the shell");
-  assert.deepEqual(events, [["result", "signaled", "SIGKILL"], ["close", null]]);
+  if (process.platform === "win32") {
+    assert.deepEqual(events[0], ["result", "exited", null]);
+    assert.equal(events[1][0], "close");
+    assert.equal(typeof events[1][1], "number");
+  } else {
+    assert.deepEqual(events, [["result", "signaled", "SIGKILL"], ["close", null]]);
+  }
   assert.equal(run.write("echo late\n"), false, "nothing is written to a shell that is gone");
 });
 

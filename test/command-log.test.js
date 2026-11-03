@@ -12,6 +12,7 @@ const path = require('node:path');
 // n'écrivent jamais dans le vrai dossier de données.
 const HOME = fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), 'smol-h07-log-home-')));
 process.env.HOME = HOME;
+process.env.USERPROFILE = HOME;
 process.env.SMOLCODER_CONFIG = path.join(HOME, 'config.json');
 
 const { Agent } = require('../dist/agent');

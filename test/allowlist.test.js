@@ -13,6 +13,7 @@ const path = require("path");
 // Isole ~/.smolcoder et ~/.smolcoder.json avant de charger le code.
 const HOME = fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), "smol-allow-home-")));
 process.env.HOME = HOME;
+process.env.USERPROFILE = HOME;
 process.env.SMOLCODER_CONFIG = path.join(HOME, "config.json");
 
 const store = require("../dist/harness/store");

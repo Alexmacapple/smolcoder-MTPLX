@@ -5,6 +5,29 @@ Fork de [leonvanzyl/smolcoder](https://github.com/leonvanzyl/smolcoder)
 `0.7.1` (commit `4ee47b5`, « Release smolcoder 0.7.1 »). Tout ce qui
 figure ci-dessous est ajouté par ce fork à partir du 26 septembre 2026.
 
+## 2026-09-28
+
+### `(ce commit)` — Tests CI Node 22 et Windows
+
+`scripts/test.cjs`, `scripts/test-os.cjs` et les tests concernés par le
+lanceur, les fiches, les exécuteurs et les vérifications. Les lanceurs
+transmettent désormais `TEMP` et `TMP` avec `TMPDIR`, afin que `os.tmpdir()`
+reste borné sous Windows. Les tests isolent aussi `USERPROFILE`, conservent la
+casse réelle de `Path`, normalisent seulement le texte servi au modèle en LF,
+et expriment les différences documentées de Windows (shell, fins forcées et
+bits de permission) sans relâcher les assertions de sûreté : une commande
+forcée ou un contrôle interrompu ne peut jamais réussir.
+
+Le fixture H04 appelle maintenant explicitement son fichier de test, car Node
+22 ne résout plus `node --test test/` comme une découverte de dossier.
+
+Vérifié sous l’image officielle `node:22` v22.23.3 : 128 tests ciblés,
+127 réussites, 0 échec, 1 ignoré ; puis `npm test`, 374 réussites, 0 échec,
+1 ignoré. Un premier passage complet isolé a produit 371 réussites et 3
+échecs non reproductibles au passage suivant : stabilité répétée non vérifiée
+dans ce conteneur. Runner Windows réel : non vérifié avant publication de la
+branche.
+
 ## 2026-09-26
 
 ### `0fbdc40` — Lecture de la fenêtre de contexte réelle

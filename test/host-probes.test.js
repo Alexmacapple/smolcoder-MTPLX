@@ -61,7 +61,7 @@ test("H03-4 host probes: under the mission profile, node --check, python compile
   const PATH = ["node_modules/.bin", ".", "", path.join(ws, "bin"), legit, process.env.PATH].join(path.delimiter);
   const r = spawnSync(process.execPath, ["-e", script], {
     cwd: ws,
-    env: { ...process.env, PATH, HOME: home, SMOLCODER_CONFIG: path.join(home, "config.json"), OLLAMA_HOST: "127.0.0.1:9" },
+    env: { ...process.env, PATH, HOME: home, USERPROFILE: home, SMOLCODER_CONFIG: path.join(home, "config.json"), OLLAMA_HOST: "127.0.0.1:9" },
     encoding: "utf8",
     timeout: 30000,
   });

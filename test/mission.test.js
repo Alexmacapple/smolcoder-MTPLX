@@ -11,6 +11,7 @@ const path = require("path");
 // fichier tourne dans son propre processus.
 const HOME = fs.mkdtempSync(path.join(os.tmpdir(), "smol-mission-home-"));
 process.env.HOME = HOME;
+process.env.USERPROFILE = HOME;
 process.env.SMOLCODER_CONFIG = path.join(HOME, "config.json");
 
 const store = require("../dist/harness/store");

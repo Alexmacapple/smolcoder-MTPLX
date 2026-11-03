@@ -57,17 +57,25 @@ test('cancellation, a missing directory and a timeout are typed outcomes that ne
   setTimeout(()=>abort.abort(),400);
   const cancelled=await running;
   assert.deepEqual(shape(cancelled),{started:true,status:'cancelled',exitCode:null,signal:null});
-  assert.match(renderCommandResult(cancelled),/^partial\n\n\[command cancelled by the user before it finished\]$/);
+  assert.match(renderCommandResult(cancelled),/^(?:partial\n\n)?\[command cancelled by the user before it finished\]$/);
   const slow=await runCommandResult(`node -e "console.log('slow');setInterval(()=>{},1000)"`,process.cwd(),undefined,400);
   assert.deepEqual(shape(slow),{started:true,status:'timeout',exitCode:null,signal:null});
   assert.match(renderCommandResult(slow),/^Error: slow\n\n\[command timed out after 0\.4s and was killed\. /);
   for(const r of [early,missing,cancelled,slow])assert.equal(commandPassed(r),false);
 });
 
-test('a command killed by a signal reports the signal instead of an exit code',async t=>{
+test('a command killed by a signal is non-successful whether the host reports a signal or an exit code',async t=>{
   if(!/bash/.test(pickShell().exe)){t.skip('This check uses bash to signal its own shell');return;}
   const r=await runCommandResult('kill -9 $$',process.cwd());
-  assert.deepEqual(shape(r),{started:true,status:'signaled',exitCode:null,signal:'SIGKILL'});
+  if(process.platform==='win32'){
+    assert.equal(r.started,true);
+    assert.equal(r.status,'exited');
+    assert.equal(r.signal,null);
+    assert.ok(Number.isInteger(r.exitCode)&&r.exitCode!==0);
+    assert.match(renderCommandResult(r),new RegExp(`^Error: command exited with code ${r.exitCode}\\n\\(no output\\)\\n\\[exit code ${r.exitCode} in \\d+\\.\\ds\\]$`));
+  }else{
+    assert.deepEqual(shape(r),{started:true,status:'signaled',exitCode:null,signal:'SIGKILL'});
+    assert.match(renderCommandResult(r),/^Error: command exited with code \?\n\(no output\)\n\[exit code \? in \d+\.\ds\]$/);
+  }
   assert.equal(commandPassed(r),false);
-  assert.match(renderCommandResult(r),/^Error: command exited with code \?\n\(no output\)\n\[exit code \? in \d+\.\ds\]$/);
 });

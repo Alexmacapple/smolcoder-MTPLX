@@ -18,6 +18,7 @@ const { execFile, spawnSync } = require("child_process");
 const tmp = (prefix) => fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), prefix)));
 const HOME = tmp("smol-fiches-home-");
 process.env.HOME = HOME;
+process.env.USERPROFILE = HOME;
 process.env.SMOLCODER_CONFIG = path.join(HOME, "config.json");
 delete process.env.SMOL_NO_FICHES;
 
@@ -40,6 +41,7 @@ const CLI = path.join(REPO, "dist", "index.js");
 const SECRET = "sk-fiches-FAKE-3c9e1b";
 const sha256 = (s) => crypto.createHash("sha256").update(s).digest("hex");
 const source = (name) => fs.readFileSync(path.join(SKILLS, `${name}.md`), "utf8");
+const modelSource = (name) => source(name).replace(/\r\n/g, "\n");
 
 /** Les fiches que docs/skills/index.md liste, dans son ordre : l'oracle
  * indépendant du code d'installation. */
@@ -151,7 +153,7 @@ test("#30 AC1: on any workspace (no docs/skills/), the prompt carries a short in
   await agent.runTurn("Ajoute une fonction en TDD.");
   assert.equal(agent.outcome, "completed");
   assert.equal(provider.seen[0][0].content, system, "the model received the index in its system prompt");
-  assert.equal(toolResults(provider)[0], source("tdd"), "the fiche arrives whole");
+  assert.equal(toolResults(provider)[0], modelSource("tdd"), "the fiche arrives whole");
   assert.deepEqual(ui.confirms, [], "no confirmation was asked");
   assert.deepEqual(snapshot(ws), before, "nothing was written in the workspace");
 });
@@ -210,7 +212,7 @@ test("#30 AC1/AC5 (end to end): the real smol -p on any workspace — without in
   const home = tmp("smol-e2e-home-");
   const ws = tmp("smol-plain-e2e-ws-");
   fs.writeFileSync(path.join(ws, "app.js"), "console.log(1);\n");
-  const env = { ...process.env, HOME: home, SMOLCODER_CONFIG: path.join(home, "config.json") };
+  const env = { ...process.env, HOME: home, USERPROFILE: home, SMOLCODER_CONFIG: path.join(home, "config.json") };
   delete env.SMOL_NO_FICHES;
   const ollama = await fakeOllama();
   try {
@@ -232,7 +234,7 @@ test("#30 AC1/AC5 (end to end): the real smol -p on any workspace — without in
     const [first, second] = ollama.chats.splice(0);
     const system = first.messages[0].content;
     for (const name of listedNames()) assert.ok(system.includes(`\n- ${name}: `), `${name} is in the system prompt sent to the model`);
-    assert.equal(second.messages.find((m) => m.role === "tool").content, source("tdd"), "the fiche reached the model whole");
+    assert.equal(second.messages.find((m) => m.role === "tool").content, modelSource("tdd"), "the fiche reached the model whole");
     assert.match(`${run.stdout}${run.stderr}`, new RegExp(`Method sheets: ${listedNames().length} installed`));
     assert.deepEqual(snapshot(ws), before, "nothing was written in the workspace");
   } finally {
@@ -285,8 +287,8 @@ test("#30 AC2/AC4: under --mission a fiche read passes — before approval too �
   const { agent } = agentFor(provider, s.ws, { mode: "bypass", interactive: false, mission: s.m, ctx: { fichesDir: s.dir } });
   await agent.runTurn("Lis les fiches.");
   const [tdd, revue] = toolResults(provider);
-  assert.equal(tdd, source("tdd"));
-  assert.equal(revue, source("revue-de-code"));
+  assert.equal(tdd, modelSource("tdd"));
+  assert.equal(revue, modelSource("revue-de-code"));
   assert.deepEqual(
     ficheEvents(s.m).map((e) => ({ name: e.name, sha256: e.sha256, fingerprint: e.fingerprint })),
     [
@@ -477,7 +479,7 @@ test("#30: no double index where the workspace announces its own fiches (the smo
 test("#30 AC6: one source — smol --install-fiches copies docs/skills/ of the fork (what its index.md lists, nothing else) into ~/.smolcoder/fiches only; index.md, the fiche files and AGENTS.md agree", () => {
   const home = tmp("smol-fiches-cli-home-");
   const r = spawnSync(process.execPath, [CLI, "--install-fiches"], {
-    env: { ...process.env, HOME: home, SMOLCODER_CONFIG: path.join(home, "config.json") },
+    env: { ...process.env, HOME: home, USERPROFILE: home, SMOLCODER_CONFIG: path.join(home, "config.json") },
     encoding: "utf8",
   });
   assert.equal(r.status, 0, `${r.stdout}${r.stderr}`);
